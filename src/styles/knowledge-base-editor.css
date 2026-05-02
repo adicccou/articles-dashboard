@@ -1,0 +1,202 @@
+.kb-editor {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.kb-editor.loading {
+  padding: 48px 24px;
+  text-align: center;
+  color: #666;
+}
+
+.kb-editor__error {
+  background: #fee;
+  border: 1px solid #fcc;
+  border-radius: 4px;
+  padding: 12px;
+  margin-bottom: 16px;
+  color: #c33;
+  font-size: 14px;
+}
+
+.kb-editor__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.kb-editor__header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.kb-editor__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.kb-editor__view {
+  display: flex;
+  flex-direction: column;
+}
+
+.kb-editor__content {
+  display: flex;
+  flex-direction: column;
+}
+
+.kb-editor__meta {
+  font-size: 12px;
+  color: #999;
+  margin-top: 12px;
+}
+
+.kb-editor__empty {
+  text-align: center;
+  padding: 48px 24px;
+  color: #999;
+}
+
+.kb-editor__empty p {
+  margin: 0 0 16px;
+  font-size: 14px;
+}
+
+.kb-editor__form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.kb-editor__input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kb-editor__input-group label {
+  font-weight: 500;
+  font-size: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.kb-editor__char-count {
+  font-weight: normal;
+  color: #999;
+  font-size: 12px;
+}
+
+.kb-editor__input,
+.kb-editor__textarea {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+}
+
+.kb-editor__input:focus,
+.kb-editor__textarea:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+.kb-editor__textarea {
+  min-height: 300px;
+  resize: vertical;
+  font-family: "Monaco", "Menlo", monospace;
+  line-height: 1.5;
+}
+
+.kb-editor__preview {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 16px;
+  background: #f9f9f9;
+  min-height: 300px;
+  line-height: 1.6;
+}
+
+.kb-editor__preview h1,
+.kb-editor__preview h2,
+.kb-editor__preview h3 {
+  margin: 16px 0 8px;
+  line-height: 1.3;
+}
+
+.kb-editor__preview p {
+  margin: 0 0 12px;
+}
+
+.kb-editor__versions {
+  border-top: 1px solid #ddd;
+  padding-top: 16px;
+}
+
+.kb-editor__versions label {
+  display: block;
+  font-weight: 500;
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
+.kb-editor__version-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kb-editor__version-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.kb-editor__version-item:hover {
+  border-color: #007bff;
+  background: #f9f9f9;
+}
+
+.kb-editor__version-number {
+  min-width: 40px;
+  font-weight: 600;
+  color: #007bff;
+}
+
+.kb-editor__version-summary {
+  flex: 1;
+  color: #666;
+}
+
+.kb-editor__version-date {
+  color: #999;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.kb-editor__buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  padding-top: 12px;
+  border-top: 1px solid #ddd;
+}
+
+.markdown-preview {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}

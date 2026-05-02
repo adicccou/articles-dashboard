@@ -12,7 +12,7 @@
     {
       "binding": "DB",
       "database_name": "article_dashboard",
-      "database_id": "replace-with-your-d1-database-id"
+      "database_id": "50875aef-455c-4c47-99c1-7c8c0d7d7fe8"
     }
   ],
   "r2_buckets": [
@@ -22,6 +22,10 @@
     }
   ],
   "vars": {
-    "ADMIN_USERNAME": "admin"
+    "ADMIN_USERNAME": "admin",
+    "REDDIT_CLIENT_ID": "",
+    "REDDIT_CLIENT_SECRET": "",
+    "REDDIT_REDIRECT_URI": "http://localhost:5174/api/reddit/auth/callback",
+    "CLAUDE_API_KEY": ""
   }
 }

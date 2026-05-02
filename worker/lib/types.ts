@@ -6,6 +6,10 @@ export type Env = {
   ADMIN_PASSWORD?: string;
   SESSION_SECRET?: string;
   PUBLIC_MEDIA_BASE_URL?: string;
+  REDDIT_CLIENT_ID?: string;
+  REDDIT_CLIENT_SECRET?: string;
+  REDDIT_REDIRECT_URI?: string;
+  CLAUDE_API_KEY?: string;
 };
 
 export type SiteRow = {
@@ -27,6 +31,7 @@ export type ArticleRow = {
   cover_image: string | null;
   status: "draft" | "published";
   published_at: string | null;
+  category_id: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -39,8 +44,18 @@ export type ArticleSeoRow = {
   canonical_url: string;
 };
 
+export type ArticleCategory = {
+  id: number;
+  name: string;
+  slug: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ArticleWithRelations = ArticleRow & {
   site_ids: number[];
+  category?: ArticleCategory;
   seo: {
     meta_title: string;
     meta_description: string;

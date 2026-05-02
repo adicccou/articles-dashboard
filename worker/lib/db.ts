@@ -1,4 +1,4 @@
-import type { ArticleRow, ArticleSeoRow, ArticleWithRelations, Env, SiteRow } from "./types";
+import type { ArticleRow, ArticleSeoRow, ArticleWithRelations, Env, SiteRow, ArticleCategory } from "./types";
 
 type ArticlePayload = {
   title: string;
@@ -8,6 +8,7 @@ type ArticlePayload = {
   cover_image: string | null;
   status: "draft" | "published";
   published_at: string | null;
+  category_id?: number | null;
   site_ids: number[];
   seo: {
     meta_title: string;
@@ -46,10 +47,47 @@ export async function createSite(
   return result;
 }
 
+export async function listCategories(env: Env): Promise<ArticleCategory[]> {
+  const result = await env.DB.prepare(
+    `
+      SELECT id, name, slug, description, created_at, updated_at
+      FROM article_categories
+      ORDER BY name ASC
+    `,
+  ).all<ArticleCategory>();
+  return result.results;
+}
+
+export async function createCategory(
+  env: Env,
+  payload: Pick<ArticleCategory, "name" | "slug" | "description">,
+): Promise<ArticleCategory> {
+  const now = new Date().toISOString();
+  const result = await env.DB.prepare(
+    `
+      INSERT INTO article_categories (name, slug, description, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      RETURNING id, name, slug, description, created_at, updated_at
+    `,
+  )
+    .bind(payload.name, payload.slug, payload.description, now, now)
+    .first<ArticleCategory>();
+
+  if (!result) {
+    throw new Error("Failed to create category");
+  }
+
+  return result;
+}
+
+export async function deleteCategory(env: Env, categoryId: number): Promise<void> {
+  await env.DB.prepare("DELETE FROM article_categories WHERE id = ?").bind(categoryId).run();
+}
+
 export async function listArticles(env: Env): Promise<ArticleWithRelations[]> {
   const articles = await env.DB.prepare(
     `
-      SELECT id, title, slug, excerpt, content, cover_image, status, published_at, created_at, updated_at
+      SELECT id, title, slug, excerpt, content, cover_image, status, published_at, category_id, created_at, updated_at
       FROM articles
       ORDER BY updated_at DESC
     `,
@@ -66,6 +104,22 @@ export async function listArticles(env: Env): Promise<ArticleWithRelations[]> {
     `,
   ).all<ArticleSeoRow>();
 
+  const categoryIds = articles.results
+    .map((a) => a.category_id)
+    .filter((id): id is number => id !== null && id !== undefined);
+
+  const categories = categoryIds.length > 0
+    ? await env.DB.prepare(
+        `
+          SELECT id, name, slug, description, created_at, updated_at
+          FROM article_categories
+          WHERE id IN (${categoryIds.map(() => "?").join(",")})
+        `,
+      )
+        .bind(...categoryIds)
+        .all<ArticleCategory>()
+    : { results: [] };
+
   const sitesByArticle = new Map<number, number[]>();
   for (const row of siteLinks.results) {
     const list = sitesByArticle.get(row.article_id) ?? [];
@@ -77,9 +131,14 @@ export async function listArticles(env: Env): Promise<ArticleWithRelations[]> {
     seoRows.results.map((row: ArticleSeoRow) => [row.article_id, row]),
   );
 
+  const categoryById = new Map<number, ArticleCategory>(
+    categories.results.map((cat: ArticleCategory) => [cat.id, cat]),
+  );
+
   return articles.results.map((article: ArticleRow) => ({
     ...article,
     site_ids: sitesByArticle.get(article.id) ?? [],
+    category: article.category_id ? categoryById.get(article.category_id) : undefined,
     seo: seoByArticle.get(article.id) ?? {
       meta_title: "",
       meta_description: "",
@@ -103,7 +162,7 @@ export async function saveArticle(
     await env.DB.prepare(
       `
         UPDATE articles
-        SET title = ?, slug = ?, excerpt = ?, content = ?, cover_image = ?, status = ?, published_at = ?, updated_at = ?
+        SET title = ?, slug = ?, excerpt = ?, content = ?, cover_image = ?, status = ?, published_at = ?, category_id = ?, updated_at = ?
         WHERE id = ?
       `,
     )
@@ -115,6 +174,7 @@ export async function saveArticle(
         payload.cover_image,
         payload.status,
         publishedAt,
+        payload.category_id ?? null,
         now,
         id,
       )
@@ -122,8 +182,8 @@ export async function saveArticle(
   } else {
     const inserted = await env.DB.prepare(
       `
-        INSERT INTO articles (title, slug, excerpt, content, cover_image, status, published_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO articles (title, slug, excerpt, content, cover_image, status, published_at, category_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id
       `,
     )
@@ -135,6 +195,7 @@ export async function saveArticle(
         payload.cover_image,
         payload.status,
         publishedAt,
+        payload.category_id ?? null,
         now,
         now,
       )

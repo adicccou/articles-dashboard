@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ArticleInput, ArticleRecord, Site } from "../lib/types";
+import type { ArticleInput, ArticleRecord, Site, ArticleCategory } from "../lib/types";
 import { slugify } from "../lib/slug";
 
 type ArticleEditorProps = {
   article?: ArticleRecord;
   sites: Site[];
+  categories: ArticleCategory[];
   onSave: (payload: ArticleInput, id?: number) => Promise<void>;
   onUpload: (file: File) => Promise<{ key: string; url: string }>;
+  onCancel?: () => void;
 };
 
 function toInitialState(article?: ArticleRecord): ArticleInput {
@@ -19,6 +21,7 @@ function toInitialState(article?: ArticleRecord): ArticleInput {
       cover_image: null,
       status: "draft",
       published_at: null,
+      category_id: null,
       site_ids: [],
       seo: {
         meta_title: "",
@@ -30,7 +33,7 @@ function toInitialState(article?: ArticleRecord): ArticleInput {
   );
 }
 
-export function ArticleEditor({ article, sites, onSave, onUpload }: ArticleEditorProps) {
+export function ArticleEditor({ article, sites, categories, onSave, onUpload, onCancel }: ArticleEditorProps) {
   const [form, setForm] = useState<ArticleInput>(() => toInitialState(article));
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -112,6 +115,11 @@ export function ArticleEditor({ article, sites, onSave, onUpload }: ArticleEdito
         <div className="panel__title-row">
           <h2>{article ? "Edit Article" : "New Article"}</h2>
           <div className="actions">
+            {onCancel && (
+              <button type="button" className="button-secondary" disabled={busy} onClick={onCancel}>
+                Cancel
+              </button>
+            )}
             <button type="submit" disabled={busy}>
               {busy ? "Saving..." : "Save draft"}
             </button>
@@ -131,27 +139,27 @@ export function ArticleEditor({ article, sites, onSave, onUpload }: ArticleEdito
           </div>
         </div>
         {error ? <p className="error">{error}</p> : null}
+        <label>
+          Title
+          <input
+            value={form.title}
+            onChange={(e) => {
+              const title = e.target.value;
+              setForm((current) => ({
+                ...current,
+                title,
+                slug: current.slug ? current.slug : slugify(title),
+                seo: {
+                  ...current.seo,
+                  meta_title: current.seo.meta_title || title,
+                },
+              }));
+            }}
+            placeholder="How to build a syndication workflow"
+            required
+          />
+        </label>
         <div className="grid-two">
-          <label>
-            Title
-            <input
-              value={form.title}
-              onChange={(e) => {
-                const title = e.target.value;
-                setForm((current) => ({
-                  ...current,
-                  title,
-                  slug: current.slug ? current.slug : slugify(title),
-                  seo: {
-                    ...current.seo,
-                    meta_title: current.seo.meta_title || title,
-                  },
-                }));
-              }}
-              placeholder="How to build a syndication workflow"
-              required
-            />
-          </label>
           <label>
             Slug
             <input
@@ -160,6 +168,23 @@ export function ArticleEditor({ article, sites, onSave, onUpload }: ArticleEdito
               placeholder="how-to-build-a-syndication-workflow"
               required
             />
+          </label>
+          <label>
+            Category
+            <select
+              value={form.category_id ?? ""}
+              onChange={(e) => {
+                const value = e.target.value;
+                update("category_id", value ? Number(value) : null);
+              }}
+            >
+              <option value="">None</option>
+              {categories.map((cat) => (
+                <option key={cat.id} value={cat.id}>
+                  {cat.name}
+                </option>
+              ))}
+            </select>
           </label>
         </div>
         <label>

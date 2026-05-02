@@ -1,7 +1,11 @@
 import { checkCredentials, clearSessionCookie, createSessionCookie, validateSession } from "./lib/auth";
-import { createSite, getPublishedArticleBySlug, getPublishedArticlesForSite, listArticles, listSites, saveArticle } from "./lib/db";
+import { createSite, getPublishedArticleBySlug, getPublishedArticlesForSite, listArticles, listSites, saveArticle, listCategories, createCategory, deleteCategory } from "./lib/db";
 import { json, parseJson, text } from "./lib/http";
 import type { Env } from "./lib/types";
+import { listCampaigns, createCampaign, updateCampaign, deleteCampaign, getCampaignStats } from "./handlers/reddit";
+import { handleAuthorizeRequest, handleOAuthCallback, listRedditAccounts, deleteRedditAccount } from "./handlers/reddit-auth";
+import { getKnowledgeBase, saveKnowledgeBase, getVersions, getVersion } from "./handlers/knowledge-base";
+import { listStrategies, getStrategy, createStrategy, updateStrategy, deleteStrategy, getStrategyStats, getStrategyExecutions } from "./handlers/trading";
 
 function withCors(response: Response): Response {
   const headers = new Headers(response.headers);
@@ -171,6 +175,31 @@ export default {
       return json(await saveArticle(env, await request.json(), id));
     }
 
+    if (url.pathname === "/api/categories" && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return json(await listCategories(env));
+    }
+
+    if (url.pathname === "/api/categories" && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const body = await parseJson<{
+        name: string;
+        slug: string;
+        description?: string | null;
+      }>(request);
+      return json(await createCategory(env, { ...body, description: body.description ?? null }), { status: 201 });
+    }
+
+    if (url.pathname.startsWith("/api/categories/") && request.method === "DELETE") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = Number(url.pathname.split("/").pop());
+      await deleteCategory(env, id);
+      return json({ success: true });
+    }
+
     if (url.pathname === "/api/media" && request.method === "POST") {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
@@ -180,6 +209,155 @@ export default {
     if (url.pathname.startsWith("/api/media/") && request.method === "GET") {
       const key = url.pathname.replace("/api/media/", "");
       return handleMediaFetch(env, key);
+    }
+
+    // Reddit OAuth endpoints
+    if (url.pathname === "/api/reddit/auth/authorize" && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await handleAuthorizeRequest(env, request);
+    }
+
+    if (url.pathname === "/api/reddit/auth/callback" && request.method === "GET") {
+      return await handleOAuthCallback(env, url, request);
+    }
+
+    // Reddit accounts endpoints
+    if (url.pathname === "/api/reddit/accounts" && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await listRedditAccounts(env);
+    }
+
+    if (url.pathname.startsWith("/api/reddit/accounts/") && request.method === "DELETE") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      return await deleteRedditAccount(env, id);
+    }
+
+    // Reddit campaign endpoints
+    if (url.pathname === "/api/reddit/campaigns" && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return json(await listCampaigns(env));
+    }
+
+    if (url.pathname === "/api/reddit/campaigns" && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await createCampaign(env, request);
+    }
+
+    if (url.pathname.startsWith("/api/reddit/campaigns/") && request.method === "PUT") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      return await updateCampaign(env, id, request);
+    }
+
+    if (url.pathname.startsWith("/api/reddit/campaigns/") && request.method === "DELETE") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      return await deleteCampaign(env, id);
+    }
+
+    if (url.pathname.startsWith("/api/reddit/campaigns/") && url.pathname.endsWith("/stats") && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const parts = url.pathname.split("/");
+      const id = parts[4];
+      return await getCampaignStats(env, id);
+    }
+
+    // Knowledge base endpoints
+    if (url.pathname.startsWith("/api/knowledge-base/") && request.method === "GET" && !url.pathname.includes("/versions")) {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const parts = url.pathname.split("/");
+      const type = parts[3];
+      const id = parts[4];
+      return await getKnowledgeBase(env, type, id);
+    }
+
+    if (url.pathname.startsWith("/api/knowledge-base/") && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const parts = url.pathname.split("/");
+      const type = parts[3];
+      const id = parts[4];
+      return await saveKnowledgeBase(env, type, id, request);
+    }
+
+    if (url.pathname.startsWith("/api/knowledge-base/") && url.pathname.includes("/versions") && !url.pathname.match(/\/versions\/\d+$/)) {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const parts = url.pathname.split("/");
+      const type = parts[3];
+      const id = parts[4];
+      return await getVersions(env, type, id);
+    }
+
+    if (url.pathname.match(/^\/api\/knowledge-base\/[^/]+\/\d+\/versions\/\d+$/) && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const match = url.pathname.match(/^\/api\/knowledge-base\/([^/]+)\/(\d+)\/versions\/(\d+)$/);
+      if (!match) {
+        return text("Invalid path", 400);
+      }
+      const [, type, id, version] = match;
+      return await getVersion(env, type, id, version);
+    }
+
+    // Trading endpoints
+    if (url.pathname === "/api/trading/strategies" && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return json(await listStrategies(env));
+    }
+
+    if (url.pathname === "/api/trading/strategies" && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await createStrategy(env, request);
+    }
+
+    if (url.pathname.startsWith("/api/trading/strategies/") && request.method === "GET" && !url.pathname.includes("/stats") && !url.pathname.includes("/executions")) {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      return await getStrategy(env, id);
+    }
+
+    if (url.pathname.startsWith("/api/trading/strategies/") && request.method === "PUT") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      return await updateStrategy(env, id, request);
+    }
+
+    if (url.pathname.startsWith("/api/trading/strategies/") && request.method === "DELETE") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      return await deleteStrategy(env, id);
+    }
+
+    if (url.pathname.startsWith("/api/trading/strategies/") && url.pathname.endsWith("/stats") && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const parts = url.pathname.split("/");
+      const id = parts[4];
+      return await getStrategyStats(env, id);
+    }
+
+    if (url.pathname.startsWith("/api/trading/strategies/") && url.pathname.endsWith("/executions") && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const parts = url.pathname.split("/");
+      const id = parts[4];
+      return await getStrategyExecutions(env, id);
     }
 
     return env.ASSETS.fetch(request);

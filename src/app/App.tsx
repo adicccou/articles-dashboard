@@ -1,17 +1,17 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
-import type { ArticleRecord, AuthState, Site } from "../lib/types";
+import type { ArticleRecord, AuthState, Site, ArticleCategory } from "../lib/types";
 import { LoginCard } from "../components/LoginCard";
-import { Shell } from "../components/Shell";
+import { TopNav, type NavView } from "../components/TopNav";
 import { DashboardPage } from "../pages/DashboardPage";
-
-type View = "articles" | "sites" | "editor";
+import "../styles/app.css";
 
 export function App() {
   const [auth, setAuth] = useState<AuthState>({ authenticated: false });
   const [sites, setSites] = useState<Site[]>([]);
   const [articles, setArticles] = useState<ArticleRecord[]>([]);
-  const [view, setView] = useState<View>("articles");
+  const [categories, setCategories] = useState<ArticleCategory[]>([]);
+  const [view, setView] = useState<NavView>("articles");
   const [selectedArticle, setSelectedArticle] = useState<ArticleRecord | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -23,6 +23,10 @@ export function App() {
       setAuth(data.auth);
       setSites(data.sites);
       setArticles(data.articles);
+      if (data.auth.authenticated) {
+        const cats = await api.getCategories();
+        setCategories(cats);
+      }
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load dashboard");
@@ -54,66 +58,39 @@ export function App() {
   }
 
   return (
-    <Shell
-      header={
-        <div className="topbar">
-          <div>
-            <p className="eyebrow">Multi-site CMS</p>
-            <h1>Article Dashboard</h1>
-          </div>
-          <div className="actions">
-            <button
-              className="button-secondary"
-              onClick={async () => {
-                await api.logout();
-                setAuth({ authenticated: false });
-              }}
-            >
-              Logout
-            </button>
-          </div>
-        </div>
-      }
-      sidebar={
-        <nav className="sidebar-nav">
-          <button className={view === "articles" ? "is-active" : ""} onClick={() => setView("articles")}>
-            Articles
-          </button>
-          <button className={view === "editor" && !selectedArticle ? "is-active" : ""} onClick={() => {
-            setSelectedArticle(undefined);
-            setView("editor");
-          }}>
-            New Article
-          </button>
-          <button className={view === "sites" ? "is-active" : ""} onClick={() => setView("sites")}>
-            Sites
-          </button>
-        </nav>
-      }
-    >
-      {error ? <p className="error panel">{error}</p> : null}
-      <DashboardPage
-        view={view}
-        articles={articles}
-        sites={sites}
-        selectedArticle={selectedArticle}
-        onSelectArticle={(article) => {
-          setSelectedArticle(article);
-          setView("editor");
+    <div className="app-layout">
+      <TopNav
+        currentView={view}
+        onNavigate={setView}
+        username={auth.username}
+        onLogout={async () => {
+          await api.logout();
+          setAuth({ authenticated: false });
         }}
-        onCreateSite={async (payload) => {
-          await api.createSite(payload);
-          await load();
-          setView("sites");
-        }}
-        onSaveArticle={async (payload, id) => {
-          await api.saveArticle(payload, id);
-          await load();
-          setView("articles");
-          setSelectedArticle(undefined);
-        }}
-        onUpload={api.uploadMedia}
       />
-    </Shell>
+      <main className="app-content">
+        {error ? <p className="error panel">{error}</p> : null}
+        <DashboardPage
+          view={view}
+          articles={articles}
+          sites={sites}
+          categories={categories}
+          selectedArticle={selectedArticle}
+          onSelectArticle={(article) => {
+            setSelectedArticle(article);
+          }}
+          onCreateSite={async (payload) => {
+            await api.createSite(payload);
+            await load();
+          }}
+          onSaveArticle={async (payload, id) => {
+            await api.saveArticle(payload, id);
+            await load();
+            setSelectedArticle(undefined);
+          }}
+          onUpload={api.uploadMedia}
+        />
+      </main>
+    </div>
   );
 }

@@ -1,4 +1,4 @@
-import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site } from "./types";
+import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats } from "./types";
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -39,6 +39,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  getCategories: () => request<ArticleCategory[]>("/api/categories"),
   saveArticle: (payload: ArticleInput, id?: number) =>
     request<ArticleRecord>(id ? `/api/articles/${id}` : "/api/articles", {
       method: id ? "PUT" : "POST",
@@ -60,4 +61,46 @@ export const api = {
 
     return response.json() as Promise<{ key: string; url: string }>;
   },
+  getKnowledgeBase: (type: "reddit_campaign" | "trading_strategy", id: number) =>
+    request<KnowledgeBase>(`/api/knowledge-base/${type}/${id}`),
+  saveKnowledgeBase: (
+    type: "reddit_campaign" | "trading_strategy",
+    id: number,
+    title: string,
+    content: string,
+    change_summary?: string,
+  ) =>
+    request<KnowledgeBase>(`/api/knowledge-base/${type}/${id}`, {
+      method: "POST",
+      body: JSON.stringify({ title, content, change_summary }),
+    }),
+  getKnowledgeBaseVersions: (type: "reddit_campaign" | "trading_strategy", id: number) =>
+    request<KnowledgeBaseVersion[]>(`/api/knowledge-base/${type}/${id}/versions`),
+  getKnowledgeBaseVersion: (
+    type: "reddit_campaign" | "trading_strategy",
+    id: number,
+    version: number,
+  ) =>
+    request<KnowledgeBaseVersion>(`/api/knowledge-base/${type}/${id}/versions/${version}`),
+  listTradingStrategies: () => request<TradingStrategy[]>("/api/trading/strategies"),
+  getTradingStrategy: (id: number) =>
+    request<TradingStrategy>(`/api/trading/strategies/${id}`),
+  createTradingStrategy: (payload: Omit<TradingStrategy, "id" | "status" | "created_at" | "updated_at">) =>
+    request<TradingStrategy>("/api/trading/strategies", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateTradingStrategy: (id: number, payload: Partial<TradingStrategy>) =>
+    request<{ success: boolean; updated_at: string }>(`/api/trading/strategies/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  deleteTradingStrategy: (id: number) =>
+    request<{ success: boolean }>(`/api/trading/strategies/${id}`, {
+      method: "DELETE",
+    }),
+  getTradingStats: (id: number) =>
+    request<TradingStats>(`/api/trading/strategies/${id}/stats`),
+  getTradingExecutions: (id: number) =>
+    request<TradingExecution[]>(`/api/trading/strategies/${id}/executions`),
 };
