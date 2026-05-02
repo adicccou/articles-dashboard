@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ArticleRecord, Site, RedditCampaign, RedditAccount, ArticleCategory, TradingStrategy } from "../lib/types";
+import type { ArticleRecord, Site, ArticleCategory } from "../lib/types";
 import type { NavView } from "../components/TopNav";
 import { ArticleEditor } from "../components/ArticleEditor";
 import { SiteForm } from "../components/SiteForm";
@@ -70,41 +70,11 @@ export function DashboardPage({
   }
 
   if (view === "reddit") {
-    return (
-      <RedditAgentPage
-        campaigns={[] as RedditCampaign[]}
-        accounts={[] as RedditAccount[]}
-        onCreateAccount={() => {
-          console.log("Connect Reddit account");
-        }}
-        onCreateCampaign={async (campaign) => {
-          console.log("Create campaign:", campaign);
-        }}
-        onUpdateCampaign={async (id, campaign) => {
-          console.log("Update campaign:", id, campaign);
-        }}
-        onDeleteCampaign={async (id) => {
-          console.log("Delete campaign:", id);
-        }}
-      />
-    );
+    return <RedditAgentPage />;
   }
 
   if (view === "trading") {
-    return (
-      <TradingPage
-        strategies={[] as TradingStrategy[]}
-        onCreateStrategy={async (strategy) => {
-          console.log("Create strategy:", strategy);
-        }}
-        onUpdateStrategy={async (id, strategy) => {
-          console.log("Update strategy:", id, strategy);
-        }}
-        onDeleteStrategy={async (id) => {
-          console.log("Delete strategy:", id);
-        }}
-      />
-    );
+    return <TradingPage />;
   }
 
   if (view === "planner") {

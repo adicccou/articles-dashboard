@@ -1,29 +1,46 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { RedditCampaign, RedditAccount } from "../lib/types";
+import { api } from "../lib/api";
 import { RedditCampaignForm } from "../components/RedditCampaignForm";
 import { KnowledgeBaseEditor } from "../components/KnowledgeBaseEditor";
 
-interface RedditAgentPageProps {
-  campaigns: RedditCampaign[];
-  accounts: RedditAccount[];
-  onCreateAccount?: () => void;
-  onCreateCampaign?: (campaign: RedditCampaign) => Promise<void>;
-  onUpdateCampaign?: (id: number, campaign: Partial<RedditCampaign>) => Promise<void>;
-  onDeleteCampaign?: (id: number) => Promise<void>;
-}
-
 type TabView = "campaigns" | "accounts" | "form" | "knowledge-base";
 
-export const RedditAgentPage: React.FC<RedditAgentPageProps> = ({
-  campaigns,
-  accounts,
-  onCreateAccount,
-  onCreateCampaign,
-  onUpdateCampaign,
-  onDeleteCampaign,
-}) => {
+// entity_id=0 is the global Reddit agent knowledge base (not tied to a specific campaign)
+const REDDIT_GLOBAL_KB_ID = 0;
+
+export function RedditAgentPage() {
+  const [campaigns, setCampaigns] = useState<RedditCampaign[]>([]);
+  const [accounts, setAccounts] = useState<RedditAccount[]>([]);
   const [tab, setTab] = useState<TabView>("campaigns");
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      setLoading(true);
+      const [campaignsData, accountsData] = await Promise.all([
+        api.listCampaigns(),
+        api.listRedditAccounts(),
+      ]);
+      setCampaigns(campaignsData);
+      setAccounts(accountsData);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load Reddit agent data");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  if (loading) {
+    return <div className="loading-screen">Loading...</div>;
+  }
 
   if (tab === "form") {
     return (
@@ -35,10 +52,11 @@ export const RedditAgentPage: React.FC<RedditAgentPageProps> = ({
           accounts={accounts}
           onSubmit={async (data) => {
             if (editingId) {
-              await onUpdateCampaign?.(editingId, data);
+              await api.updateCampaign(editingId, data);
             } else {
-              await onCreateCampaign?.(data as RedditCampaign);
+              await api.createCampaign(data as Omit<RedditCampaign, "id" | "created_at" | "updated_at">);
             }
+            await load();
             setTab("campaigns");
             setEditingId(null);
           }}
@@ -60,11 +78,10 @@ export const RedditAgentPage: React.FC<RedditAgentPageProps> = ({
         <div className="panel">
           <div className="panel__title-row">
             <h2>🔐 Connected Reddit Accounts</h2>
-            <button onClick={onCreateAccount}>Connect Account</button>
           </div>
           {accounts.length === 0 ? (
             <p style={{ color: "#6b7280", padding: "16px" }}>
-              No Reddit accounts connected yet. Click "Connect Account" to get started.
+              No Reddit accounts connected yet.
             </p>
           ) : (
             <div className="table">
@@ -72,12 +89,32 @@ export const RedditAgentPage: React.FC<RedditAgentPageProps> = ({
                 <span>Account</span>
                 <span>Status</span>
                 <span>Connected</span>
+                <span>Actions</span>
               </div>
               {accounts.map((account) => (
                 <div className="table__row" key={account.id}>
                   <span>{account.name}</span>
                   <span>{account.status}</span>
                   <span>{new Date(account.created_at).toLocaleDateString()}</span>
+                  <span>
+                    <button
+                      onClick={async () => {
+                        await api.deleteRedditAccount(account.id);
+                        await load();
+                      }}
+                      style={{
+                        fontSize: "12px",
+                        padding: "4px 8px",
+                        background: "none",
+                        border: "1px solid #fecaca",
+                        color: "#dc2626",
+                        borderRadius: "4px",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Disconnect
+                    </button>
+                  </span>
                 </div>
               ))}
             </div>
@@ -95,15 +132,12 @@ export const RedditAgentPage: React.FC<RedditAgentPageProps> = ({
         </button>
         <div className="panel">
           <div className="panel__title-row">
-            <h2>📚 Knowledge Base Settings</h2>
+            <h2>📚 Knowledge Base</h2>
           </div>
           <p style={{ color: "#6b7280", marginBottom: "16px" }}>
-            Add information about your products and services here. This knowledge will inform the AI agent when generating replies to Reddit comments.
+            Add information about your products and services here. The AI agent uses this when generating replies to Reddit comments.
           </p>
-          <KnowledgeBaseEditor
-            type="reddit_campaign"
-            entityId={1}
-          />
+          <KnowledgeBaseEditor type="reddit_campaign" entityId={REDDIT_GLOBAL_KB_ID} />
         </div>
       </div>
     );
@@ -111,20 +145,15 @@ export const RedditAgentPage: React.FC<RedditAgentPageProps> = ({
 
   return (
     <div className="stack">
+      {error && <p className="error panel">{error}</p>}
       <section className="panel">
         <div className="panel__title-row">
           <h2>🤖 Reddit Agent Campaigns</h2>
           <div className="actions">
-            <button
-              onClick={() => setTab("knowledge-base")}
-              className="button-secondary"
-            >
+            <button onClick={() => setTab("knowledge-base")} className="button-secondary">
               📚 Knowledge Base
             </button>
-            <button
-              onClick={() => setTab("accounts")}
-              className="button-secondary"
-            >
+            <button onClick={() => setTab("accounts")} className="button-secondary">
               Accounts ({accounts.length})
             </button>
             <button onClick={() => setTab("form")}>New Campaign</button>
@@ -145,7 +174,6 @@ export const RedditAgentPage: React.FC<RedditAgentPageProps> = ({
               <span>Subreddit</span>
               <span>Query</span>
               <span>Status</span>
-              <span>Found</span>
               <span>Actions</span>
             </div>
             {campaigns.map((campaign) => (
@@ -159,16 +187,13 @@ export const RedditAgentPage: React.FC<RedditAgentPageProps> = ({
                       padding: "4px 8px",
                       borderRadius: "4px",
                       fontSize: "12px",
-                      backgroundColor:
-                        campaign.status === "active" ? "#dcfce7" : "#f3f4f6",
-                      color:
-                        campaign.status === "active" ? "#166534" : "#6b7280",
+                      backgroundColor: campaign.status === "active" ? "#dcfce7" : "#f3f4f6",
+                      color: campaign.status === "active" ? "#166534" : "#6b7280",
                     }}
                   >
                     {campaign.status}
                   </span>
                 </span>
-                <span>0</span>
                 <span>
                   <button
                     onClick={() => {
@@ -188,7 +213,10 @@ export const RedditAgentPage: React.FC<RedditAgentPageProps> = ({
                     Edit
                   </button>
                   <button
-                    onClick={() => onDeleteCampaign?.(campaign.id)}
+                    onClick={async () => {
+                      await api.deleteCampaign(campaign.id);
+                      await load();
+                    }}
                     style={{
                       fontSize: "12px",
                       padding: "4px 8px",
@@ -209,4 +237,4 @@ export const RedditAgentPage: React.FC<RedditAgentPageProps> = ({
       </section>
     </div>
   );
-};
+}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { KnowledgeBase, KnowledgeBaseVersion } from "../lib/types";
 import { api } from "../lib/api";
 import "../styles/knowledge-base-editor.css";
@@ -17,10 +17,10 @@ export function KnowledgeBaseEditor({ type, entityId, onSaved }: KnowledgeBaseEd
   const [changeSummary, setChangeSummary] = useState("");
   const [showPreview, setShowPreview] = useState(false);
   const [versions, setVersions] = useState<KnowledgeBaseVersion[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadKnowledgeBase = async () => {
+  async function loadKnowledgeBase() {
     try {
       setLoading(true);
       const data = await api.getKnowledgeBase(type, entityId);
@@ -33,26 +33,34 @@ export function KnowledgeBaseEditor({ type, entityId, onSaved }: KnowledgeBaseEd
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const loadVersions = async () => {
+  async function loadVersions() {
     try {
       const data = await api.getKnowledgeBaseVersions(type, entityId);
       setVersions(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load versions");
+    } catch {
+      // non-critical — version history is optional UI
     }
+  }
+
+  useEffect(() => {
+    void loadKnowledgeBase();
+  }, [type, entityId]);
+
+  const handleEdit = () => {
+    void loadVersions();
+    setIsEditing(true);
   };
 
   const handleSave = async () => {
     try {
       setLoading(true);
-      await api.saveKnowledgeBase(type, entityId, title || "Knowledge Base", content, changeSummary);
+      await api.saveKnowledgeBase(type, entityId, title || "Knowledge Base", content, changeSummary || undefined);
       setIsEditing(false);
       setChangeSummary("");
       await loadKnowledgeBase();
       onSaved?.();
-      setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save knowledge base");
     } finally {
@@ -66,7 +74,6 @@ export function KnowledgeBaseEditor({ type, entityId, onSaved }: KnowledgeBaseEd
       const versionData = await api.getKnowledgeBaseVersion(type, entityId, version);
       setContent(versionData.content);
       setChangeSummary(`Restored from version ${version}`);
-      setIsEditing(true);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load version");
@@ -88,37 +95,22 @@ export function KnowledgeBaseEditor({ type, entityId, onSaved }: KnowledgeBaseEd
           <div className="kb-editor__header">
             <h3>{kb?.title || "Knowledge Base"}</h3>
             <div className="kb-editor__actions">
-              <button
-                onClick={() => {
-                  loadKnowledgeBase();
-                  loadVersions();
-                  setIsEditing(true);
-                }}
-                className="btn btn-primary"
-              >
+              <button onClick={handleEdit} className="btn btn-primary">
                 Edit
               </button>
             </div>
           </div>
-          {kb?.content && (
+          {kb?.content ? (
             <div className="kb-editor__content">
-              <div className="kb-editor__preview markdown-preview">
-                {formatMarkdown(kb.content)}
-              </div>
+              <pre className="kb-editor__preview">{kb.content}</pre>
               <div className="kb-editor__meta">
                 Version {kb.version || 1} • Updated {formatDate(kb.updated_at || "")}
               </div>
             </div>
-          )}
-          {!kb?.id && (
+          ) : (
             <div className="kb-editor__empty">
               <p>No knowledge base created yet</p>
-              <button
-                onClick={() => {
-                  setIsEditing(true);
-                }}
-                className="btn btn-primary"
-              >
+              <button onClick={handleEdit} className="btn btn-primary">
                 Create Knowledge Base
               </button>
             </div>
@@ -156,9 +148,7 @@ export function KnowledgeBaseEditor({ type, entityId, onSaved }: KnowledgeBaseEd
               <span className="kb-editor__char-count">{content.length} characters</span>
             </label>
             {showPreview ? (
-              <div className="kb-editor__preview markdown-preview">
-                {formatMarkdown(content)}
-              </div>
+              <pre className="kb-editor__preview">{content}</pre>
             ) : (
               <textarea
                 id="kb-content"
@@ -205,17 +195,14 @@ export function KnowledgeBaseEditor({ type, entityId, onSaved }: KnowledgeBaseEd
           )}
 
           <div className="kb-editor__buttons">
-            <button
-              onClick={handleSave}
-              disabled={loading}
-              className="btn btn-primary"
-            >
+            <button onClick={handleSave} disabled={loading} className="btn btn-primary">
               {loading ? "Saving..." : "Save"}
             </button>
             <button
               onClick={() => {
                 setIsEditing(false);
                 setChangeSummary("");
+                setShowPreview(false);
               }}
               disabled={loading}
               className="btn btn-secondary"
@@ -227,18 +214,6 @@ export function KnowledgeBaseEditor({ type, entityId, onSaved }: KnowledgeBaseEd
       )}
     </div>
   );
-}
-
-function formatMarkdown(content: string): string {
-  return content
-    .replace(/^### (.*?)$/gm, "<h3>$1</h3>")
-    .replace(/^## (.*?)$/gm, "<h2>$1</h2>")
-    .replace(/^# (.*?)$/gm, "<h1>$1</h1>")
-    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.*?)\*/g, "<em>$1</em>")
-    .replace(/\n\n/g, "</p><p>")
-    .replace(/^/gm, "<p>")
-    .replace(/$/gm, "</p>");
 }
 
 function formatDate(date: string): string {

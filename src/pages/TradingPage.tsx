@@ -1,42 +1,51 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { TradingStrategy, TradingStats } from "../lib/types";
 import { api } from "../lib/api";
 import { TradingStrategyForm } from "../components/TradingStrategyForm";
 import { APIConnectionPanel } from "../components/APIConnectionPanel";
 import { KnowledgeBaseEditor } from "../components/KnowledgeBaseEditor";
 
-interface TradingPageProps {
-  strategies: TradingStrategy[];
-  onCreateStrategy?: (strategy: TradingStrategy) => Promise<void>;
-  onUpdateStrategy?: (id: number, strategy: Partial<TradingStrategy>) => Promise<void>;
-  onDeleteStrategy?: (id: number) => Promise<void>;
-}
-
 type TabView = "strategies" | "form" | "connections";
 
-export function TradingPage({
-  strategies,
-  onCreateStrategy,
-  onUpdateStrategy,
-  onDeleteStrategy,
-}: TradingPageProps) {
+export function TradingPage() {
+  const [strategies, setStrategies] = useState<TradingStrategy[]>([]);
   const [tab, setTab] = useState<TabView>("strategies");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [selectedStrategy, setSelectedStrategy] = useState<TradingStrategy | null>(null);
   const [stats, setStats] = useState<TradingStats | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const loadStats = async (strategyId: number) => {
+  async function load() {
     try {
       setLoading(true);
-      const statsData = await api.getTradingStats(strategyId);
-      setStats(statsData);
-    } catch (error) {
-      console.error("Failed to load stats:", error);
+      const data = await api.listTradingStrategies();
+      setStrategies(data);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load strategies");
     } finally {
       setLoading(false);
     }
-  };
+  }
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  async function handleSelectStrategy(strategy: TradingStrategy) {
+    setSelectedStrategy(strategy);
+    try {
+      const statsData = await api.getTradingStats(strategy.id);
+      setStats(statsData);
+    } catch {
+      setStats(null);
+    }
+  }
+
+  if (loading) {
+    return <div className="loading-screen">Loading...</div>;
+  }
 
   if (tab === "form") {
     return (
@@ -50,10 +59,13 @@ export function TradingPage({
             strategy={strategies.find((s) => s.id === editingId)}
             onSubmit={async (data) => {
               if (editingId) {
-                await onUpdateStrategy?.(editingId, data);
+                await api.updateTradingStrategy(editingId, data);
               } else {
-                await onCreateStrategy?.(data as TradingStrategy);
+                await api.createTradingStrategy(
+                  data as Omit<TradingStrategy, "id" | "status" | "created_at" | "updated_at">
+                );
               }
+              await load();
               setTab("strategies");
               setEditingId(null);
             }}
@@ -75,11 +87,7 @@ export function TradingPage({
         </button>
         <div className="panel">
           <h2>Global API Connections</h2>
-          <APIConnectionPanel
-            onCtraderChange={(login, password) => console.log("cTrader:", login)}
-            onClaudeChange={(key) => console.log("Claude:", key)}
-            onTelegramChange={(chatId) => console.log("Telegram:", chatId)}
-          />
+          <APIConnectionPanel />
         </div>
       </div>
     );
@@ -87,6 +95,7 @@ export function TradingPage({
 
   return (
     <div className="stack">
+      {error && <p className="error panel">{error}</p>}
       <section className="panel">
         <div className="panel__title-row">
           <h2>📈 Trading Strategies</h2>
@@ -94,7 +103,9 @@ export function TradingPage({
             <button onClick={() => setTab("connections")} className="button-secondary">
               ⚙️ Connections
             </button>
-            <button onClick={() => setTab("form")}>New Strategy</button>
+            <button onClick={() => { setEditingId(null); setTab("form"); }}>
+              New Strategy
+            </button>
           </div>
         </div>
 
@@ -126,10 +137,8 @@ export function TradingPage({
                       padding: "4px 8px",
                       borderRadius: "4px",
                       fontSize: "12px",
-                      backgroundColor:
-                        strategy.status === "active" ? "#dcfce7" : "#f3f4f6",
-                      color:
-                        strategy.status === "active" ? "#166534" : "#6b7280",
+                      backgroundColor: strategy.status === "active" ? "#dcfce7" : "#f3f4f6",
+                      color: strategy.status === "active" ? "#166534" : "#6b7280",
                     }}
                   >
                     {strategy.status}
@@ -138,10 +147,7 @@ export function TradingPage({
                 <span>{strategy.lot_size}</span>
                 <span>
                   <button
-                    onClick={() => {
-                      setSelectedStrategy(strategy);
-                      loadStats(strategy.id);
-                    }}
+                    onClick={() => handleSelectStrategy(strategy)}
                     style={{
                       fontSize: "12px",
                       padding: "4px 8px",
@@ -172,7 +178,14 @@ export function TradingPage({
                     Edit
                   </button>
                   <button
-                    onClick={() => onDeleteStrategy?.(strategy.id)}
+                    onClick={async () => {
+                      await api.deleteTradingStrategy(strategy.id);
+                      if (selectedStrategy?.id === strategy.id) {
+                        setSelectedStrategy(null);
+                        setStats(null);
+                      }
+                      await load();
+                    }}
                     style={{
                       fontSize: "12px",
                       padding: "4px 8px",
@@ -192,72 +205,66 @@ export function TradingPage({
         )}
       </section>
 
-      {selectedStrategy && stats && (
+      {selectedStrategy && (
         <section className="panel">
           <div className="panel__title-row">
-            <h2>{selectedStrategy.name} - Statistics</h2>
+            <h2>{selectedStrategy.name} — Statistics</h2>
             <button
-              onClick={() => {
-                setSelectedStrategy(null);
-                setStats(null);
-              }}
+              onClick={() => { setSelectedStrategy(null); setStats(null); }}
               className="button-secondary"
             >
               Close
             </button>
           </div>
 
-          <div className="trading-stats">
-            <div className="stat-card">
-              <div className="stat-card__label">Total Trades</div>
-              <div className="stat-card__value">{stats.total_trades}</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-card__label">Win Rate</div>
-              <div className="stat-card__value">{(stats.win_rate * 100).toFixed(1)}%</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-card__label">Total Pips</div>
-              <div
-                className="stat-card__value"
-                style={{
-                  color: stats.total_pips >= 0 ? "#166534" : "#dc2626",
-                }}
-              >
-                {stats.total_pips >= 0 ? "+" : ""}{stats.total_pips.toFixed(1)}
+          {stats ? (
+            <div className="trading-stats">
+              <div className="stat-card">
+                <div className="stat-card__label">Total Trades</div>
+                <div className="stat-card__value">{stats.total_trades}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card__label">Win Rate</div>
+                <div className="stat-card__value">{(stats.win_rate * 100).toFixed(1)}%</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card__label">Total Pips</div>
+                <div
+                  className="stat-card__value"
+                  style={{ color: stats.total_pips >= 0 ? "#166534" : "#dc2626" }}
+                >
+                  {stats.total_pips >= 0 ? "+" : ""}{stats.total_pips.toFixed(1)}
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card__label">Avg Pips/Trade</div>
+                <div className="stat-card__value">{stats.avg_pips_per_trade.toFixed(2)}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card__label">Wins</div>
+                <div className="stat-card__value">{stats.winning_trades}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card__label">Losses</div>
+                <div className="stat-card__value">{stats.losing_trades}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card__label">Max Consec. Wins</div>
+                <div className="stat-card__value">{stats.max_consecutive_wins}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card__label">Largest Win</div>
+                <div className="stat-card__value" style={{ color: "#166534" }}>
+                  +{stats.largest_win_pips.toFixed(1)}
+                </div>
               </div>
             </div>
-            <div className="stat-card">
-              <div className="stat-card__label">Avg Pips/Trade</div>
-              <div className="stat-card__value">
-                {stats.avg_pips_per_trade.toFixed(2)}
-              </div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-card__label">Winning Trades</div>
-              <div className="stat-card__value">{stats.winning_trades}</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-card__label">Losing Trades</div>
-              <div className="stat-card__value">{stats.losing_trades}</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-card__label">Max Consecutive Wins</div>
-              <div className="stat-card__value">{stats.max_consecutive_wins}</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-card__label">Largest Win</div>
-              <div className="stat-card__value" style={{ color: "#166534" }}>
-                +{stats.largest_win_pips.toFixed(1)}
-              </div>
-            </div>
-          </div>
+          ) : (
+            <p style={{ color: "#6b7280", padding: "16px" }}>No stats available yet.</p>
+          )}
 
           <h3 style={{ marginTop: "24px", marginBottom: "16px" }}>Knowledge Base</h3>
-          <KnowledgeBaseEditor
-            type="trading_strategy"
-            entityId={selectedStrategy.id}
-          />
+          <KnowledgeBaseEditor type="trading_strategy" entityId={selectedStrategy.id} />
         </section>
       )}
     </div>

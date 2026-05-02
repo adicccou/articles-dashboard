@@ -1,4 +1,4 @@
-import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats } from "./types";
+import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, RedditCampaign, RedditAccount } from "./types";
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -103,4 +103,24 @@ export const api = {
     request<TradingStats>(`/api/trading/strategies/${id}/stats`),
   getTradingExecutions: (id: number) =>
     request<TradingExecution[]>(`/api/trading/strategies/${id}/executions`),
+  listCampaigns: () => request<RedditCampaign[]>("/api/reddit/campaigns"),
+  createCampaign: (payload: Omit<RedditCampaign, "id" | "created_at" | "updated_at">) =>
+    request<RedditCampaign>("/api/reddit/campaigns", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateCampaign: (id: number, payload: Partial<RedditCampaign>) =>
+    request<{ success: boolean }>(`/api/reddit/campaigns/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  deleteCampaign: (id: number) =>
+    request<{ success: boolean }>(`/api/reddit/campaigns/${id}`, {
+      method: "DELETE",
+    }),
+  listRedditAccounts: () => request<RedditAccount[]>("/api/reddit/accounts"),
+  deleteRedditAccount: (id: number) =>
+    request<{ success: boolean }>(`/api/reddit/accounts/${id}`, {
+      method: "DELETE",
+    }),
 };
