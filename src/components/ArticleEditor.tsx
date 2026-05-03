@@ -35,6 +35,7 @@ function toInitialState(article?: ArticleRecord): ArticleInput {
 
 export function ArticleEditor({ article, sites, categories, onSave, onUpload, onCancel }: ArticleEditorProps) {
   const [form, setForm] = useState<ArticleInput>(() => toInitialState(article));
+  const [categoryText, setCategoryText] = useState(() => article?.category?.name ?? "");
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +44,7 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
 
   useEffect(() => {
     setForm(toInitialState(article));
+    setCategoryText(article?.category?.name ?? "");
     setError(null);
   }, [article]);
 
@@ -79,6 +81,19 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
     }
   }
 
+  async function handleOgFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const uploaded = await onUpload(file);
+      updateSeo("og_image", uploaded.url);
+    } finally {
+      setUploading(false);
+      event.target.value = "";
+    }
+  }
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>, status: "draft" | "published") {
     event.preventDefault();
     if (form.site_ids.length === 0) {
@@ -89,15 +104,17 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
     setError(null);
     try {
       const now = status === "published" ? new Date().toISOString() : null;
+      const slug = form.slug || slugify(form.title);
       await onSave(
         {
           ...form,
-          slug: form.slug || slugify(form.title),
+          slug,
           status,
           published_at: now,
           seo: {
             ...form.seo,
             meta_title: form.seo.meta_title || form.title,
+            canonical_url: form.seo.canonical_url || `https://journl.day/articles/${slug}`,
           },
         },
         article?.id,
@@ -171,20 +188,24 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
           </label>
           <label>
             Category
-            <select
-              value={form.category_id ?? ""}
+            <input
+              list="category-options"
+              value={categoryText}
               onChange={(e) => {
-                const value = e.target.value;
-                update("category_id", value ? Number(value) : null);
+                const text = e.target.value;
+                setCategoryText(text);
+                const match = categories.find(
+                  (c) => c.name.toLowerCase() === text.trim().toLowerCase(),
+                );
+                update("category_id", match?.id ?? null);
               }}
-            >
-              <option value="">None</option>
+              placeholder="e.g. Technology"
+            />
+            <datalist id="category-options">
               {categories.map((cat) => (
-                <option key={cat.id} value={cat.id}>
-                  {cat.name}
-                </option>
+                <option key={cat.id} value={cat.name} />
               ))}
-            </select>
+            </datalist>
           </label>
         </div>
         <label>
@@ -272,17 +293,10 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
         </label>
         <div className="grid-two">
           <label>
-            OG image
-            <input value={form.seo.og_image} onChange={(e) => updateSeo("og_image", e.target.value)} />
+            OG image upload
+            <input type="file" accept="image/*" onChange={handleOgFileChange} />
           </label>
-          <label>
-            Canonical URL
-            <input
-              value={form.seo.canonical_url}
-              onChange={(e) => updateSeo("canonical_url", e.target.value)}
-              placeholder="https://site.com/article-slug"
-            />
-          </label>
+          <div />
         </div>
       </section>
     </form>

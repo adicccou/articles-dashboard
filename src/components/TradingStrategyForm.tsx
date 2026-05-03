@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { TradingStrategy } from "../lib/types";
 import "../styles/trading-strategy-form.css";
 
@@ -8,53 +8,114 @@ interface TradingStrategyFormProps {
   onCancel: () => void;
 }
 
+function buildInitialForm(strategy?: TradingStrategy): Partial<TradingStrategy> {
+  return (
+    strategy || {
+      name: "",
+      assets: ["EURUSD"],
+      strategy_type: "daytrading",
+      risk_usd_min: 50,
+      risk_usd_max: 50,
+      rr_min: 1.5,
+      rr_max: 2.5,
+      breakeven_rr: 1.5,
+      max_open_positions: 1,
+      execution_mode: "demo",
+      telegram_bot_token: "",
+      telegram_chat_id: "",
+    }
+  );
+}
+
 export function TradingStrategyForm({
   strategy,
   onSubmit,
   onCancel,
 }: TradingStrategyFormProps) {
-  const [form, setForm] = useState<Partial<TradingStrategy>>(
-    strategy || {
-      name: "",
-      description: "",
-      symbol: "EURUSD",
-      strategy_type: "daytrading",
-      lot_size: 0.1,
-      max_open_positions: 1,
-    }
-  );
+  const [form, setForm] = useState<Partial<TradingStrategy>>(buildInitialForm(strategy));
+  const [assetsText, setAssetsText] = useState((strategy?.assets || ["EURUSD"]).join(", "));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    const next = buildInitialForm(strategy);
+    setForm(next);
+    setAssetsText((next.assets || []).join(", "));
+    setError(null);
+  }, [strategy]);
+
   const handleChange = (
     field: keyof TradingStrategy,
-    value: unknown
+    value: unknown,
   ) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  function parseAssets(value: string): string[] {
+    return value
+      .split(/[,\n]/)
+      .map((entry) => entry.trim().toUpperCase())
+      .filter(Boolean);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
-    if (!form.name || !form.symbol || !form.ctrader_login || !form.ctrader_password) {
-      setError("Please fill in all required fields");
+    const assets = parseAssets(assetsText);
+    const rrMin = Number(form.rr_min ?? 1.5);
+    const rrMax = Number(form.rr_max ?? 2.5);
+    const breakevenRr = Number(form.breakeven_rr ?? 1.5);
+    const riskUsdMin = Number(form.risk_usd_min ?? 50);
+    const riskUsdMax = Number(form.risk_usd_max ?? 50);
+
+    if (!form.name || assets.length === 0) {
+      setError("Please add a strategy name and at least one trading asset.");
+      return;
+    }
+
+    if (rrMin < 1.5) {
+      setError("Minimum RR must be at least 1.5R.");
+      return;
+    }
+
+    if (rrMax > 2.5 || rrMax < rrMin) {
+      setError("Maximum RR must stay between the minimum RR and 2.5R.");
+      return;
+    }
+
+    if (breakevenRr < 0) {
+      setError("Breakeven RR cannot be negative.");
+      return;
+    }
+
+    if (riskUsdMax < riskUsdMin) {
+      setError("Maximum risk cannot be less than minimum risk.");
       return;
     }
 
     try {
       setLoading(true);
       setError(null);
-      await onSubmit(form);
+      await onSubmit({
+        ...form,
+        assets,
+        rr_min: rrMin,
+        rr_max: rrMax,
+        breakeven_rr: breakevenRr,
+        risk_usd_min: riskUsdMin,
+        risk_usd_max: riskUsdMax,
+        max_open_positions: Number(form.max_open_positions ?? 1),
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save strategy");
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   return (
     <form onSubmit={handleSubmit} className="trading-form">
-      {error && <div className="trading-form__error">{error}</div>}
+      {error ? <div className="trading-form__error">{error}</div> : null}
 
       <section className="trading-form__section">
         <h3>Strategy Basics</h3>
@@ -66,36 +127,27 @@ export function TradingStrategyForm({
             type="text"
             value={form.name || ""}
             onChange={(e) => handleChange("name", e.target.value)}
-            placeholder="e.g., EUR/USD Scalper"
+            placeholder="e.g., London Session Reversal"
             className="trading-form__input"
           />
         </div>
 
         <div className="trading-form__group">
-          <label htmlFor="description">Description</label>
+          <label htmlFor="assets">Trading Assets *</label>
           <textarea
-            id="description"
-            value={form.description || ""}
-            onChange={(e) => handleChange("description", e.target.value)}
-            placeholder="Describe your trading strategy..."
+            id="assets"
+            value={assetsText}
+            onChange={(e) => setAssetsText(e.target.value)}
+            placeholder="EURUSD, GBPUSD, XAUUSD"
             className="trading-form__textarea"
             rows={3}
           />
+          <p className="trading-form__helper">
+            One strategy can track several assets. Separate them with commas or new lines.
+          </p>
         </div>
 
         <div className="trading-form__row">
-          <div className="trading-form__group">
-            <label htmlFor="symbol">Trading Symbol *</label>
-            <input
-              id="symbol"
-              type="text"
-              value={form.symbol || ""}
-              onChange={(e) => handleChange("symbol", e.target.value)}
-              placeholder="e.g., EURUSD"
-              className="trading-form__input"
-            />
-          </div>
-
           <div className="trading-form__group">
             <label htmlFor="strategy_type">Strategy Type *</label>
             <select
@@ -110,45 +162,78 @@ export function TradingStrategyForm({
               <option value="position">Position Trading</option>
             </select>
           </div>
+
+          <div className="trading-form__group">
+            <label htmlFor="execution_mode">Mode</label>
+            <select
+              id="execution_mode"
+              value={form.execution_mode || "demo"}
+              onChange={(e) => handleChange("execution_mode", e.target.value as TradingStrategy["execution_mode"])}
+              className="trading-form__input"
+            >
+              <option value="demo">Demo</option>
+              <option value="live">Live</option>
+            </select>
+          </div>
         </div>
       </section>
 
       <section className="trading-form__section">
-        <h3>Trading Parameters</h3>
+        <h3>Risk Management</h3>
 
         <div className="trading-form__row">
           <div className="trading-form__group">
-            <label htmlFor="lot_size">Lot Size</label>
+            <label htmlFor="risk_usd_min">Minimum Risk (USD)</label>
             <input
-              id="lot_size"
+              id="risk_usd_min"
               type="number"
-              step="0.01"
-              value={form.lot_size || 0.1}
-              onChange={(e) => handleChange("lot_size", parseFloat(e.target.value))}
+              min="1"
+              step="1"
+              value={form.risk_usd_min ?? 50}
+              onChange={(e) => handleChange("risk_usd_min", Number(e.target.value))}
+              className="trading-form__input"
+            />
+            <p className="trading-form__helper">Min allowed dollar risk.</p>
+          </div>
+
+          <div className="trading-form__group">
+            <label htmlFor="risk_usd_max">Maximum Risk (USD)</label>
+            <input
+              id="risk_usd_max"
+              type="number"
+              min="1"
+              step="1"
+              value={form.risk_usd_max ?? 50}
+              onChange={(e) => handleChange("risk_usd_max", Number(e.target.value))}
+              className="trading-form__input"
+            />
+            <p className="trading-form__helper">Max allowed dollar risk.</p>
+          </div>
+
+          <div className="trading-form__group">
+            <label htmlFor="rr_min">Minimum RR</label>
+            <input
+              id="rr_min"
+              type="number"
+              min="1.5"
+              max="2.5"
+              step="0.1"
+              value={form.rr_min ?? 1.5}
+              onChange={(e) => handleChange("rr_min", Number(e.target.value))}
               className="trading-form__input"
             />
           </div>
 
           <div className="trading-form__group">
-            <label htmlFor="stop_loss_pips">Stop Loss (Pips)</label>
+            <label htmlFor="rr_max">Maximum RR</label>
             <input
-              id="stop_loss_pips"
+              id="rr_max"
               type="number"
-              value={form.stop_loss_pips || ""}
-              onChange={(e) => handleChange("stop_loss_pips", e.target.value ? parseInt(e.target.value) : null)}
-              placeholder="e.g., 50"
-              className="trading-form__input"
-            />
-          </div>
-
-          <div className="trading-form__group">
-            <label htmlFor="take_profit_pips">Take Profit (Pips)</label>
-            <input
-              id="take_profit_pips"
-              type="number"
-              value={form.take_profit_pips || ""}
-              onChange={(e) => handleChange("take_profit_pips", e.target.value ? parseInt(e.target.value) : null)}
-              placeholder="e.g., 100"
+              min="1.5"
+              max="2.5"
+              step="0.1"
+              value={form.rr_max ?? 2.5}
+              onChange={(e) => handleChange("rr_max", Number(e.target.value))}
               className="trading-form__input"
             />
           </div>
@@ -158,83 +243,28 @@ export function TradingStrategyForm({
             <input
               id="max_open_positions"
               type="number"
-              value={form.max_open_positions || 1}
-              onChange={(e) => handleChange("max_open_positions", parseInt(e.target.value))}
+              min="1"
+              value={form.max_open_positions ?? 1}
+              onChange={(e) => handleChange("max_open_positions", Number(e.target.value))}
               className="trading-form__input"
             />
           </div>
         </div>
-      </section>
-
-      <section className="trading-form__section">
-        <h3>cTrader Connection</h3>
 
         <div className="trading-form__group">
-          <label htmlFor="ctrader_login">cTrader Login *</label>
+          <label htmlFor="breakeven_rr">SL to Breakeven at</label>
           <input
-            id="ctrader_login"
-            type="text"
-            value={form.ctrader_login || ""}
-            onChange={(e) => handleChange("ctrader_login", e.target.value)}
-            placeholder="Your cTrader username"
+            id="breakeven_rr"
+            type="number"
+            min="0"
+            step="0.1"
+            value={form.breakeven_rr ?? 1.5}
+            onChange={(e) => handleChange("breakeven_rr", Number(e.target.value))}
             className="trading-form__input"
           />
-        </div>
-
-        <div className="trading-form__group">
-          <label htmlFor="ctrader_password">cTrader Password *</label>
-          <input
-            id="ctrader_password"
-            type="password"
-            value={form.ctrader_password || ""}
-            onChange={(e) => handleChange("ctrader_password", e.target.value)}
-            placeholder="Your cTrader password"
-            className="trading-form__input"
-          />
-        </div>
-
-        <div className="trading-form__row">
-          <div className="trading-form__group">
-            <label htmlFor="ctrader_account_id">cTrader Account ID *</label>
-            <input
-              id="ctrader_account_id"
-              type="text"
-              value={form.ctrader_account_id || ""}
-              onChange={(e) => handleChange("ctrader_account_id", e.target.value)}
-              placeholder="Your cTrader account ID"
-              className="trading-form__input"
-            />
-          </div>
-
-          <div className="trading-form__group">
-            <label htmlFor="ctrader_server">Server</label>
-            <select
-              id="ctrader_server"
-              value={form.ctrader_server || ""}
-              onChange={(e) => handleChange("ctrader_server", e.target.value)}
-              className="trading-form__input"
-            >
-              <option value="">Default</option>
-              <option value="demo">Demo</option>
-              <option value="live">Live</option>
-            </select>
-          </div>
-        </div>
-      </section>
-
-      <section className="trading-form__section">
-        <h3>AI Configuration</h3>
-
-        <div className="trading-form__group">
-          <label htmlFor="claude_instructions">Claude Instructions</label>
-          <textarea
-            id="claude_instructions"
-            value={form.claude_instructions || ""}
-            onChange={(e) => handleChange("claude_instructions", e.target.value)}
-            placeholder="Provide instructions for Claude to optimize your trading strategy..."
-            className="trading-form__textarea"
-            rows={4}
-          />
+          <p className="trading-form__helper">
+            Example: `1.5` means when profit reaches 1.5R, stop loss moves to breakeven.
+          </p>
         </div>
       </section>
 

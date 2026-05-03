@@ -6,6 +6,10 @@ type StoredSettings = {
   claude_model: string;
   trading_agent_url: string;
   trading_agent_token: string;
+  ctrader_client_id: string;
+  ctrader_client_secret: string;
+  ctrader_access_token: string;
+  ctrader_account_id: string;
   updated_at?: string;
 };
 
@@ -16,6 +20,10 @@ const DEFAULTS: StoredSettings = {
   claude_model: "claude-sonnet-4-20250514",
   trading_agent_url: "",
   trading_agent_token: "",
+  ctrader_client_id: "",
+  ctrader_client_secret: "",
+  ctrader_access_token: "",
+  ctrader_account_id: "",
 };
 
 async function readSettings(env: Env): Promise<StoredSettings> {
@@ -52,6 +60,16 @@ function publicSettings(settings: StoredSettings) {
     trading_agent_url: settings.trading_agent_url,
     trading_agent_connected: Boolean(settings.trading_agent_url && settings.trading_agent_token),
     trading_agent_token_saved: Boolean(settings.trading_agent_token),
+    ctrader_client_id: settings.ctrader_client_id,
+    ctrader_account_id: settings.ctrader_account_id,
+    ctrader_connected: Boolean(
+      settings.ctrader_client_id &&
+      settings.ctrader_client_secret &&
+      settings.ctrader_access_token &&
+      settings.ctrader_account_id,
+    ),
+    ctrader_client_secret_saved: Boolean(settings.ctrader_client_secret),
+    ctrader_access_token_saved: Boolean(settings.ctrader_access_token),
     updated_at: settings.updated_at ?? null,
   };
 }
@@ -73,6 +91,10 @@ async function syncTradingAgent(settings: StoredSettings): Promise<{ ok: boolean
     body: JSON.stringify({
       anthropic_api_key: settings.anthropic_api_key,
       claude_model: settings.claude_model,
+      ctrader_client_id: settings.ctrader_client_id,
+      ctrader_client_secret: settings.ctrader_client_secret,
+      ctrader_access_token: settings.ctrader_access_token,
+      ctrader_account_id: settings.ctrader_account_id,
     }),
   });
 
@@ -107,13 +129,21 @@ export async function updateAppSettings(env: Env, request: Request): Promise<Res
     await upsertSetting(env, "claude_model", next.claude_model, updatedAt);
     await upsertSetting(env, "trading_agent_url", next.trading_agent_url, updatedAt);
     await upsertSetting(env, "trading_agent_token", next.trading_agent_token, updatedAt);
+    await upsertSetting(env, "ctrader_client_id", next.ctrader_client_id, updatedAt);
+    await upsertSetting(env, "ctrader_client_secret", next.ctrader_client_secret, updatedAt);
+    await upsertSetting(env, "ctrader_access_token", next.ctrader_access_token, updatedAt);
+    await upsertSetting(env, "ctrader_account_id", next.ctrader_account_id, updatedAt);
 
     let syncResult: { ok: boolean; message: string } | null = null;
     if (
       payload.anthropic_api_key !== undefined ||
       payload.claude_model !== undefined ||
       payload.trading_agent_url !== undefined ||
-      payload.trading_agent_token !== undefined
+      payload.trading_agent_token !== undefined ||
+      payload.ctrader_client_id !== undefined ||
+      payload.ctrader_client_secret !== undefined ||
+      payload.ctrader_access_token !== undefined ||
+      payload.ctrader_account_id !== undefined
     ) {
       try {
         syncResult = await syncTradingAgent(next);

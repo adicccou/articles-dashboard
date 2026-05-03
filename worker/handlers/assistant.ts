@@ -32,7 +32,7 @@ interface AssistantContext {
   }>;
   trading_strategies: Array<{
     name: string;
-    symbol: string;
+    assets: string[];
     strategy_type: string;
     status: string;
     total_trades: number;
@@ -168,7 +168,7 @@ async function buildAssistantContext(env: Env): Promise<AssistantContext> {
       `
         SELECT
           ts.name,
-          ts.symbol,
+          ts.assets,
           ts.strategy_type,
           ts.status,
           COALESCE(st.total_trades, 0) AS total_trades,
@@ -181,7 +181,7 @@ async function buildAssistantContext(env: Env): Promise<AssistantContext> {
       `,
     ).all<{
       name: string;
-      symbol: string;
+      assets: string;
       strategy_type: string;
       status: string;
       total_trades: number;
@@ -242,7 +242,18 @@ async function buildAssistantContext(env: Env): Promise<AssistantContext> {
     },
     recent_articles: recentArticles.results ?? [],
     reddit_campaigns: redditCampaigns.results ?? [],
-    trading_strategies: tradingStrategies.results ?? [],
+    trading_strategies: (tradingStrategies.results ?? []).map((strategy) => ({
+      ...strategy,
+      assets: (() => {
+        try {
+          const parsed = JSON.parse(strategy.assets) as unknown;
+          if (Array.isArray(parsed)) {
+            return parsed.map((value) => String(value));
+          }
+        } catch {}
+        return strategy.assets ? [strategy.assets] : [];
+      })(),
+    })),
     planner_items: plannerItems.results ?? [],
     trading_notes: tradingNotes.results ?? [],
   };

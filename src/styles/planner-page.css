@@ -37,6 +37,23 @@
   color: rgba(148, 163, 184, 0.84);
 }
 
+.scheduler-hero--minimal {
+  background: #ffffff;
+  color: #1f2937;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 16px 24px !important;
+  align-items: center;
+}
+
+.scheduler-hero--minimal h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.scheduler-hero--minimal .scheduler-hero__content {
+  flex: 1;
+}
+
 .scheduler-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

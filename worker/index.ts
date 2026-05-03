@@ -134,7 +134,11 @@ export default {
       if (!site) {
         return withCors(text("Missing site query parameter", 400));
       }
-      return withCors(json({ data: await getPublishedArticlesForSite(env, site) }));
+      try {
+        return withCors(json({ data: await getPublishedArticlesForSite(env, site) }));
+      } catch (err) {
+        return withCors(text("Internal server error", 500));
+      }
     }
 
     if (url.pathname.startsWith("/api/public/articles/") && request.method === "GET") {
@@ -143,11 +147,15 @@ export default {
       if (!site || !slug) {
         return withCors(text("Missing site or slug", 400));
       }
-      const article = await getPublishedArticleBySlug(env, site, slug);
-      if (!article) {
-        return withCors(text("Article not found", 404));
+      try {
+        const article = await getPublishedArticleBySlug(env, site, slug);
+        if (!article) {
+          return withCors(text("Article not found", 404));
+        }
+        return withCors(json({ data: article }));
+      } catch (err) {
+        return withCors(text("Internal server error", 500));
       }
-      return withCors(json({ data: article }));
     }
 
     if (url.pathname === "/api/sites" && request.method === "GET") {

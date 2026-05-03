@@ -45,6 +45,12 @@
   margin-bottom: 0;
 }
 
+.trading-form__helper {
+  margin: 0;
+  font-size: 13px;
+  color: #64748b;
+}
+
 .trading-form__group label {
   font-weight: 500;
   font-size: 14px;

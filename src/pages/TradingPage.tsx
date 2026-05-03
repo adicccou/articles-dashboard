@@ -103,17 +103,17 @@ export function TradingPage() {
           <div className="table">
             <div className="table__row table__row--header">
               <span>Name</span>
-              <span>Symbol</span>
-              <span>Type</span>
+              <span>Assets</span>
+              <span>Mode</span>
               <span>Status</span>
-              <span>Lot Size</span>
+              <span>Risk</span>
               <span>Actions</span>
             </div>
             {asArray<TradingStrategy>(strategies).map((strategy) => (
               <div className="table__row" key={strategy.id}>
                 <span className="truncate">{strategy.name}</span>
-                <span>{strategy.symbol}</span>
-                <span>{strategy.strategy_type}</span>
+                <span>{strategy.assets.join(", ")}</span>
+                <span>{strategy.execution_mode}</span>
                 <span>
                   <span
                     style={{
@@ -123,11 +123,11 @@ export function TradingPage() {
                       backgroundColor: strategy.status === "active" ? "#dcfce7" : "#f3f4f6",
                       color: strategy.status === "active" ? "#166534" : "#6b7280",
                     }}
-                  >
-                    {strategy.status}
-                  </span>
+                >
+                  {strategy.status}
                 </span>
-                <span>{strategy.lot_size}</span>
+                </span>
+                <span>${strategy.risk_usd_min}-${strategy.risk_usd_max} • {strategy.rr_min}R-{strategy.rr_max}R</span>
                 <span>
                   <button
                     onClick={() => handleSelectStrategy(strategy)}

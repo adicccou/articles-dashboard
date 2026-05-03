@@ -149,19 +149,16 @@ export type KnowledgeBaseVersion = {
 export type TradingStrategy = {
   id: number;
   name: string;
-  description?: string;
   knowledge_base_id?: number | null;
-  ctrader_login: string;
-  ctrader_password: string;
-  ctrader_account_id: string;
-  ctrader_server?: string;
-  symbol: string;
+  assets: string[];
   strategy_type: "scalping" | "daytrading" | "swing" | "position";
-  lot_size: number;
-  stop_loss_pips?: number | null;
-  take_profit_pips?: number | null;
+  risk_usd_min: number;
+  risk_usd_max: number;
+  rr_min: number;
+  rr_max: number;
+  breakeven_rr: number;
   max_open_positions: number;
-  claude_instructions?: string;
+  execution_mode: "demo" | "live";
   telegram_bot_token?: string;
   telegram_chat_id?: string;
   status: "active" | "inactive" | "paused" | "testing";
@@ -232,7 +229,7 @@ export type AssistantContext = {
   }>;
   trading_strategies: Array<{
     name: string;
-    symbol: string;
+    assets: string[];
     strategy_type: string;
     status: string;
     total_trades: number;
@@ -272,6 +269,11 @@ export type AppSettings = {
   trading_agent_url: string;
   trading_agent_connected: boolean;
   trading_agent_token_saved?: boolean;
+  ctrader_client_id: string;
+  ctrader_account_id: string;
+  ctrader_connected: boolean;
+  ctrader_client_secret_saved?: boolean;
+  ctrader_access_token_saved?: boolean;
   updated_at?: string | null;
   sync_result?: {
     ok: boolean;
@@ -284,6 +286,10 @@ export type AppSettingsInput = {
   claude_model?: string;
   trading_agent_url?: string;
   trading_agent_token?: string;
+  ctrader_client_id?: string;
+  ctrader_client_secret?: string;
+  ctrader_access_token?: string;
+  ctrader_account_id?: string;
 };
 
 export type PlannerItem = {

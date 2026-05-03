@@ -259,13 +259,9 @@ export function PlannerPage() {
     <div className="scheduler-page">
       {error ? <p className="error panel">{error}</p> : null}
 
-      <section className="panel scheduler-hero">
-        <div>
-          <p className="scheduler-eyebrow">Scheduling Workspace</p>
+      <section className="panel scheduler-hero scheduler-hero--minimal">
+        <div className="scheduler-hero__content">
           <h2>Scheduler</h2>
-          <p className="scheduler-hero__copy">
-            Keep planned posts and campaigns in one place, then switch between list and calendar views.
-          </p>
         </div>
         <div className="scheduler-hero__actions">
           <button className="button-secondary" onClick={() => void load({ silent: true })} disabled={refreshing}>

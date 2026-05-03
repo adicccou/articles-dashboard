@@ -26,6 +26,11 @@ export function App() {
     trading_agent_url: "",
     trading_agent_connected: false,
     trading_agent_token_saved: false,
+    ctrader_client_id: "",
+    ctrader_account_id: "",
+    ctrader_connected: false,
+    ctrader_client_secret_saved: false,
+    ctrader_access_token_saved: false,
   });
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
 

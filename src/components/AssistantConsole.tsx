@@ -260,9 +260,9 @@ export function AssistantConsole({
             {context?.trading_strategies?.length ? (
               <div className="assistant-list">
                 {context.trading_strategies.map((strategy) => (
-                  <div key={`${strategy.name}-${strategy.symbol}`} className="assistant-list__item">
+                  <div key={`${strategy.name}-${strategy.assets.join("-")}`} className="assistant-list__item">
                     <strong>
-                      {strategy.name} • {strategy.symbol}
+                      {strategy.name} • {strategy.assets.join(", ")}
                     </strong>
                     <span>
                       {strategy.status} • {strategy.total_trades} trades •{" "}

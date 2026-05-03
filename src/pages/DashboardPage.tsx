@@ -57,17 +57,24 @@ export function DashboardPage({
   onUpload,
 }: DashboardPageProps) {
   const [showSiteSettings, setShowSiteSettings] = useState(false);
+  const [isCreatingArticle, setIsCreatingArticle] = useState(false);
 
   function renderView() {
-    if (view === "articles" && selectedArticle) {
+    if (view === "articles" && (selectedArticle || isCreatingArticle)) {
       return (
         <ArticleEditor
           article={selectedArticle}
           sites={sites}
           categories={categories}
-          onSave={onSaveArticle}
+          onSave={async (payload, id) => {
+            await onSaveArticle(payload, id);
+            setIsCreatingArticle(false);
+          }}
           onUpload={onUpload}
-          onCancel={() => onSelectArticle(undefined)}
+          onCancel={() => {
+            onSelectArticle(undefined);
+            setIsCreatingArticle(false);
+          }}
         />
       );
     }
@@ -90,7 +97,7 @@ export function DashboardPage({
           <div className="panel__title-row">
             <h2>📊 Analytics</h2>
           </div>
-          <p style={{ color: "#6b7280", padding: "16px" }}>
+          <p className="muted">
             Track engagement and performance of your content across all platforms.
           </p>
         </section>
@@ -137,7 +144,10 @@ export function DashboardPage({
             <button onClick={() => setShowSiteSettings(true)} className="button-secondary">
               Sites Settings
             </button>
-            <button onClick={() => onSelectArticle(undefined)}>New article</button>
+            <button onClick={() => {
+              onSelectArticle(undefined);
+              setIsCreatingArticle(true);
+            }}>New article</button>
           </div>
         </div>
         <div className="table">
