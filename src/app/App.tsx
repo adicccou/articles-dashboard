@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
-import type { ArticleRecord, AuthState, Site, ArticleCategory } from "../lib/types";
+import type { ArticleRecord, AuthState, Site, ArticleCategory, AppSettings, AppSettingsInput } from "../lib/types";
 import { AssistantConsole } from "../components/AssistantConsole";
 import { LoginCard } from "../components/LoginCard";
 import { SettingsModal } from "../components/SettingsModal";
@@ -20,7 +20,14 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [assistantMinimized, setAssistantMinimized] = useState(false);
   const [assistantModalOpen, setAssistantModalOpen] = useState(false);
-  const [aiApiConnected, setAiApiConnected] = useState(false);
+  const [appSettings, setAppSettings] = useState<AppSettings>({
+    ai_api_connected: false,
+    claude_model: "claude-sonnet-4-20250514",
+    trading_agent_url: "",
+    trading_agent_connected: false,
+    trading_agent_token_saved: false,
+  });
+  const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -32,6 +39,8 @@ export function App() {
       if (data.auth.authenticated) {
         const cats = await api.getCategories();
         setCategories(cats);
+        const settings = await api.getSettings();
+        setAppSettings(settings);
       }
       setError(null);
     } catch (err) {
@@ -44,6 +53,18 @@ export function App() {
   useEffect(() => {
     void load();
   }, []);
+
+  async function saveSettings(payload: AppSettingsInput) {
+    const next = await api.updateSettings(payload);
+    setAppSettings(next);
+    setSettingsMessage(next.sync_result?.message ?? "Settings saved.");
+    return next;
+  }
+
+  async function syncAgentSettings() {
+    const result = await api.syncTradingAgentSettings();
+    setSettingsMessage(result.message);
+  }
 
   if (loading) {
     return <div className="loading-screen">Loading dashboard...</div>;
@@ -100,9 +121,11 @@ export function App() {
 
       {settingsOpen ? (
         <SettingsModal
-          aiApiConnected={aiApiConnected}
+          settings={appSettings}
+          syncMessage={settingsMessage}
           onClose={() => setSettingsOpen(false)}
-          onSaveAiKey={() => setAiApiConnected(true)}
+          onSave={saveSettings}
+          onSyncAgent={syncAgentSettings}
         />
       ) : null}
 

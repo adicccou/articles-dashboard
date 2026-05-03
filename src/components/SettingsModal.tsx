@@ -1,15 +1,26 @@
 import { APIConnectionPanel } from "./APIConnectionPanel";
+import type { AppSettingsInput } from "../lib/types";
 
 type SettingsModalProps = {
-  aiApiConnected: boolean;
+  settings: {
+    ai_api_connected: boolean;
+    claude_model: string;
+    trading_agent_url: string;
+    trading_agent_connected: boolean;
+    trading_agent_token_saved?: boolean;
+  };
+  syncMessage: string | null;
   onClose: () => void;
-  onSaveAiKey: (apiKey: string) => void;
+  onSave: (payload: AppSettingsInput) => Promise<unknown>;
+  onSyncAgent: () => Promise<unknown>;
 };
 
 export function SettingsModal({
-  aiApiConnected,
+  settings,
+  syncMessage,
   onClose,
-  onSaveAiKey,
+  onSave,
+  onSyncAgent,
 }: SettingsModalProps) {
   return (
     <div className="settings-modal-backdrop" onClick={onClose}>
@@ -25,11 +36,16 @@ export function SettingsModal({
         </div>
 
         <APIConnectionPanel
-          aiApiConnected={aiApiConnected}
-          onAiApiConnect={onSaveAiKey}
-          showTelegram={false}
+          aiApiConnected={settings.ai_api_connected}
+          claudeModel={settings.claude_model}
+          tradingAgentUrl={settings.trading_agent_url}
+          tradingAgentConnected={settings.trading_agent_connected}
+          tradingAgentTokenSaved={settings.trading_agent_token_saved}
+          syncMessage={syncMessage}
+          onSave={onSave}
+          onSyncAgent={onSyncAgent}
           title="AI API Connection"
-          description="One shared AI connection for the entire dashboard. Trading and other tools use this single setup."
+          description="One shared AI connection for the dashboard and the Python trading agent. Save it here once, then sync it to the agent."
         />
       </div>
     </div>

@@ -266,6 +266,26 @@ export type AssistantChatResponse = {
   }>;
 };
 
+export type AppSettings = {
+  ai_api_connected: boolean;
+  claude_model: string;
+  trading_agent_url: string;
+  trading_agent_connected: boolean;
+  trading_agent_token_saved?: boolean;
+  updated_at?: string | null;
+  sync_result?: {
+    ok: boolean;
+    message: string;
+  } | null;
+};
+
+export type AppSettingsInput = {
+  anthropic_api_key?: string;
+  claude_model?: string;
+  trading_agent_url?: string;
+  trading_agent_token?: string;
+};
+
 export type PlannerItem = {
   id: number;
   title: string;

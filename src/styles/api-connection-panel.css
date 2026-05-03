@@ -96,3 +96,23 @@
   background: #d1d5db;
   cursor: not-allowed;
 }
+
+.api-panel__button-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.api-panel__button--secondary {
+  background: #0f172a;
+}
+
+.api-panel__button--secondary:hover:not(:disabled) {
+  background: #020617;
+}
+
+.api-panel__helper {
+  margin: 0;
+  color: #475569;
+  font-size: 13px;
+}

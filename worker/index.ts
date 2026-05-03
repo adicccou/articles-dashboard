@@ -7,6 +7,7 @@ import { handleAuthorizeRequest, handleOAuthCallback, listRedditAccounts, delete
 import { getKnowledgeBase, saveKnowledgeBase, getVersions, getVersion } from "./handlers/knowledge-base";
 import { listStrategies, getStrategy, createStrategy, updateStrategy, deleteStrategy, getStrategyStats, getStrategyExecutions } from "./handlers/trading";
 import { chatWithAssistant } from "./handlers/assistant";
+import { getAppSettings, syncAgentFromSettings, updateAppSettings } from "./handlers/settings";
 import {
   listPlannerItems,
   createPlannerItem,
@@ -215,6 +216,24 @@ export default {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
       return handleMediaUpload(request, env);
+    }
+
+    if (url.pathname === "/api/settings" && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return getAppSettings(env);
+    }
+
+    if (url.pathname === "/api/settings" && request.method === "PUT") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return updateAppSettings(env, request);
+    }
+
+    if (url.pathname === "/api/settings/sync-agent" && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return syncAgentFromSettings(env);
     }
 
     if (url.pathname.startsWith("/api/media/") && request.method === "GET") {

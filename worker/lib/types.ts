@@ -11,6 +11,7 @@ export type Env = {
   REDDIT_REDIRECT_URI?: string;
   CLAUDE_API_KEY?: string;
   CLAUDE_MODEL?: string;
+  TRADING_AGENT_SYNC_SECRET?: string;
 };
 
 export type SiteRow = {

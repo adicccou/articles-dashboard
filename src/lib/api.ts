@@ -1,4 +1,4 @@
-import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput } from "./types";
+import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput } from "./types";
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -157,5 +157,16 @@ export const api = {
   deleteRedditAccount: (id: number) =>
     request<{ success: boolean }>(`/api/reddit/accounts/${id}`, {
       method: "DELETE",
+    }),
+  getSettings: () => request<AppSettings>("/api/settings"),
+  updateSettings: (payload: AppSettingsInput) =>
+    request<AppSettings>("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  syncTradingAgentSettings: () =>
+    request<{ ok: boolean; message: string }>("/api/settings/sync-agent", {
+      method: "POST",
+      body: JSON.stringify({}),
     }),
 };
