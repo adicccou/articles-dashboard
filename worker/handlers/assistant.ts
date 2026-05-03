@@ -89,6 +89,32 @@ interface AssistantActionResult {
   message: string;
 }
 
+interface AssistantRuntimeSettings {
+  anthropicApiKey: string;
+  claudeModel: string;
+}
+
+async function readAssistantRuntimeSettings(env: Env): Promise<AssistantRuntimeSettings> {
+  const rows = await env.DB.prepare(
+    "SELECT key, value FROM app_settings WHERE key IN ('anthropic_api_key', 'claude_model')",
+  ).all<{ key: string; value: string }>();
+
+  let anthropicApiKey = env.CLAUDE_API_KEY ?? "";
+  let claudeModel = env.CLAUDE_MODEL ?? "claude-sonnet-4-20250514";
+
+  for (const row of rows.results ?? []) {
+    if (row.key === "anthropic_api_key" && row.value) {
+      anthropicApiKey = row.value;
+    }
+
+    if (row.key === "claude_model" && row.value) {
+      claudeModel = row.value;
+    }
+  }
+
+  return { anthropicApiKey, claudeModel };
+}
+
 async function buildAssistantContext(env: Env): Promise<AssistantContext> {
   const [
     overviewRow,
@@ -362,7 +388,9 @@ async function executeAssistantActions(
 
 export async function chatWithAssistant(env: Env, request: Request): Promise<Response> {
   try {
-    if (!env.CLAUDE_API_KEY) {
+    const runtimeSettings = await readAssistantRuntimeSettings(env);
+
+    if (!runtimeSettings.anthropicApiKey) {
       return errorResponse("CLAUDE_API_KEY is not configured", 500);
     }
 
@@ -380,8 +408,8 @@ export async function chatWithAssistant(env: Env, request: Request): Promise<Res
 
     const context = await buildAssistantContext(env);
     const rawReply = await callClaudeText({
-      apiKey: env.CLAUDE_API_KEY,
-      model: env.CLAUDE_MODEL ?? "claude-sonnet-4-20250514",
+      apiKey: runtimeSettings.anthropicApiKey,
+      model: runtimeSettings.claudeModel,
       maxTokens: 1400,
       system: buildSystemPrompt(context),
       messages,
