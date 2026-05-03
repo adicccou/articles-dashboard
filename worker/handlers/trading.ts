@@ -83,7 +83,7 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
         status,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'inactive', ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'inactive', ?, ?)`,
     )
       .bind(
         payload.name,
@@ -151,6 +151,22 @@ export async function updateStrategy(
     if (payload.description !== undefined) {
       updates.push("description = ?");
       values.push(payload.description);
+    }
+    if (payload.ctrader_login !== undefined) {
+      updates.push("ctrader_login = ?");
+      values.push(payload.ctrader_login);
+    }
+    if (payload.ctrader_password !== undefined) {
+      updates.push("ctrader_password = ?");
+      values.push(payload.ctrader_password);
+    }
+    if (payload.ctrader_account_id !== undefined) {
+      updates.push("ctrader_account_id = ?");
+      values.push(payload.ctrader_account_id);
+    }
+    if (payload.ctrader_server !== undefined) {
+      updates.push("ctrader_server = ?");
+      values.push(payload.ctrader_server);
     }
     if (payload.symbol !== undefined) {
       updates.push("symbol = ?");
