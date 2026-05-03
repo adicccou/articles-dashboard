@@ -18,7 +18,7 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [assistantMinimized, setAssistantMinimized] = useState(false);
+  const [assistantMinimized, setAssistantMinimized] = useState(true);
   const [assistantModalOpen, setAssistantModalOpen] = useState(false);
   const [appSettings, setAppSettings] = useState<AppSettings>({
     ai_api_connected: false,
