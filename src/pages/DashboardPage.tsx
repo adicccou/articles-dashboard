@@ -5,6 +5,8 @@ import { ArticleEditor } from "../components/ArticleEditor";
 import { SiteForm } from "../components/SiteForm";
 import { RedditAgentPage } from "./RedditAgentPage";
 import { TradingPage } from "./TradingPage";
+import { PlannerPage } from "./PlannerPage";
+import { ViewErrorBoundary } from "../components/ViewErrorBoundary";
 import "../styles/trading-page.css";
 
 type DashboardPageProps = {
@@ -56,114 +58,108 @@ export function DashboardPage({
 }: DashboardPageProps) {
   const [showSiteSettings, setShowSiteSettings] = useState(false);
 
-  if (view === "articles" && selectedArticle) {
-    return (
-      <ArticleEditor
-        article={selectedArticle}
-        sites={sites}
-        categories={categories}
-        onSave={onSaveArticle}
-        onUpload={onUpload}
-        onCancel={() => onSelectArticle(undefined)}
-      />
-    );
-  }
+  function renderView() {
+    if (view === "articles" && selectedArticle) {
+      return (
+        <ArticleEditor
+          article={selectedArticle}
+          sites={sites}
+          categories={categories}
+          onSave={onSaveArticle}
+          onUpload={onUpload}
+          onCancel={() => onSelectArticle(undefined)}
+        />
+      );
+    }
 
-  if (view === "reddit") {
-    return <RedditAgentPage />;
-  }
+    if (view === "reddit") {
+      return <RedditAgentPage />;
+    }
 
-  if (view === "trading") {
-    return <TradingPage />;
-  }
+    if (view === "trading") {
+      return <TradingPage />;
+    }
 
-  if (view === "planner") {
-    return (
-      <section className="panel">
-        <div className="panel__title-row">
-          <h2>📅 Post Planner</h2>
-        </div>
-        <p style={{ color: "#6b7280", padding: "16px" }}>
-          Schedule articles and posts across your sites and social media accounts.
-        </p>
-      </section>
-    );
-  }
+    if (view === "planner") {
+      return <PlannerPage />;
+    }
 
-  if (view === "analytics") {
-    return (
-      <section className="panel">
-        <div className="panel__title-row">
-          <h2>📊 Analytics</h2>
-        </div>
-        <p style={{ color: "#6b7280", padding: "16px" }}>
-          Track engagement and performance of your content across all platforms.
-        </p>
-      </section>
-    );
-  }
-
-  if (showSiteSettings) {
-    return (
-      <div className="stack">
-        <button onClick={() => setShowSiteSettings(false)} className="button-secondary">
-          ← Back to Articles
-        </button>
-        <SiteForm onCreate={onCreateSite} />
+    if (view === "analytics") {
+      return (
         <section className="panel">
           <div className="panel__title-row">
-            <h2>Connected Sites</h2>
+            <h2>📊 Analytics</h2>
           </div>
-          <div className="table">
-            <div className="table__row table__row--header">
-              <span>Name</span>
-              <span>Slug</span>
-              <span>Domain</span>
-              <span>Status</span>
-            </div>
-            {sites.map((site) => (
-              <div className="table__row" key={site.id}>
-                <span>{site.name}</span>
-                <span>{site.slug}</span>
-                <span>{site.domain}</span>
-                <span>{site.status}</span>
-              </div>
-            ))}
-          </div>
+          <p style={{ color: "#6b7280", padding: "16px" }}>
+            Track engagement and performance of your content across all platforms.
+          </p>
         </section>
-      </div>
+      );
+    }
+
+    if (showSiteSettings) {
+      return (
+        <div className="stack">
+          <button onClick={() => setShowSiteSettings(false)} className="button-secondary">
+            ← Back to Articles
+          </button>
+          <SiteForm onCreate={onCreateSite} />
+          <section className="panel">
+            <div className="panel__title-row">
+              <h2>Connected Sites</h2>
+            </div>
+            <div className="table">
+              <div className="table__row table__row--header">
+                <span>Name</span>
+                <span>Slug</span>
+                <span>Domain</span>
+                <span>Status</span>
+              </div>
+              {sites.map((site) => (
+                <div className="table__row" key={site.id}>
+                  <span>{site.name}</span>
+                  <span>{site.slug}</span>
+                  <span>{site.domain}</span>
+                  <span>{site.status}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+      );
+    }
+
+    return (
+      <section className="panel">
+        <div className="panel__title-row">
+          <h2>Articles</h2>
+          <div className="actions">
+            <button onClick={() => setShowSiteSettings(true)} className="button-secondary">
+              Sites Settings
+            </button>
+            <button onClick={() => onSelectArticle(undefined)}>New article</button>
+          </div>
+        </div>
+        <div className="table">
+          <div className="table__row table__row--header">
+            <span>Title</span>
+            <span>Category</span>
+            <span>Status</span>
+            <span>Sites</span>
+            <span>Updated</span>
+          </div>
+          {articles.map((article) => (
+            <button className="table__row table__button-row" key={article.id} onClick={() => onSelectArticle(article)}>
+              <span>{article.title}</span>
+              <span>{article.category?.name || "—"}</span>
+              <span>{article.status}</span>
+              <span>{article.site_ids.length}</span>
+              <span>{new Date(article.updated_at).toLocaleString()}</span>
+            </button>
+          ))}
+        </div>
+      </section>
     );
   }
-
-  return (
-    <section className="panel">
-      <div className="panel__title-row">
-        <h2>Articles</h2>
-        <div className="actions">
-          <button onClick={() => setShowSiteSettings(true)} className="button-secondary">
-            Sites Settings
-          </button>
-          <button onClick={() => onSelectArticle(undefined)}>New article</button>
-        </div>
-      </div>
-      <div className="table">
-        <div className="table__row table__row--header">
-          <span>Title</span>
-          <span>Category</span>
-          <span>Status</span>
-          <span>Sites</span>
-          <span>Updated</span>
-        </div>
-        {articles.map((article) => (
-          <button className="table__row table__button-row" key={article.id} onClick={() => onSelectArticle(article)}>
-            <span>{article.title}</span>
-            <span>{article.category?.name || "—"}</span>
-            <span>{article.status}</span>
-            <span>{article.site_ids.length}</span>
-            <span>{new Date(article.updated_at).toLocaleString()}</span>
-          </button>
-        ))}
-      </div>
-    </section>
-  );
+  return <ViewErrorBoundary resetKey={`${view}-${selectedArticle?.id ?? "none"}-${showSiteSettings ? "sites" : "main"}`}>{renderView()}</ViewErrorBoundary>;
 }

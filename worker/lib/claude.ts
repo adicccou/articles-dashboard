@@ -14,32 +14,33 @@ export interface ClaudeResponse {
   };
 }
 
-export async function generateCommentReply(
-  redditComment: {
-    subreddit: string;
-    author: string;
-    content: string;
-  },
-  agentInstructions: string,
-  claudeApiKey: string,
-): Promise<string> {
-  const response = await fetch("https://api.anthropic.com/v1/messages/create", {
+interface ClaudeTextRequest {
+  apiKey: string;
+  model: string;
+  maxTokens: number;
+  system?: string;
+  messages: ClaudeMessage[];
+}
+
+export async function callClaudeText({
+  apiKey,
+  model,
+  maxTokens,
+  system,
+  messages,
+}: ClaudeTextRequest): Promise<string> {
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
-      "x-api-key": claudeApiKey,
+      "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "claude-opus-4-7",
-      max_tokens: 500,
-      system: agentInstructions,
-      messages: [
-        {
-          role: "user",
-          content: `You are replying to a Reddit comment in r/${redditComment.subreddit} from user ${redditComment.author}.\n\nTheir comment:\n\n"${redditComment.content}"\n\nWrite a helpful, authentic reply that would fit naturally in Reddit. Keep it under 500 characters. Do not mention that you are an AI.`,
-        },
-      ],
+      model,
+      max_tokens: maxTokens,
+      system,
+      messages,
     }),
   });
 
@@ -58,33 +59,47 @@ export async function generateCommentReply(
   return firstContent.text;
 }
 
+export async function generateCommentReply(
+  redditComment: {
+    subreddit: string;
+    author: string;
+    content: string;
+  },
+  agentInstructions: string,
+  claudeApiKey: string,
+): Promise<string> {
+  return callClaudeText({
+    apiKey: claudeApiKey,
+    model: "claude-sonnet-4-20250514",
+    maxTokens: 500,
+    system: agentInstructions,
+    messages: [
+      {
+        role: "user",
+        content: `You are replying to a Reddit comment in r/${redditComment.subreddit} from user ${redditComment.author}.\n\nTheir comment:\n\n"${redditComment.content}"\n\nWrite a helpful, authentic reply that would fit naturally in Reddit. Keep it under 500 characters. Do not mention that you are an AI.`,
+      },
+    ],
+  });
+}
+
 export async function validateAgentInstructions(
   instructions: string,
   claudeApiKey: string,
 ): Promise<boolean> {
   try {
-    // Test with a simple prompt to ensure the instructions are valid
-    const response = await fetch("https://api.anthropic.com/v1/messages/create", {
-      method: "POST",
-      headers: {
-        "x-api-key": claudeApiKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "claude-opus-4-7",
-        max_tokens: 100,
-        system: instructions,
-        messages: [
-          {
-            role: "user",
-            content: "Say 'ready' if you understood your role.",
-          },
-        ],
-      }),
+    await callClaudeText({
+      apiKey: claudeApiKey,
+      model: "claude-sonnet-4-20250514",
+      maxTokens: 100,
+      system: instructions,
+      messages: [
+        {
+          role: "user",
+          content: "Say 'ready' if you understood your role.",
+        },
+      ],
     });
-
-    return response.ok;
+    return true;
   } catch {
     return false;
   }

@@ -1,4 +1,5 @@
 import React from "react";
+import logoMark from "../assets/my-logo.svg";
 import styles from "../styles/topnav.module.css";
 
 export type NavView =
@@ -11,28 +12,30 @@ export type NavView =
 interface TopNavProps {
   currentView: NavView;
   onNavigate: (view: NavView) => void;
-  username?: string;
+  onOpenSettings: () => void;
   onLogout: () => void;
 }
 
 export const TopNav: React.FC<TopNavProps> = ({
   currentView,
   onNavigate,
-  username,
+  onOpenSettings,
   onLogout,
 }) => {
   const navItems: Array<{ label: string; view: NavView }> = [
     { label: "Articles", view: "articles" },
     { label: "Reddit Agents", view: "reddit" },
     { label: "Trading", view: "trading" },
-    { label: "Planner", view: "planner" },
+    { label: "Scheduler", view: "planner" },
     { label: "Analytics", view: "analytics" },
   ];
 
   return (
     <nav className={styles.topnav}>
       <div className={styles.container}>
-        <div className={styles.logo}>📝 BlogPoster</div>
+        <div className={styles.logo} aria-label="BlogPoster logo">
+          <img src={logoMark} alt="BlogPoster" className={styles.logoImage} />
+        </div>
 
         <div className={styles.navItems}>
           {navItems.map(({ label, view }) => (
@@ -49,7 +52,15 @@ export const TopNav: React.FC<TopNavProps> = ({
         </div>
 
         <div className={styles.userMenu}>
-          <span className={styles.username}>{username}</span>
+          <button
+            type="button"
+            className={styles.settingsBtn}
+            onClick={onOpenSettings}
+            aria-label="Open settings"
+            title="Settings"
+          >
+            ⚙
+          </button>
           <button className={styles.logoutBtn} onClick={onLogout}>
             Logout
           </button>

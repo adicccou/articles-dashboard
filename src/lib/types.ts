@@ -162,6 +162,7 @@ export type TradingStrategy = {
   take_profit_pips?: number | null;
   max_open_positions: number;
   claude_instructions?: string;
+  telegram_bot_token?: string;
   telegram_chat_id?: string;
   status: "active" | "inactive" | "paused" | "testing";
   created_at: string;
@@ -198,4 +199,113 @@ export type TradingStats = {
   largest_win_pips: number;
   largest_loss_pips: number;
   updated_at: string;
+};
+
+export type AssistantMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type AssistantContext = {
+  overview: {
+    total_sites: number;
+    total_articles: number;
+    draft_articles: number;
+    published_articles: number;
+    reddit_campaigns: number;
+    active_reddit_campaigns: number;
+    trading_strategies: number;
+    active_trading_strategies: number;
+    total_closed_trades: number;
+    total_open_trades: number;
+  };
+  recent_articles: Array<{
+    title: string;
+    status: string;
+    updated_at: string;
+  }>;
+  reddit_campaigns: Array<{
+    name: string;
+    subreddit: string;
+    status: string;
+    approval_method: string;
+  }>;
+  trading_strategies: Array<{
+    name: string;
+    symbol: string;
+    strategy_type: string;
+    status: string;
+    total_trades: number;
+    win_rate: number;
+    total_pips: number;
+  }>;
+  planner_items: Array<{
+    id: number;
+    title: string;
+    platform: string;
+    status: string;
+    scheduled_for: string | null;
+  }>;
+  trading_notes: Array<{
+    id: number;
+    title: string;
+    note_type: string;
+    strategy_name: string | null;
+    created_at: string;
+  }>;
+};
+
+export type AssistantChatResponse = {
+  message: string;
+  context: AssistantContext;
+  action_results?: Array<{
+    type: string;
+    count?: number;
+    ids?: number[];
+    message: string;
+  }>;
+};
+
+export type PlannerItem = {
+  id: number;
+  title: string;
+  description?: string | null;
+  item_type: "post" | "campaign";
+  platform: string;
+  status: "planned" | "drafting" | "approved" | "published" | "archived";
+  scheduled_for?: string | null;
+  related_strategy_id?: number | null;
+  related_strategy_name?: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TradingNote = {
+  id: number;
+  strategy_id?: number | null;
+  strategy_name?: string | null;
+  title: string;
+  content: string;
+  note_type: "analysis" | "idea" | "review" | "risk";
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PlannerItemInput = {
+  title: string;
+  description?: string | null;
+  item_type?: "post" | "campaign";
+  platform: string;
+  status?: "planned" | "drafting" | "approved" | "published" | "archived";
+  scheduled_for?: string | null;
+  related_strategy_id?: number | null;
+};
+
+export type TradingNoteInput = {
+  strategy_id?: number | null;
+  title: string;
+  content: string;
+  note_type?: "analysis" | "idea" | "review" | "risk";
 };

@@ -10,6 +10,7 @@ export type Env = {
   REDDIT_CLIENT_SECRET?: string;
   REDDIT_REDIRECT_URI?: string;
   CLAUDE_API_KEY?: string;
+  CLAUDE_MODEL?: string;
 };
 
 export type SiteRow = {

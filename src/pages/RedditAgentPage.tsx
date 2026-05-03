@@ -3,6 +3,7 @@ import type { RedditCampaign, RedditAccount } from "../lib/types";
 import { api } from "../lib/api";
 import { RedditCampaignForm } from "../components/RedditCampaignForm";
 import { KnowledgeBaseEditor } from "../components/KnowledgeBaseEditor";
+import { asArray } from "../lib/collections";
 
 type TabView = "campaigns" | "accounts" | "form" | "knowledge-base";
 
@@ -24,8 +25,8 @@ export function RedditAgentPage() {
         api.listCampaigns(),
         api.listRedditAccounts(),
       ]);
-      setCampaigns(campaignsData);
-      setAccounts(accountsData);
+      setCampaigns(asArray<RedditCampaign>(campaignsData));
+      setAccounts(asArray<RedditAccount>(accountsData));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load Reddit agent data");
@@ -49,7 +50,7 @@ export function RedditAgentPage() {
           ← Back to Campaigns
         </button>
         <RedditCampaignForm
-          accounts={accounts}
+          accounts={asArray<RedditAccount>(accounts)}
           onSubmit={async (data) => {
             if (editingId) {
               await api.updateCampaign(editingId, data);
@@ -91,7 +92,7 @@ export function RedditAgentPage() {
                 <span>Connected</span>
                 <span>Actions</span>
               </div>
-              {accounts.map((account) => (
+              {asArray<RedditAccount>(accounts).map((account) => (
                 <div className="table__row" key={account.id}>
                   <span>{account.name}</span>
                   <span>{account.status}</span>
@@ -176,7 +177,7 @@ export function RedditAgentPage() {
               <span>Status</span>
               <span>Actions</span>
             </div>
-            {campaigns.map((campaign) => (
+            {asArray<RedditCampaign>(campaigns).map((campaign) => (
               <div className="table__row" key={campaign.id}>
                 <span className="truncate">{campaign.name}</span>
                 <span>r/{campaign.subreddit}</span>

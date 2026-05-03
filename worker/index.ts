@@ -6,6 +6,17 @@ import { listCampaigns, createCampaign, updateCampaign, deleteCampaign, getCampa
 import { handleAuthorizeRequest, handleOAuthCallback, listRedditAccounts, deleteRedditAccount } from "./handlers/reddit-auth";
 import { getKnowledgeBase, saveKnowledgeBase, getVersions, getVersion } from "./handlers/knowledge-base";
 import { listStrategies, getStrategy, createStrategy, updateStrategy, deleteStrategy, getStrategyStats, getStrategyExecutions } from "./handlers/trading";
+import { chatWithAssistant } from "./handlers/assistant";
+import {
+  listPlannerItems,
+  createPlannerItem,
+  updatePlannerItem,
+  deletePlannerItem,
+  listTradingNotes,
+  createTradingNote,
+  updateTradingNote,
+  deleteTradingNote,
+} from "./handlers/planner";
 
 function withCors(response: Response): Response {
   const headers = new Headers(response.headers);
@@ -358,6 +369,64 @@ export default {
       const parts = url.pathname.split("/");
       const id = parts[4];
       return await getStrategyExecutions(env, id);
+    }
+
+    if (url.pathname === "/api/assistant/chat" && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await chatWithAssistant(env, request);
+    }
+
+    if (url.pathname === "/api/planner/items" && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await listPlannerItems(env);
+    }
+
+    if (url.pathname === "/api/planner/items" && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await createPlannerItem(env, request);
+    }
+
+    if (url.pathname.startsWith("/api/planner/items/") && request.method === "PUT") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      return await updatePlannerItem(env, id, request);
+    }
+
+    if (url.pathname.startsWith("/api/planner/items/") && request.method === "DELETE") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      return await deletePlannerItem(env, id);
+    }
+
+    if (url.pathname === "/api/trading/notes" && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await listTradingNotes(env);
+    }
+
+    if (url.pathname === "/api/trading/notes" && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await createTradingNote(env, request);
+    }
+
+    if (url.pathname.startsWith("/api/trading/notes/") && request.method === "PUT") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      return await updateTradingNote(env, id, request);
+    }
+
+    if (url.pathname.startsWith("/api/trading/notes/") && request.method === "DELETE") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      return await deleteTradingNote(env, id);
     }
 
     return env.ASSETS.fetch(request);

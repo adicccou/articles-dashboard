@@ -37,3 +37,33 @@
   border-radius: 6px;
   margin-bottom: 16px;
 }
+
+.error-panel {
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a3412;
+}
+
+.error-panel__message {
+  margin: 0 0 10px;
+  font-weight: 600;
+}
+
+.error-panel__hint {
+  margin: 0;
+  color: #7c2d12;
+}
+
+.settings-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.38);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  z-index: 220;
+}
+
+.settings-modal {
+  width: min(720px, 100%);
+}

@@ -2,17 +2,23 @@ import { useState } from "react";
 import "../styles/api-connection-panel.css";
 
 interface APIConnectionPanelProps {
-  claudeApiKey?: boolean;
+  aiApiConnected?: boolean;
   telegramChatId?: string;
-  onClaudeChange?: (apiKey: string) => void;
+  onAiApiConnect?: (apiKey: string) => void;
   onTelegramChange?: (chatId: string) => void;
+  showTelegram?: boolean;
+  title?: string;
+  description?: string;
 }
 
 export function APIConnectionPanel({
-  claudeApiKey,
+  aiApiConnected,
   telegramChatId,
-  onClaudeChange,
+  onAiApiConnect,
   onTelegramChange,
+  showTelegram = true,
+  title = "AI API Connection",
+  description = "Shared settings used across all tools. Keep one AI API connection here instead of repeating it in each section.",
 }: APIConnectionPanelProps) {
   const [claudeKey, setClaudeKey] = useState("");
   const [telegramChat, setTelegramChat] = useState(telegramChatId || "");
@@ -26,17 +32,14 @@ export function APIConnectionPanel({
 
   return (
     <div className="api-panel">
-      <h3 className="api-panel__title">🔌 Global API Connections</h3>
-      <p className="api-panel__description">
-        Shared settings used across all trading strategies. cTrader credentials are configured per strategy.
-      </p>
+      <h3 className="api-panel__title">{title}</h3>
+      <p className="api-panel__description">{description}</p>
 
-      {/* Claude API Connection */}
       <div className="api-panel__section">
         <div className="api-panel__header">
-          <h4>Claude API</h4>
-          <span className={`api-panel__status ${claudeApiKey ? "connected" : "disconnected"}`}>
-            {claudeApiKey ? "✓ Connected" : "○ Not Connected"}
+          <h4>Anthropic / Claude API</h4>
+          <span className={`api-panel__status ${aiApiConnected ? "connected" : "disconnected"}`}>
+            {aiApiConnected ? "✓ Connected" : "○ Not Connected"}
           </span>
         </div>
         <div className="api-panel__inputs">
@@ -50,7 +53,7 @@ export function APIConnectionPanel({
           <button
             onClick={() => {
               if (claudeKey) {
-                onClaudeChange?.(claudeKey);
+                onAiApiConnect?.(claudeKey);
               }
               handleTestConnection("claude");
             }}
@@ -62,36 +65,37 @@ export function APIConnectionPanel({
         </div>
       </div>
 
-      {/* Telegram Connection */}
-      <div className="api-panel__section">
-        <div className="api-panel__header">
-          <h4>Telegram Bot</h4>
-          <span className={`api-panel__status ${telegramChat ? "connected" : "disconnected"}`}>
-            {telegramChat ? "✓ Connected" : "○ Not Connected"}
-          </span>
+      {showTelegram ? (
+        <div className="api-panel__section">
+          <div className="api-panel__header">
+            <h4>Telegram Bot</h4>
+            <span className={`api-panel__status ${telegramChat ? "connected" : "disconnected"}`}>
+              {telegramChat ? "✓ Connected" : "○ Not Connected"}
+            </span>
+          </div>
+          <div className="api-panel__inputs">
+            <input
+              type="text"
+              placeholder="Telegram Chat ID"
+              value={telegramChat}
+              onChange={(e) => setTelegramChat(e.target.value)}
+              className="api-panel__input"
+            />
+            <button
+              onClick={() => {
+                if (telegramChat) {
+                  onTelegramChange?.(telegramChat);
+                }
+                handleTestConnection("telegram");
+              }}
+              disabled={testingConnection === "telegram"}
+              className="api-panel__button"
+            >
+              {testingConnection === "telegram" ? "Testing..." : "Connect"}
+            </button>
+          </div>
         </div>
-        <div className="api-panel__inputs">
-          <input
-            type="text"
-            placeholder="Telegram Chat ID"
-            value={telegramChat}
-            onChange={(e) => setTelegramChat(e.target.value)}
-            className="api-panel__input"
-          />
-          <button
-            onClick={() => {
-              if (telegramChat) {
-                onTelegramChange?.(telegramChat);
-              }
-              handleTestConnection("telegram");
-            }}
-            disabled={testingConnection === "telegram"}
-            className="api-panel__button"
-          >
-            {testingConnection === "telegram" ? "Testing..." : "Connect"}
-          </button>
-        </div>
-      </div>
+      ) : null}
     </div>
   );
 }

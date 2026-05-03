@@ -1,4 +1,4 @@
-import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, RedditCampaign, RedditAccount } from "./types";
+import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput } from "./types";
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -103,6 +103,41 @@ export const api = {
     request<TradingStats>(`/api/trading/strategies/${id}/stats`),
   getTradingExecutions: (id: number) =>
     request<TradingExecution[]>(`/api/trading/strategies/${id}/executions`),
+  chatWithAssistant: (messages: AssistantMessage[]) =>
+    request<AssistantChatResponse>("/api/assistant/chat", {
+      method: "POST",
+      body: JSON.stringify({ messages }),
+    }),
+  listPlannerItems: () => request<PlannerItem[]>("/api/planner/items"),
+  createPlannerItem: (payload: PlannerItemInput) =>
+    request<PlannerItem>("/api/planner/items", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updatePlannerItem: (id: number, payload: Partial<PlannerItemInput>) =>
+    request<{ success: boolean; updated_at: string }>(`/api/planner/items/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  deletePlannerItem: (id: number) =>
+    request<{ success: boolean }>(`/api/planner/items/${id}`, {
+      method: "DELETE",
+    }),
+  listTradingNotes: () => request<TradingNote[]>("/api/trading/notes"),
+  createTradingNote: (payload: TradingNoteInput) =>
+    request<TradingNote>("/api/trading/notes", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateTradingNote: (id: number, payload: Partial<TradingNoteInput>) =>
+    request<{ success: boolean; updated_at: string }>(`/api/trading/notes/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  deleteTradingNote: (id: number) =>
+    request<{ success: boolean }>(`/api/trading/notes/${id}`, {
+      method: "DELETE",
+    }),
   listCampaigns: () => request<RedditCampaign[]>("/api/reddit/campaigns"),
   createCampaign: (payload: Omit<RedditCampaign, "id" | "created_at" | "updated_at">) =>
     request<RedditCampaign>("/api/reddit/campaigns", {

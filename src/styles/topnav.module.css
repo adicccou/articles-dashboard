@@ -18,11 +18,17 @@
 }
 
 .logo {
-  font-size: 18px;
-  font-weight: 700;
-  color: #1f2937;
   margin-right: 40px;
-  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.logoImage {
+  display: block;
+  height: 34px;
+  width: auto;
+  max-width: 160px;
 }
 
 .navItems {
@@ -58,13 +64,25 @@
 .userMenu {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 10px;
 }
 
-.username {
-  font-size: 14px;
-  color: #6b7280;
-  font-weight: 500;
+.settingsBtn {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  color: #475569;
+  font-size: 18px;
+}
+
+.settingsBtn:hover {
+  background-color: #eef2ff;
+  color: #0f172a;
 }
 
 .logoutBtn {
@@ -91,7 +109,10 @@
 
   .logo {
     margin-right: 16px;
-    font-size: 16px;
+  }
+
+  .logoImage {
+    height: 28px;
   }
 
   .navItems {
@@ -105,10 +126,6 @@
 
   .userMenu {
     gap: 8px;
-  }
-
-  .username {
-    display: none;
   }
 
   .logoutBtn {

@@ -2,10 +2,10 @@ import { useEffect, useState } from "react";
 import type { TradingStrategy, TradingStats } from "../lib/types";
 import { api } from "../lib/api";
 import { TradingStrategyForm } from "../components/TradingStrategyForm";
-import { APIConnectionPanel } from "../components/APIConnectionPanel";
 import { KnowledgeBaseEditor } from "../components/KnowledgeBaseEditor";
+import { asArray } from "../lib/collections";
 
-type TabView = "strategies" | "form" | "connections";
+type TabView = "strategies" | "form";
 
 export function TradingPage() {
   const [strategies, setStrategies] = useState<TradingStrategy[]>([]);
@@ -20,7 +20,7 @@ export function TradingPage() {
     try {
       setLoading(true);
       const data = await api.listTradingStrategies();
-      setStrategies(data);
+      setStrategies(asArray<TradingStrategy>(data));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load strategies");
@@ -56,7 +56,7 @@ export function TradingPage() {
         <div className="panel">
           <h2>{editingId ? "Edit Strategy" : "Create New Strategy"}</h2>
           <TradingStrategyForm
-            strategy={strategies.find((s) => s.id === editingId)}
+            strategy={asArray<TradingStrategy>(strategies).find((s) => s.id === editingId)}
             onSubmit={async (data) => {
               if (editingId) {
                 await api.updateTradingStrategy(editingId, data);
@@ -79,20 +79,6 @@ export function TradingPage() {
     );
   }
 
-  if (tab === "connections") {
-    return (
-      <div className="stack">
-        <button onClick={() => setTab("strategies")} className="button-secondary">
-          ← Back to Strategies
-        </button>
-        <div className="panel">
-          <h2>Global API Connections</h2>
-          <APIConnectionPanel />
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="stack">
       {error && <p className="error panel">{error}</p>}
@@ -100,9 +86,6 @@ export function TradingPage() {
         <div className="panel__title-row">
           <h2>📈 Trading Strategies</h2>
           <div className="actions">
-            <button onClick={() => setTab("connections")} className="button-secondary">
-              ⚙️ Connections
-            </button>
             <button onClick={() => { setEditingId(null); setTab("form"); }}>
               New Strategy
             </button>
@@ -126,7 +109,7 @@ export function TradingPage() {
               <span>Lot Size</span>
               <span>Actions</span>
             </div>
-            {strategies.map((strategy) => (
+            {asArray<TradingStrategy>(strategies).map((strategy) => (
               <div className="table__row" key={strategy.id}>
                 <span className="truncate">{strategy.name}</span>
                 <span>{strategy.symbol}</span>

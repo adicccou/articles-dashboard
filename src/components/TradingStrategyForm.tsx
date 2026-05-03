@@ -242,6 +242,18 @@ export function TradingStrategyForm({
         <h3>Notifications</h3>
 
         <div className="trading-form__group">
+          <label htmlFor="telegram_bot_token">Telegram Bot API Token</label>
+          <input
+            id="telegram_bot_token"
+            type="password"
+            value={form.telegram_bot_token || ""}
+            onChange={(e) => handleChange("telegram_bot_token", e.target.value)}
+            placeholder="Your Telegram bot token for this strategy"
+            className="trading-form__input"
+          />
+        </div>
+
+        <div className="trading-form__group">
           <label htmlFor="telegram_chat_id">Telegram Chat ID</label>
           <input
             id="telegram_chat_id"

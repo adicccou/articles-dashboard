@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import type { ArticleRecord, AuthState, Site, ArticleCategory } from "../lib/types";
+import { AssistantConsole } from "../components/AssistantConsole";
 import { LoginCard } from "../components/LoginCard";
+import { SettingsModal } from "../components/SettingsModal";
 import { TopNav, type NavView } from "../components/TopNav";
 import { DashboardPage } from "../pages/DashboardPage";
 import "../styles/app.css";
@@ -15,6 +17,10 @@ export function App() {
   const [selectedArticle, setSelectedArticle] = useState<ArticleRecord | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [assistantMinimized, setAssistantMinimized] = useState(false);
+  const [assistantModalOpen, setAssistantModalOpen] = useState(false);
+  const [aiApiConnected, setAiApiConnected] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -62,7 +68,7 @@ export function App() {
       <TopNav
         currentView={view}
         onNavigate={setView}
-        username={auth.username}
+        onOpenSettings={() => setSettingsOpen(true)}
         onLogout={async () => {
           await api.logout();
           setAuth({ authenticated: false });
@@ -91,6 +97,44 @@ export function App() {
           onUpload={api.uploadMedia}
         />
       </main>
+
+      {settingsOpen ? (
+        <SettingsModal
+          aiApiConnected={aiApiConnected}
+          onClose={() => setSettingsOpen(false)}
+          onSaveAiKey={() => setAiApiConnected(true)}
+        />
+      ) : null}
+
+      {assistantModalOpen ? (
+        <div className="assistant-modal-backdrop" onClick={() => setAssistantModalOpen(false)}>
+          <div className="assistant-modal" onClick={(event) => event.stopPropagation()}>
+            <AssistantConsole
+              variant="modal"
+              onDock={() => {
+                setAssistantModalOpen(false);
+                setAssistantMinimized(false);
+              }}
+            />
+          </div>
+        </div>
+      ) : assistantMinimized ? (
+        <button
+          type="button"
+          className="assistant-launcher"
+          onClick={() => setAssistantMinimized(false)}
+        >
+          Assistant
+        </button>
+      ) : (
+        <div className="assistant-floating">
+          <AssistantConsole
+            variant="floating"
+            onMinimize={() => setAssistantMinimized(true)}
+            onOpenModal={() => setAssistantModalOpen(true)}
+          />
+        </div>
+      )}
     </div>
   );
 }

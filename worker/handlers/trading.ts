@@ -15,6 +15,7 @@ interface CreateStrategyPayload {
   take_profit_pips?: number;
   max_open_positions?: number;
   claude_instructions?: string;
+  telegram_bot_token?: string;
   telegram_chat_id?: string;
 }
 
@@ -77,6 +78,7 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
         take_profit_pips,
         max_open_positions,
         claude_instructions,
+        telegram_bot_token,
         telegram_chat_id,
         status,
         created_at,
@@ -97,6 +99,7 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
         payload.take_profit_pips || null,
         payload.max_open_positions || 1,
         payload.claude_instructions || "",
+        payload.telegram_bot_token || "",
         payload.telegram_chat_id || "",
         now,
         now,
@@ -176,6 +179,10 @@ export async function updateStrategy(
     if (payload.claude_instructions !== undefined) {
       updates.push("claude_instructions = ?");
       values.push(payload.claude_instructions);
+    }
+    if (payload.telegram_bot_token !== undefined) {
+      updates.push("telegram_bot_token = ?");
+      values.push(payload.telegram_bot_token);
     }
     if (payload.telegram_chat_id !== undefined) {
       updates.push("telegram_chat_id = ?");
