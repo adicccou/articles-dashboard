@@ -50,6 +50,18 @@ export type DashboardBootstrap = {
   articles: ArticleRecord[];
 };
 
+export type JournlStats = {
+  total_accounts: number;
+  subscriptions: number;
+  pro: number;
+  lifetime: number;
+  free: number;
+  active_7d: number;
+  active_30d: number;
+  new_7d: number;
+  new_30d: number;
+};
+
 export type ArticleInput = {
   title: string;
   slug: string;

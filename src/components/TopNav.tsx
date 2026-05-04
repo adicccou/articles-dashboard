@@ -7,7 +7,8 @@ export type NavView =
   | "reddit"
   | "trading"
   | "planner"
-  | "analytics";
+  | "analytics"
+  | "statistics";
 
 interface TopNavProps {
   currentView: NavView;
@@ -28,6 +29,7 @@ export const TopNav: React.FC<TopNavProps> = ({
     { label: "Trading", view: "trading" },
     { label: "Scheduler", view: "planner" },
     { label: "Analytics", view: "analytics" },
+    { label: "Statistics", view: "statistics" },
   ];
 
   return (

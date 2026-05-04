@@ -7,6 +7,7 @@ import { RedditAgentPage } from "./RedditAgentPage";
 import { TradingPage } from "./TradingPage";
 import { PlannerPage } from "./PlannerPage";
 import { ViewErrorBoundary } from "../components/ViewErrorBoundary";
+import { StatisticsPage } from "./StatisticsPage";
 import "../styles/trading-page.css";
 
 type DashboardPageProps = {
@@ -104,6 +105,10 @@ export function DashboardPage({
       );
     }
 
+    if (view === "statistics") {
+      return <StatisticsPage />;
+    }
+
     if (showSiteSettings) {
       return (
         <div className="stack">
@@ -171,5 +176,5 @@ export function DashboardPage({
       </section>
     );
   }
-  return <ViewErrorBoundary resetKey={`${view}-${selectedArticle?.id ?? "none"}-${showSiteSettings ? "sites" : "main"}`}>{renderView()}</ViewErrorBoundary>;
+  return <ViewErrorBoundary resetKey={`${view}-${selectedArticle?.id ?? "none"}-${showSiteSettings ? "sites" : "main"}`} >{renderView()}</ViewErrorBoundary>;
 }

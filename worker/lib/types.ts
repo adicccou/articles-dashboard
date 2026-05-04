@@ -12,6 +12,19 @@ export type Env = {
   CLAUDE_API_KEY?: string;
   CLAUDE_MODEL?: string;
   TRADING_AGENT_SYNC_SECRET?: string;
+  JOURNL_SERVICE_ROLE_KEY?: string;
+};
+
+export type JournlStats = {
+  total_accounts: number;
+  subscriptions: number;
+  pro: number;
+  lifetime: number;
+  free: number;
+  active_7d: number;
+  active_30d: number;
+  new_7d: number;
+  new_30d: number;
 };
 
 export type SiteRow = {
