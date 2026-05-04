@@ -20,7 +20,7 @@ function StatCard({
   label: string;
   value: string | number;
   sub?: string;
-  accent?: "green" | "blue" | "amber" | "purple";
+  accent?: "green" | "blue" | "amber" | "purple" | "red";
 }) {
   return (
     <div className={`stat-card ${accent ? `stat-card--${accent}` : ""}`}>
@@ -105,9 +105,10 @@ function JournlStatsView() {
         sub="not yet subscribed"
       />
       <StatCard
-        label="Total Visits"
-        value="—"
-        sub="analytics not connected"
+        label="Cancelled"
+        value={stats.cancelled.toLocaleString()}
+        sub={stats.cancelled === 0 ? "none so far" : "cancelled / expired / past due"}
+        accent={stats.cancelled > 0 ? "red" : undefined}
       />
     </div>
   );

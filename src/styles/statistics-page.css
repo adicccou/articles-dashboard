@@ -121,6 +121,7 @@
 .stat-card--green  { border-left: 4px solid #22c55e; }
 .stat-card--purple { border-left: 4px solid #a855f7; }
 .stat-card--amber  { border-left: 4px solid #f59e0b; }
+.stat-card--red    { border-left: 4px solid #ef4444; }
 
 /* Loading / error */
 .stats-loading,

@@ -56,6 +56,7 @@ export type JournlStats = {
   pro: number;
   lifetime: number;
   free: number;
+  cancelled: number;
   active_7d: number;
   active_30d: number;
   new_7d: number;
