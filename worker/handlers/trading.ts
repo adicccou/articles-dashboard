@@ -14,6 +14,7 @@ interface CreateStrategyPayload {
   execution_mode?: "demo" | "live";
   telegram_bot_token?: string;
   telegram_chat_id?: string;
+  trading_hours?: unknown;
 }
 
 type TradingStrategyRow = {
@@ -31,6 +32,7 @@ type TradingStrategyRow = {
   execution_mode: "demo" | "live";
   telegram_bot_token: string;
   telegram_chat_id: string | null;
+  trading_hours: string;
   status: "active" | "inactive" | "paused" | "testing";
   created_at: string;
   updated_at: string;
@@ -65,10 +67,19 @@ function normalizeTradingStrategy(row: TradingStrategyRow | null) {
     return null;
   }
 
+  let trading_hours: unknown[] = [];
+  try {
+    const parsed = JSON.parse(row.trading_hours || "[]") as unknown;
+    if (Array.isArray(parsed)) trading_hours = parsed;
+  } catch {
+    trading_hours = [];
+  }
+
   return {
     ...row,
     assets: normalizeAssets(row.assets),
     telegram_chat_id: row.telegram_chat_id ?? "",
+    trading_hours,
   };
 }
 
@@ -151,6 +162,10 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
       return errorResponse(validationError, 400);
     }
 
+    const tradingHours = Array.isArray(payload.trading_hours)
+      ? JSON.stringify(payload.trading_hours)
+      : "[]";
+
     const now = new Date().toISOString();
     const result = await env.DB.prepare(
       `INSERT INTO trading_strategies (
@@ -167,10 +182,11 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
         execution_mode,
         telegram_bot_token,
         telegram_chat_id,
+        trading_hours,
         status,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'inactive', ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'inactive', ?, ?)`,
     )
       .bind(
         payload.name,
@@ -186,6 +202,7 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
         payload.execution_mode ?? "demo",
         payload.telegram_bot_token || "",
         payload.telegram_chat_id || "",
+        tradingHours,
         now,
         now,
       )
@@ -213,6 +230,7 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
         execution_mode: payload.execution_mode ?? "demo",
         telegram_bot_token: payload.telegram_bot_token || "",
         telegram_chat_id: payload.telegram_chat_id || "",
+        trading_hours: Array.isArray(payload.trading_hours) ? payload.trading_hours : [],
         status: "inactive",
         created_at: now,
         updated_at: now,
@@ -297,6 +315,10 @@ export async function updateStrategy(
     if (payload.telegram_chat_id !== undefined) {
       updates.push("telegram_chat_id = ?");
       values.push(payload.telegram_chat_id);
+    }
+    if (payload.trading_hours !== undefined) {
+      updates.push("trading_hours = ?");
+      values.push(Array.isArray(payload.trading_hours) ? JSON.stringify(payload.trading_hours) : "[]");
     }
 
     if (updates.length === 0) {

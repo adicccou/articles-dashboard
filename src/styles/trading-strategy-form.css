@@ -139,3 +139,120 @@
   cursor: not-allowed;
   color: #9ca3af;
 }
+
+/* ── Working Hours ─────────────────────────────────── */
+
+.trading-form__section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.trading-form__section-header h3 {
+  margin: 0;
+}
+
+.trading-form__add-window {
+  padding: 5px 12px;
+  background: #f0f7ff;
+  color: #007bff;
+  border: 1px solid #cce0ff;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.trading-form__add-window:hover {
+  background: #daeeff;
+}
+
+.trading-form__hours-empty {
+  padding: 14px;
+  background: #f9fafb;
+  border: 1px dashed #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #6b7280;
+  text-align: center;
+}
+
+.trading-form__hours-window {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+  background: #fafafa;
+}
+
+.trading-form__hours-window-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.trading-form__hours-window-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.trading-form__remove-window {
+  padding: 3px 10px;
+  background: white;
+  color: #ef4444;
+  border: 1px solid #fca5a5;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.trading-form__remove-window:hover {
+  background: #fef2f2;
+}
+
+.trading-form__days {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.trading-form__day-btn {
+  padding: 5px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: white;
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.trading-form__day-btn:hover {
+  border-color: #007bff;
+  color: #007bff;
+}
+
+.trading-form__day-btn--active {
+  background: #007bff;
+  border-color: #007bff;
+  color: white;
+}
+
+.trading-form__day-btn--active:hover {
+  background: #0056b3;
+  border-color: #0056b3;
+  color: white;
+}
+
+.trading-form__hours-times {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}

@@ -159,6 +159,12 @@ export type KnowledgeBaseVersion = {
   created_at: string;
 };
 
+export type TradingHoursWindow = {
+  days: string[];   // e.g. ["Mon","Tue","Wed","Thu","Fri"]
+  from: string;     // "08:00"
+  to: string;       // "17:00"
+};
+
 export type TradingStrategy = {
   id: number;
   name: string;
@@ -174,6 +180,7 @@ export type TradingStrategy = {
   execution_mode: "demo" | "live";
   telegram_bot_token?: string;
   telegram_chat_id?: string;
+  trading_hours: TradingHoursWindow[];   // [] = send anytime
   status: "active" | "inactive" | "paused" | "testing";
   created_at: string;
   updated_at: string;
