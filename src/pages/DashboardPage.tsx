@@ -92,19 +92,6 @@ export function DashboardPage({
       return <PlannerPage />;
     }
 
-    if (view === "analytics") {
-      return (
-        <section className="panel">
-          <div className="panel__title-row">
-            <h2>📊 Analytics</h2>
-          </div>
-          <p className="muted">
-            Track engagement and performance of your content across all platforms.
-          </p>
-        </section>
-      );
-    }
-
     if (view === "statistics") {
       return <StatisticsPage />;
     }
