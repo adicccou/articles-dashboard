@@ -74,12 +74,56 @@ function publicSettings(settings: StoredSettings) {
   };
 }
 
-async function syncTradingAgent(settings: StoredSettings): Promise<{ ok: boolean; message: string }> {
+type ActiveStrategy = {
+  assets: string;
+  rr_min: number;
+  rr_max: number;
+  risk_usd_min: number;
+  risk_usd_max: number;
+  max_open_positions: number;
+  execution_mode: string;
+  telegram_bot_token: string;
+  telegram_chat_id: string | null;
+  trading_hours: string;
+};
+
+async function syncTradingAgent(
+  settings: StoredSettings,
+  strategy?: ActiveStrategy,
+): Promise<{ ok: boolean; message: string }> {
   if (!settings.trading_agent_url || !settings.trading_agent_token) {
     return { ok: false, message: "Trading agent URL and token are not configured yet." };
   }
   if (!settings.anthropic_api_key) {
     return { ok: false, message: "AI API key is missing, so there is nothing to sync." };
+  }
+
+  const payload: Record<string, unknown> = {
+    anthropic_api_key: settings.anthropic_api_key,
+    claude_model: settings.claude_model,
+    ctrader_client_id: settings.ctrader_client_id,
+    ctrader_client_secret: settings.ctrader_client_secret,
+    ctrader_access_token: settings.ctrader_access_token,
+    ctrader_account_id: settings.ctrader_account_id,
+  };
+
+  // Push active strategy's trading params if available
+  if (strategy) {
+    let assets: string[] = [];
+    try { assets = JSON.parse(strategy.assets) as string[]; } catch { assets = []; }
+
+    payload.symbols = assets;
+    payload.default_rr_ratio = strategy.rr_max;
+    payload.max_open_trades = strategy.max_open_positions;
+    payload.demo_mode = strategy.execution_mode !== "live";
+    payload.trading_hours = strategy.trading_hours ?? "[]";
+
+    if (strategy.telegram_bot_token) {
+      payload.telegram_bot_token = strategy.telegram_bot_token;
+    }
+    if (strategy.telegram_chat_id) {
+      payload.telegram_chat_id = strategy.telegram_chat_id;
+    }
   }
 
   const response = await fetch(`${settings.trading_agent_url.replace(/\/$/, "")}/config`, {
@@ -88,14 +132,7 @@ async function syncTradingAgent(settings: StoredSettings): Promise<{ ok: boolean
       "Content-Type": "application/json",
       Authorization: `Bearer ${settings.trading_agent_token}`,
     },
-    body: JSON.stringify({
-      anthropic_api_key: settings.anthropic_api_key,
-      claude_model: settings.claude_model,
-      ctrader_client_id: settings.ctrader_client_id,
-      ctrader_client_secret: settings.ctrader_client_secret,
-      ctrader_access_token: settings.ctrader_access_token,
-      ctrader_account_id: settings.ctrader_account_id,
-    }),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
@@ -103,7 +140,22 @@ async function syncTradingAgent(settings: StoredSettings): Promise<{ ok: boolean
     throw new Error(message || `Agent sync failed with ${response.status}`);
   }
 
-  return { ok: true, message: "Shared AI API settings synced to the trading agent." };
+  const strategyNote = strategy ? " + active strategy settings" : "";
+  return { ok: true, message: `Synced AI API${strategyNote} to the trading agent.` };
+}
+
+async function getActiveStrategy(env: Env): Promise<ActiveStrategy | undefined> {
+  try {
+    const row = await env.DB.prepare(
+      `SELECT assets, rr_min, rr_max, risk_usd_min, risk_usd_max,
+              max_open_positions, execution_mode, telegram_bot_token,
+              telegram_chat_id, trading_hours
+       FROM trading_strategies WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1`,
+    ).first<ActiveStrategy>();
+    return row ?? undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function getAppSettings(env: Env): Promise<Response> {
@@ -146,7 +198,8 @@ export async function updateAppSettings(env: Env, request: Request): Promise<Res
       payload.ctrader_account_id !== undefined
     ) {
       try {
-        syncResult = await syncTradingAgent(next);
+        const activeStrategy = await getActiveStrategy(env);
+        syncResult = await syncTradingAgent(next, activeStrategy);
       } catch (error) {
         syncResult = {
           ok: false,
@@ -167,7 +220,8 @@ export async function updateAppSettings(env: Env, request: Request): Promise<Res
 export async function syncAgentFromSettings(env: Env): Promise<Response> {
   try {
     const settings = await readSettings(env);
-    const result = await syncTradingAgent(settings);
+    const activeStrategy = await getActiveStrategy(env);
+    const result = await syncTradingAgent(settings, activeStrategy);
     return jsonResponse(result);
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Failed to sync trading agent", 500);
