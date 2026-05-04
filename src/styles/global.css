@@ -220,6 +220,37 @@ label {
   color: inherit;
 }
 
+.article-row {
+  position: relative;
+  cursor: pointer;
+}
+
+.article-row__delete {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 12px;
+  padding: 4px 12px;
+  background: none;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.article-row:hover .article-row__delete {
+  opacity: 1;
+}
+
+.article-row__delete:hover {
+  background: #fef2f2 !important;
+  color: #dc2626 !important;
+}
+
 .chip-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
