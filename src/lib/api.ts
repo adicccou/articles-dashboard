@@ -24,10 +24,10 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   bootstrap: () => request<DashboardBootstrap>("/api/bootstrap"),
-  login: (username: string, password: string) =>
+  login: (username: string, password: string, remember = true) =>
     request<AuthState>("/api/auth/login", {
       method: "POST",
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, remember }),
     }),
   logout: () =>
     request<void>("/api/auth/logout", {

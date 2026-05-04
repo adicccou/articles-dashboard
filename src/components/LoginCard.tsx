@@ -1,12 +1,13 @@
 import { useState } from "react";
 
 type LoginCardProps = {
-  onSubmit: (username: string, password: string) => Promise<void>;
+  onSubmit: (username: string, password: string, remember: boolean) => Promise<void>;
 };
 
 export function LoginCard({ onSubmit }: LoginCardProps) {
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -15,7 +16,7 @@ export function LoginCard({ onSubmit }: LoginCardProps) {
     setBusy(true);
     setError(null);
     try {
-      await onSubmit(username, password);
+      await onSubmit(username, password, remember);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
@@ -42,6 +43,14 @@ export function LoginCard({ onSubmit }: LoginCardProps) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
+        </label>
+        <label style={{ flexDirection: "row", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={remember}
+            onChange={(e) => setRemember(e.target.checked)}
+          />
+          Keep me signed in for 7 days
         </label>
         {error ? <p className="error">{error}</p> : null}
         <button type="submit" disabled={busy}>

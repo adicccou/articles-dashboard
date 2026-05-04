@@ -32,17 +32,18 @@ export async function validateSession(request: Request, env: Env): Promise<boole
   return username === env.ADMIN_USERNAME && expected === signature;
 }
 
-export async function createSessionCookie(username: string, env: Env): Promise<string> {
+export async function createSessionCookie(username: string, env: Env, remember = true): Promise<string> {
   const signature = await sign(username, env.SESSION_SECRET ?? "dev-session-secret");
   const value = btoa(`${username}:${signature}`);
-  return [
+  const parts = [
     `article_dashboard_session=${value}`,
     "Path=/",
     "HttpOnly",
     "SameSite=Lax",
-    "Max-Age=604800",
     "Secure",
-  ].join("; ");
+  ];
+  if (remember) parts.push("Max-Age=604800");
+  return parts.join("; ");
 }
 
 export function clearSessionCookie(): string {

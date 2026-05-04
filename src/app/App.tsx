@@ -79,8 +79,8 @@ export function App() {
     return (
       <div className="login-screen">
         <LoginCard
-          onSubmit={async (username, password) => {
-            const nextAuth = await api.login(username, password);
+          onSubmit={async (username, password, remember) => {
+            const nextAuth = await api.login(username, password, remember);
             setAuth(nextAuth);
             await load();
           }}

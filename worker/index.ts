@@ -51,7 +51,7 @@ async function handleBootstrap(request: Request, env: Env) {
 }
 
 async function handleLogin(request: Request, env: Env) {
-  const body = await parseJson<{ username: string; password: string }>(request);
+  const body = await parseJson<{ username: string; password: string; remember?: boolean }>(request);
   const valid = await checkCredentials(body.username, body.password, env);
   if (!valid) {
     return text("Invalid credentials", 401);
@@ -61,7 +61,7 @@ async function handleLogin(request: Request, env: Env) {
     { authenticated: true, username: body.username },
     {
       headers: {
-        "Set-Cookie": await createSessionCookie(body.username, env),
+        "Set-Cookie": await createSessionCookie(body.username, env, body.remember !== false),
       },
     },
   );
@@ -104,9 +104,10 @@ async function handleMediaFetch(env: Env, key: string) {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
+    try {
+      const url = new URL(request.url);
 
-    if (request.method === "OPTIONS" && url.pathname.startsWith("/api/")) {
+      if (request.method === "OPTIONS" && url.pathname.startsWith("/api/")) {
       return withCors(new Response(null, { status: 204 }));
     }
 
@@ -456,6 +457,14 @@ export default {
       return await deleteTradingNote(env, id);
     }
 
-    return env.ASSETS.fetch(request);
+      return env.ASSETS.fetch(request);
+    } catch (err: any) {
+      console.error(err);
+      const msg = String(err?.message || err);
+      if (msg.includes("UNIQUE constraint failed")) {
+        return new Response("An article with this slug already exists", { status: 400 });
+      }
+      return new Response(msg || "Internal Server Error", { status: 500 });
+    }
   },
 };
