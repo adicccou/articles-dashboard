@@ -24,7 +24,7 @@ export const TopNav: React.FC<TopNavProps> = ({
 }) => {
   const navItems: Array<{ label: string; view: NavView }> = [
     { label: "Articles", view: "articles" },
-    { label: "Reddit Agents", view: "reddit" },
+    { label: "Social Agents", view: "reddit" },
     { label: "Trading", view: "trading" },
     { label: "Scheduler", view: "planner" },
     { label: "Statistics", view: "statistics" },

@@ -3,7 +3,7 @@ import type { ArticleRecord, Site, ArticleCategory } from "../lib/types";
 import type { NavView } from "../components/TopNav";
 import { ArticleEditor } from "../components/ArticleEditor";
 import { SiteForm } from "../components/SiteForm";
-import { RedditAgentPage } from "./RedditAgentPage";
+import { SocialAgentsPage } from "./SocialAgentsPage";
 import { TradingPage } from "./TradingPage";
 import { PlannerPage } from "./PlannerPage";
 import { ViewErrorBoundary } from "../components/ViewErrorBoundary";
@@ -81,7 +81,7 @@ export function DashboardPage({
     }
 
     if (view === "reddit") {
-      return <RedditAgentPage />;
+      return <SocialAgentsPage />;
     }
 
     if (view === "trading") {

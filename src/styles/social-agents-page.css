@@ -1,0 +1,103 @@
+.social-agents-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Platform tab bar */
+.social-platform-tabs {
+  display: flex;
+  gap: 6px;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 6px;
+  width: fit-content;
+}
+
+.social-tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 18px;
+  border-radius: 9px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  background: transparent;
+  color: var(--text-soft);
+  border: none;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.social-tab:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.social-tab--active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.social-tab--active:hover {
+  background: var(--accent-strong) !important;
+  color: #fff !important;
+}
+
+.social-tab--disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.social-tab__icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.social-tab__badge {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background: rgba(100, 116, 139, 0.12);
+  color: #64748b;
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+
+.social-tab--active .social-tab__badge {
+  background: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* Tab content */
+.social-tab-content {
+  flex: 1;
+}
+
+/* Coming soon placeholder */
+.social-coming-soon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 80px 24px;
+  text-align: center;
+}
+
+.social-coming-soon__label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-soft);
+}
+
+.social-coming-soon__text {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin: 0;
+}
