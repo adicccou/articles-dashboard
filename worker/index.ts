@@ -1,5 +1,5 @@
 import { checkCredentials, clearSessionCookie, createSessionCookie, validateSession } from "./lib/auth";
-import { createSite, getPublishedArticleBySlug, getPublishedArticlesForSite, listArticles, listSites, saveArticle, listCategories, createCategory, deleteCategory } from "./lib/db";
+import { createSite, getPublishedArticleBySlug, getPublishedArticlesForSite, listArticles, listSites, saveArticle, deleteArticle, listCategories, createCategory, deleteCategory } from "./lib/db";
 import { json, parseJson, text } from "./lib/http";
 import type { Env } from "./lib/types";
 import { listCampaigns, createCampaign, updateCampaign, deleteCampaign, getCampaignStats } from "./handlers/reddit";
@@ -187,6 +187,15 @@ export default {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
       return json(await saveArticle(env, await request.json()), { status: 201 });
+    }
+
+    if (url.pathname.startsWith("/api/articles/") && request.method === "DELETE") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = Number(url.pathname.split("/")[3]);
+      if (!id) return text("Invalid article id", 400);
+      await deleteArticle(env, id);
+      return new Response(null, { status: 204 });
     }
 
     if (url.pathname.startsWith("/api/articles/") && request.method === "PUT") {

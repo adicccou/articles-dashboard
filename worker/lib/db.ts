@@ -243,6 +243,12 @@ export async function saveArticle(
   return article;
 }
 
+export async function deleteArticle(env: Env, id: number): Promise<void> {
+  await env.DB.prepare("DELETE FROM article_sites WHERE article_id = ?").bind(id).run();
+  await env.DB.prepare("DELETE FROM article_seo WHERE article_id = ?").bind(id).run();
+  await env.DB.prepare("DELETE FROM articles WHERE id = ?").bind(id).run();
+}
+
 export async function getPublishedArticlesForSite(env: Env, siteSlug: string) {
   const results = await env.DB.prepare(
     `

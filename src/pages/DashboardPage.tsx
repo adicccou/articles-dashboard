@@ -43,6 +43,7 @@ type DashboardPageProps = {
     },
     id?: number,
   ) => Promise<void>;
+  onDeleteArticle: (id: number) => Promise<void>;
   onUpload: (file: File) => Promise<{ key: string; url: string }>;
 };
 
@@ -55,6 +56,7 @@ export function DashboardPage({
   onSelectArticle,
   onCreateSite,
   onSaveArticle,
+  onDeleteArticle,
   onUpload,
 }: DashboardPageProps) {
   const [showSiteSettings, setShowSiteSettings] = useState(false);
@@ -149,15 +151,38 @@ export function DashboardPage({
             <span>Status</span>
             <span>Sites</span>
             <span>Updated</span>
+            <span></span>
           </div>
           {articles.map((article) => (
-            <button className="table__row table__button-row" key={article.id} onClick={() => onSelectArticle(article)}>
-              <span>{article.title}</span>
-              <span>{article.category?.name || "—"}</span>
-              <span>{article.status}</span>
-              <span>{article.site_ids.length}</span>
-              <span>{new Date(article.updated_at).toLocaleString()}</span>
-            </button>
+            <div className="table__row table__button-row" key={article.id}>
+              <span style={{ cursor: "pointer" }} onClick={() => onSelectArticle(article)}>{article.title}</span>
+              <span style={{ cursor: "pointer" }} onClick={() => onSelectArticle(article)}>{article.category?.name || "—"}</span>
+              <span style={{ cursor: "pointer" }} onClick={() => onSelectArticle(article)}>{article.status}</span>
+              <span style={{ cursor: "pointer" }} onClick={() => onSelectArticle(article)}>{article.site_ids.length}</span>
+              <span style={{ cursor: "pointer" }} onClick={() => onSelectArticle(article)}>{new Date(article.updated_at).toLocaleString()}</span>
+              <span>
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (confirm(`Delete "${article.title}"? This cannot be undone.`)) {
+                      await onDeleteArticle(article.id);
+                    }
+                  }}
+                  style={{
+                    fontSize: "12px",
+                    padding: "4px 10px",
+                    background: "none",
+                    border: "1px solid #fecaca",
+                    color: "#dc2626",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    fontWeight: 600,
+                  }}
+                >
+                  Delete
+                </button>
+              </span>
+            </div>
           ))}
         </div>
       </section>

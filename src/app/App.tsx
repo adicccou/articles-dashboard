@@ -120,6 +120,10 @@ export function App() {
             await load();
             setSelectedArticle(undefined);
           }}
+          onDeleteArticle={async (id) => {
+            await api.deleteArticle(id);
+            await load();
+          }}
           onUpload={api.uploadMedia}
         />
       </main>

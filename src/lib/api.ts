@@ -45,6 +45,8 @@ export const api = {
       method: id ? "PUT" : "POST",
       body: JSON.stringify(payload),
     }),
+  deleteArticle: (id: number) =>
+    request<void>(`/api/articles/${id}`, { method: "DELETE" }),
   uploadMedia: async (file: File) => {
     const formData = new FormData();
     formData.append("file", file);
