@@ -175,7 +175,7 @@ async function handleInternalContext(env: Env) {
        LIMIT 20`,
     ).all(),
     env.DB.prepare(
-      `SELECT id, entity_type, entity_id, title, version, updated_at
+      `SELECT id, entity_type, entity_id, title, content, version, updated_at
        FROM knowledge_bases
        ORDER BY updated_at DESC
        LIMIT 20`,
@@ -191,6 +191,21 @@ async function handleInternalContext(env: Env) {
       return [];
     }
   };
+
+  const knowledgeBases = knowledgeBasesResult.results ?? [];
+  const socialPlatformKnowledgeBases = Array.isArray(knowledgeBases)
+    ? knowledgeBases
+      .filter((entry) => entry.entity_type === "social_platform")
+      .reduce<Record<string, unknown>>((accumulator, entry) => {
+        const platform =
+          Number(entry.entity_id) === 0 ? "reddit"
+            : Number(entry.entity_id) === 1 ? "twitter"
+              : Number(entry.entity_id) === 2 ? "threads"
+                : `social_${String(entry.entity_id)}`;
+        accumulator[platform] = entry;
+        return accumulator;
+      }, {})
+    : {};
 
   return json({
     scope: {
@@ -254,7 +269,8 @@ async function handleInternalContext(env: Env) {
     reddit_campaigns: redditCampaignsResult.results ?? [],
     planner_items: plannerItemsResult.results ?? [],
     trading_notes: tradingNotesResult.results ?? [],
-    knowledge_bases: knowledgeBasesResult.results ?? [],
+    knowledge_bases: knowledgeBases,
+    social_platform_knowledge_bases: socialPlatformKnowledgeBases,
     social_accounts: {
       reddit: redditAccountsResult.results ?? [],
       twitter: twitterAccountsResult.results ?? [],
