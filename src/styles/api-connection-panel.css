@@ -22,6 +22,10 @@
   padding: 20px 0;
 }
 
+.api-panel__section--hidden {
+  display: none;
+}
+
 .api-panel__section:last-child {
   border-bottom: none;
 }
@@ -138,4 +142,16 @@
   margin: 0;
   color: #475569;
   font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .api-panel {
+    padding: 18px;
+  }
+
+  .api-panel__header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
 }

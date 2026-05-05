@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import "../styles/api-connection-panel.css";
 
+export type SettingsTabId = "ai" | "rules" | "trading" | "agent";
+
 interface APIConnectionPanelProps {
+  activeTab?: SettingsTabId;
   aiApiConnected?: boolean;
   claudeModel?: string;
   globalAiRules?: string;
@@ -33,6 +36,7 @@ interface APIConnectionPanelProps {
 }
 
 export function APIConnectionPanel({
+  activeTab = "ai",
   aiApiConnected,
   claudeModel = "claude-sonnet-4-20250514",
   globalAiRules = "",
@@ -116,12 +120,33 @@ export function APIConnectionPanel({
     socialRules !== socialAgentRules ||
     claudeKey.trim().length > 0;
 
+  const tabMeta: Record<SettingsTabId, { title: string; description: string }> = {
+    ai: {
+      title: "AI API Connection",
+      description: "Connect the shared Claude model that powers the dashboard and the trading agent.",
+    },
+    rules: {
+      title: "AI Operating Rules",
+      description: "Set persistent context, voice, and non-negotiable instructions the assistant should follow.",
+    },
+    trading: {
+      title: "Trading Platform Connection",
+      description: "Keep trading credentials in one place so signals only unlock when the account is actually connected.",
+    },
+    agent: {
+      title: "Trading Agent Sync",
+      description: "Manage the bridge between the dashboard and the droplet-based trading agent.",
+    },
+  };
+
+  const currentTab = tabMeta[activeTab];
+
   return (
     <div className="api-panel">
-      <h3 className="api-panel__title">{title}</h3>
-      <p className="api-panel__description">{description}</p>
+      <h3 className="api-panel__title">{currentTab?.title ?? title}</h3>
+      <p className="api-panel__description">{currentTab?.description ?? description}</p>
 
-      <div className="api-panel__section">
+      <div className={`api-panel__section ${activeTab === "ai" ? "" : "api-panel__section--hidden"}`}>
         <div className="api-panel__header">
           <h4>Anthropic / Claude API</h4>
           <span className={`api-panel__status ${aiApiConnected ? "connected" : "disconnected"}`}>
@@ -160,7 +185,7 @@ export function APIConnectionPanel({
         </div>
       </div>
 
-      <div className="api-panel__section">
+      <div className={`api-panel__section ${activeTab === "rules" ? "" : "api-panel__section--hidden"}`}>
         <div className="api-panel__header">
           <h4>AI Operating Rules</h4>
         </div>
@@ -191,7 +216,7 @@ export function APIConnectionPanel({
         </div>
       </div>
 
-      <div className="api-panel__section">
+      <div className={`api-panel__section ${activeTab === "trading" ? "" : "api-panel__section--hidden"}`}>
         <div className="api-panel__header">
           <h4>cTrader Workspace Connection</h4>
           <span className={`api-panel__status ${ctraderConnected ? "connected" : "disconnected"}`}>
@@ -259,7 +284,7 @@ export function APIConnectionPanel({
         </div>
       </div>
 
-      <div className="api-panel__section">
+      <div className={`api-panel__section ${activeTab === "agent" ? "" : "api-panel__section--hidden"}`}>
         <div className="api-panel__header">
           <h4>Trading Agent Sync</h4>
           <span className={`api-panel__status ${tradingAgentConnected ? "connected" : "disconnected"}`}>

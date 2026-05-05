@@ -1,4 +1,5 @@
-import { APIConnectionPanel } from "./APIConnectionPanel";
+import { useMemo, useState } from "react";
+import { APIConnectionPanel, type SettingsTabId } from "./APIConnectionPanel";
 import type { AppSettingsInput } from "../lib/types";
 
 type SettingsModalProps = {
@@ -29,6 +30,48 @@ export function SettingsModal({
   onSave,
   onSyncAgent,
 }: SettingsModalProps) {
+  const [activeTab, setActiveTab] = useState<SettingsTabId>("ai");
+
+  const tabs = useMemo(
+    () => [
+      {
+        id: "ai" as const,
+        label: "AI",
+        eyebrow: "Claude connection",
+        status: settings.ai_api_connected ? "Connected" : "Needs setup",
+        tone: settings.ai_api_connected ? "connected" : "disconnected",
+      },
+      {
+        id: "rules" as const,
+        label: "Rules",
+        eyebrow: "AI context",
+        status: settings.global_ai_rules || settings.social_agent_rules ? "Configured" : "Empty",
+        tone: settings.global_ai_rules || settings.social_agent_rules ? "connected" : "disconnected",
+      },
+      {
+        id: "trading" as const,
+        label: "Trading Platform",
+        eyebrow: "cTrader access",
+        status: settings.ctrader_connected ? "Connected" : "Needs setup",
+        tone: settings.ctrader_connected ? "connected" : "disconnected",
+      },
+      {
+        id: "agent" as const,
+        label: "Agent Sync",
+        eyebrow: "Droplet bridge",
+        status: settings.trading_agent_connected ? "Connected" : "Needs setup",
+        tone: settings.trading_agent_connected ? "connected" : "disconnected",
+      },
+    ],
+    [
+      settings.ai_api_connected,
+      settings.ctrader_connected,
+      settings.global_ai_rules,
+      settings.social_agent_rules,
+      settings.trading_agent_connected,
+    ],
+  );
+
   return (
     <div className="settings-modal-backdrop" onClick={onClose}>
       <div className="settings-modal panel" onClick={(event) => event.stopPropagation()}>
@@ -42,7 +85,25 @@ export function SettingsModal({
           </button>
         </div>
 
+        <div className="settings-modal__tabs" role="tablist" aria-label="Settings sections">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              className={`settings-modal__tab ${activeTab === tab.id ? "is-active" : ""}`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              <span className="settings-modal__tab-eyebrow">{tab.eyebrow}</span>
+              <span className="settings-modal__tab-label">{tab.label}</span>
+              <span className={`settings-modal__tab-status ${tab.tone}`}>{tab.status}</span>
+            </button>
+          ))}
+        </div>
+
         <APIConnectionPanel
+          activeTab={activeTab}
           aiApiConnected={settings.ai_api_connected}
           claudeModel={settings.claude_model}
           globalAiRules={settings.global_ai_rules}
