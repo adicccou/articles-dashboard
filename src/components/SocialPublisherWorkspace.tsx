@@ -10,6 +10,7 @@ export type SocialAccountField = {
   placeholder?: string;
   type?: "text" | "password";
   required?: boolean;
+  defaultValue?: string;
 };
 
 export type SocialAccountPayload = Record<string, string>;
@@ -121,7 +122,8 @@ export function SocialPublisherWorkspace({
     { id: "accounts", label: "Accounts" },
   ];
   const requiredAccountFields = accountFields.filter((field) => field.required !== false);
-  const isAccountFormComplete = requiredAccountFields.every((field) => accountInput[field.key]?.trim());
+  const valueForField = (field: SocialAccountField) => accountInput[field.key] ?? field.defaultValue ?? "";
+  const isAccountFormComplete = requiredAccountFields.every((field) => valueForField(field).trim());
 
   const minSchedule = toDateTimeLocalValue(new Date());
 
@@ -411,7 +413,7 @@ export function SocialPublisherWorkspace({
                           <input
                             type={field.type ?? "text"}
                             placeholder={field.placeholder}
-                            value={accountInput[field.key] ?? ""}
+                            value={valueForField(field)}
                             onChange={(event) => {
                               setAccountInput((current) => ({ ...current, [field.key]: event.target.value }));
                               if (accountError) setAccountError(null);
@@ -430,10 +432,13 @@ export function SocialPublisherWorkspace({
                           setAccountError(null);
                           try {
                             const values = Object.fromEntries(
-                              Object.entries(accountInput).map(([key, value]) => [
-                                key,
-                                key === "username" ? value.trim().replace(/^@+/, "") : value.trim(),
-                              ]),
+                              accountFields.map((field) => {
+                                const value = valueForField(field);
+                                return [
+                                  field.key,
+                                  field.key === "username" ? value.trim().replace(/^@+/, "") : value.trim(),
+                                ];
+                              }),
                             );
                             await onAddAccount(values);
                             setAccountInput({});

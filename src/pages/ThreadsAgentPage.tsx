@@ -54,11 +54,11 @@ export function ThreadsAgentPage() {
         shortLabel="🧵"
         campaignCount={campaigns.length}
         connectedMessage="Threads credentials are configured and queued posts are ready for workflow-based publishing."
-        disconnectedMessage="Add a Threads account with its Meta credentials before relying on the queue."
+        disconnectedMessage="Add a Threads account with its Meta app and publishing details before relying on the queue."
         queuePlaceholder="Write a Threads post for the queue..."
         queueHint="Draft a Threads post above, or send planned content in from the bot for later approval."
         queueLimit={500}
-        accountsEmptyMessage="No Threads accounts are attached yet. Add an account with its Meta Graph API fields to start publishing."
+        accountsEmptyMessage="No Threads accounts are attached yet. Add an account with its Meta app, OAuth, and publishing fields to start publishing."
         isConnected={isConnected}
         loading={loading}
         posts={posts}
@@ -126,7 +126,7 @@ export function ThreadsAgentPage() {
           await load();
         }}
         knowledgeBaseContent={<KnowledgeBaseEditor type="social_platform" entityId={THREADS_KB_ID} />}
-        accountInputHint="Add each Threads profile with the Meta fields required for publishing from that account."
+        accountInputHint="Add each Threads profile with its Meta app, OAuth, and publishing details. The access token and user ID are used by the current publisher."
         onCreateCampaign={() => setIsCampaignModalOpen(true)}
         accountFields={[
           {
@@ -135,13 +135,34 @@ export function ThreadsAgentPage() {
             placeholder: "username",
           },
           {
+            key: "client_id",
+            label: "Threads App ID / Client ID",
+            placeholder: "Meta app ID",
+          },
+          {
+            key: "client_secret",
+            label: "Threads App Secret",
+            type: "password",
+          },
+          {
+            key: "redirect_uri",
+            label: "Redirect URI",
+            placeholder: "https://your-domain.com/api/threads/auth/callback",
+          },
+          {
+            key: "scopes",
+            label: "Scopes",
+            placeholder: "threads_basic,threads_content_publish",
+            defaultValue: "threads_basic,threads_content_publish",
+          },
+          {
             key: "access_token",
-            label: "Access Token",
+            label: "Long-Lived Access Token",
             type: "password",
           },
           {
             key: "user_id",
-            label: "User ID",
+            label: "Threads User ID",
           },
         ]}
         extraActions={<span className="social-hero__caption">Planner campaigns and queued posts stay aligned here.</span>}

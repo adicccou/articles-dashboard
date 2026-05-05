@@ -9,6 +9,10 @@ export { listSocialPosts, createSocialPost, updateSocialPost, deleteSocialPost }
 
 type ThreadsAccountPayload = {
   username: string;
+  client_id: string;
+  client_secret: string;
+  redirect_uri: string;
+  scopes: string;
   access_token: string;
   user_id: string;
 };
@@ -39,6 +43,10 @@ export async function addThreadsAccount(env: Env, request: Request): Promise<Res
     const payload = await parseJson<ThreadsAccountPayload>(request);
     const username = payload.username?.trim().replace(/^@+/, "");
     if (!username) return errorResponse("username is required", 400);
+    if (!payload.client_id?.trim()) return errorResponse("Threads App ID / Client ID is required", 400);
+    if (!payload.client_secret?.trim()) return errorResponse("Threads App Secret is required", 400);
+    if (!payload.redirect_uri?.trim()) return errorResponse("Redirect URI is required", 400);
+    if (!payload.scopes?.trim()) return errorResponse("Scopes are required", 400);
     if (!payload.access_token?.trim()) return errorResponse("Access token is required", 400);
     if (!payload.user_id?.trim()) return errorResponse("User ID is required", 400);
 
@@ -52,6 +60,10 @@ export async function addThreadsAccount(env: Env, request: Request): Promise<Res
 
     const accountId = result.meta.last_row_id;
     await Promise.all([
+      upsertSetting(env, `social_account:${accountId}:threads_client_id`, payload.client_id.trim(), now),
+      upsertSetting(env, `social_account:${accountId}:threads_client_secret`, payload.client_secret.trim(), now),
+      upsertSetting(env, `social_account:${accountId}:threads_redirect_uri`, payload.redirect_uri.trim(), now),
+      upsertSetting(env, `social_account:${accountId}:threads_scopes`, payload.scopes.trim(), now),
       upsertSetting(env, `social_account:${accountId}:threads_access_token`, payload.access_token.trim(), now),
       upsertSetting(env, `social_account:${accountId}:threads_user_id`, payload.user_id.trim(), now),
       upsertSetting(env, "threads_access_token", payload.access_token.trim(), now),
