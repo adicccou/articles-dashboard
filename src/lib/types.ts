@@ -286,6 +286,8 @@ export type AssistantChatResponse = {
 export type AppSettings = {
   ai_api_connected: boolean;
   claude_model: string;
+  global_ai_rules: string;
+  social_agent_rules: string;
   trading_agent_url: string;
   trading_agent_connected: boolean;
   trading_agent_token_saved?: boolean;
@@ -314,6 +316,8 @@ export type AppSettings = {
 export type AppSettingsInput = {
   anthropic_api_key?: string;
   claude_model?: string;
+  global_ai_rules?: string;
+  social_agent_rules?: string;
   trading_agent_url?: string;
   trading_agent_token?: string;
   ctrader_client_id?: string;

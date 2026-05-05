@@ -23,6 +23,8 @@ export function App() {
   const [appSettings, setAppSettings] = useState<AppSettings>({
     ai_api_connected: false,
     claude_model: "claude-sonnet-4-20250514",
+    global_ai_rules: "",
+    social_agent_rules: "",
     trading_agent_url: "",
     trading_agent_connected: false,
     trading_agent_token_saved: false,

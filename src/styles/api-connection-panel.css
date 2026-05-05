@@ -70,10 +70,33 @@
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
-.api-panel__input:focus {
+.api-panel__textarea {
+  min-height: 120px;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  resize: vertical;
+}
+
+.api-panel__input:focus,
+.api-panel__textarea:focus {
   outline: none;
   border-color: #007bff;
   box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+.api-panel__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.api-panel__field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
 }
 
 .api-panel__button {

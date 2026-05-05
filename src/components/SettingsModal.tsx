@@ -5,6 +5,8 @@ type SettingsModalProps = {
   settings: {
     ai_api_connected: boolean;
     claude_model: string;
+    global_ai_rules: string;
+    social_agent_rules: string;
     trading_agent_url: string;
     trading_agent_connected: boolean;
     trading_agent_token_saved?: boolean;
@@ -43,6 +45,8 @@ export function SettingsModal({
         <APIConnectionPanel
           aiApiConnected={settings.ai_api_connected}
           claudeModel={settings.claude_model}
+          globalAiRules={settings.global_ai_rules}
+          socialAgentRules={settings.social_agent_rules}
           tradingAgentUrl={settings.trading_agent_url}
           tradingAgentConnected={settings.trading_agent_connected}
           tradingAgentTokenSaved={settings.trading_agent_token_saved}

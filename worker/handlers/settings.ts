@@ -4,6 +4,8 @@ import type { Env } from "../lib/types";
 type StoredSettings = {
   anthropic_api_key: string;
   claude_model: string;
+  global_ai_rules: string;
+  social_agent_rules: string;
   trading_agent_url: string;
   trading_agent_token: string;
   ctrader_client_id: string;
@@ -26,6 +28,8 @@ type SettingsPayload = Partial<StoredSettings>;
 const DEFAULTS: StoredSettings = {
   anthropic_api_key: "",
   claude_model: "claude-sonnet-4-20250514",
+  global_ai_rules: "",
+  social_agent_rules: "",
   trading_agent_url: "",
   trading_agent_token: "",
   ctrader_client_id: "",
@@ -71,6 +75,8 @@ function publicSettings(settings: StoredSettings) {
   return {
     ai_api_connected: Boolean(settings.anthropic_api_key),
     claude_model: settings.claude_model,
+    global_ai_rules: settings.global_ai_rules,
+    social_agent_rules: settings.social_agent_rules,
     trading_agent_url: settings.trading_agent_url,
     trading_agent_connected: Boolean(settings.trading_agent_url && settings.trading_agent_token),
     trading_agent_token_saved: Boolean(settings.trading_agent_token),
@@ -119,6 +125,7 @@ type ActiveStrategy = {
 async function syncTradingAgent(
   settings: StoredSettings,
   strategy?: ActiveStrategy,
+  dashboardOrigin?: string,
 ): Promise<{ ok: boolean; message: string }> {
   if (!settings.trading_agent_url || !settings.trading_agent_token) {
     return { ok: false, message: "Trading agent URL and token are not configured yet." };
@@ -128,6 +135,7 @@ async function syncTradingAgent(
   }
 
   const payload: Record<string, unknown> = {
+    dashboard_api_url: dashboardOrigin ?? "",
     anthropic_api_key: settings.anthropic_api_key,
     claude_model: settings.claude_model,
     strategy_active: Boolean(strategy),
@@ -203,7 +211,7 @@ export async function getAppSettings(env: Env): Promise<Response> {
   }
 }
 
-export async function updateAppSettings(env: Env, request: Request): Promise<Response> {
+export async function updateAppSettings(env: Env, request: Request, dashboardOrigin?: string): Promise<Response> {
   try {
     const payload = await parseJson<SettingsPayload>(request);
     const current = await readSettings(env);
@@ -215,6 +223,8 @@ export async function updateAppSettings(env: Env, request: Request): Promise<Res
 
     await upsertSetting(env, "anthropic_api_key", next.anthropic_api_key, updatedAt);
     await upsertSetting(env, "claude_model", next.claude_model, updatedAt);
+    await upsertSetting(env, "global_ai_rules", next.global_ai_rules, updatedAt);
+    await upsertSetting(env, "social_agent_rules", next.social_agent_rules, updatedAt);
     await upsertSetting(env, "trading_agent_url", next.trading_agent_url, updatedAt);
     await upsertSetting(env, "trading_agent_token", next.trading_agent_token, updatedAt);
     await upsertSetting(env, "ctrader_client_id", next.ctrader_client_id, updatedAt);
@@ -247,7 +257,7 @@ export async function updateAppSettings(env: Env, request: Request): Promise<Res
     ) {
       try {
         const activeStrategy = await getActiveStrategy(env);
-        syncResult = await syncTradingAgent(next, activeStrategy);
+        syncResult = await syncTradingAgent(next, activeStrategy, dashboardOrigin);
       } catch (error) {
         syncResult = {
           ok: false,
@@ -265,11 +275,11 @@ export async function updateAppSettings(env: Env, request: Request): Promise<Res
   }
 }
 
-export async function syncAgentFromSettings(env: Env): Promise<Response> {
+export async function syncAgentFromSettings(env: Env, dashboardOrigin?: string): Promise<Response> {
   try {
     const settings = await readSettings(env);
     const activeStrategy = await getActiveStrategy(env);
-    const result = await syncTradingAgent(settings, activeStrategy);
+    const result = await syncTradingAgent(settings, activeStrategy, dashboardOrigin);
     return jsonResponse(result);
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Failed to sync trading agent", 500);

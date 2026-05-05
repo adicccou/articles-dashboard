@@ -53,6 +53,175 @@ async function requireAuth(request: Request, env: Env): Promise<Response | null>
   return null;
 }
 
+async function requireAgentAuth(request: Request, env: Env): Promise<Response | null> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const token = await (async () => {
+    if (env.TRADING_AGENT_SYNC_SECRET) {
+      return env.TRADING_AGENT_SYNC_SECRET;
+    }
+    const row = await env.DB.prepare(
+      "SELECT value FROM app_settings WHERE key = 'trading_agent_token' ORDER BY updated_at DESC LIMIT 1",
+    ).first<{ value: string }>();
+    return row?.value ?? "";
+  })();
+
+  if (!token || authHeader !== `Bearer ${token}`) {
+    return text("Unauthorized", 401);
+  }
+
+  return null;
+}
+
+function buildDefaultCanonicalUrl(
+  articleSlug: string,
+  siteId: number | undefined,
+  sites: Awaited<ReturnType<typeof listSites>>,
+): string {
+  const site = sites.find((entry) => entry.id === siteId);
+  if (site?.domain) {
+    const domain = site.domain.replace(/^https?:\/\//, "").replace(/\/$/, "");
+    return `https://${domain}/articles/${articleSlug}`;
+  }
+  return `https://journl.day/articles/${articleSlug}`;
+}
+
+async function handleInternalContext(env: Env) {
+  const [sites, categories, articles] = await Promise.all([
+    listSites(env),
+    listCategories(env),
+    listArticles(env),
+  ]);
+
+  return json({
+    sites: sites.map((site) => ({
+      id: site.id,
+      name: site.name,
+      slug: site.slug,
+      domain: site.domain,
+      status: site.status,
+    })),
+    categories: categories.map((category) => ({
+      id: category.id,
+      name: category.name,
+      slug: category.slug,
+    })),
+    articles: articles.slice(0, 12).map((article) => ({
+      id: article.id,
+      title: article.title,
+      slug: article.slug,
+      excerpt: article.excerpt,
+      status: article.status,
+      published_at: article.published_at,
+      updated_at: article.updated_at,
+      cover_image: article.cover_image,
+      category: article.category?.name ?? null,
+      site_ids: article.site_ids,
+      site_slugs: sites
+        .filter((site) => article.site_ids.includes(site.id))
+        .map((site) => site.slug),
+      seo: article.seo,
+      content_preview: article.content.slice(0, 1600),
+    })),
+  });
+}
+
+async function handleInternalArticlePatch(request: Request, env: Env, id: number) {
+  const patch = await parseJson<{
+    title?: string;
+    slug?: string;
+    excerpt?: string;
+    content?: string;
+    cover_image?: string | null;
+    status?: "draft" | "published";
+    published_at?: string | null;
+    category_id?: number | null;
+    category?: string;
+    site_ids?: number[];
+    site_slugs?: string[];
+    seo?: {
+      meta_title?: string;
+      meta_description?: string;
+      og_image?: string;
+      canonical_url?: string;
+    };
+  }>(request);
+
+  const [articles, sites, categories] = await Promise.all([
+    listArticles(env),
+    listSites(env),
+    listCategories(env),
+  ]);
+  const current = articles.find((article) => article.id === id);
+  if (!current) {
+    return text("Article not found", 404);
+  }
+
+  let nextCategoryId = current.category_id ?? null;
+  if (patch.category_id !== undefined) {
+    nextCategoryId = patch.category_id;
+  } else if (patch.category) {
+    const needle = patch.category.trim().toLowerCase();
+    const match = categories.find(
+      (category) =>
+        category.name.trim().toLowerCase() === needle ||
+        category.slug.trim().toLowerCase() === needle,
+    );
+    nextCategoryId = match?.id ?? null;
+  }
+
+  let nextSiteIds = current.site_ids;
+  if (Array.isArray(patch.site_ids) && patch.site_ids.length > 0) {
+    nextSiteIds = patch.site_ids;
+  } else if (Array.isArray(patch.site_slugs) && patch.site_slugs.length > 0) {
+    const wanted = new Set(patch.site_slugs.map((slug) => slug.trim().toLowerCase()));
+    nextSiteIds = sites
+      .filter((site) => wanted.has(site.slug.trim().toLowerCase()))
+      .map((site) => site.id);
+  }
+
+  const nextTitle = patch.title ?? current.title;
+  const nextSlug = patch.slug ?? current.slug;
+  const nextCoverImage = patch.cover_image !== undefined ? patch.cover_image : current.cover_image;
+  const nextStatus = patch.status ?? current.status;
+  const nextPublishedAt = patch.published_at !== undefined
+    ? patch.published_at
+    : nextStatus === "published"
+      ? current.published_at ?? new Date().toISOString()
+      : current.published_at;
+
+  const nextSeo = {
+    meta_title: patch.seo?.meta_title ?? current.seo.meta_title ?? "",
+    meta_description: patch.seo?.meta_description ?? current.seo.meta_description ?? "",
+    og_image: patch.seo?.og_image ?? current.seo.og_image ?? "",
+    canonical_url: patch.seo?.canonical_url ?? current.seo.canonical_url ?? "",
+  };
+
+  if (!nextSeo.meta_title) {
+    nextSeo.meta_title = nextTitle;
+  }
+  if (!nextSeo.og_image && nextCoverImage) {
+    nextSeo.og_image = nextCoverImage;
+  }
+  if (!nextSeo.canonical_url) {
+    nextSeo.canonical_url = buildDefaultCanonicalUrl(nextSlug, nextSiteIds[0], sites);
+  }
+
+  const saved = await saveArticle(env, {
+    title: nextTitle,
+    slug: nextSlug,
+    excerpt: patch.excerpt ?? current.excerpt,
+    content: patch.content ?? current.content,
+    cover_image: nextCoverImage,
+    status: nextStatus,
+    published_at: nextPublishedAt,
+    category_id: nextCategoryId,
+    site_ids: nextSiteIds,
+    seo: nextSeo,
+  }, id);
+
+  return json(saved);
+}
+
 async function handleBootstrap(request: Request, env: Env) {
   const authenticated = await validateSession(request, env);
   return json({
@@ -173,6 +342,20 @@ export default {
       }
     }
 
+    if (url.pathname === "/api/internal/context" && request.method === "GET") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return handleInternalContext(env);
+    }
+
+    if (url.pathname.startsWith("/api/internal/articles/") && request.method === "PATCH") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = Number(url.pathname.split("/").pop());
+      if (!id) return text("Invalid article id", 400);
+      return handleInternalArticlePatch(request, env, id);
+    }
+
     if (url.pathname === "/api/sites" && request.method === "GET") {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
@@ -259,13 +442,13 @@ export default {
     if (url.pathname === "/api/settings" && request.method === "PUT") {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
-      return updateAppSettings(env, request);
+      return updateAppSettings(env, request, url.origin);
     }
 
     if (url.pathname === "/api/settings/sync-agent" && request.method === "POST") {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
-      return syncAgentFromSettings(env);
+      return syncAgentFromSettings(env, url.origin);
     }
 
     if (url.pathname.startsWith("/api/media/") && request.method === "GET") {

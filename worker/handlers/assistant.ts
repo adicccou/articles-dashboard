@@ -92,15 +92,19 @@ interface AssistantActionResult {
 interface AssistantRuntimeSettings {
   anthropicApiKey: string;
   claudeModel: string;
+  globalAiRules: string;
+  socialAgentRules: string;
 }
 
 async function readAssistantRuntimeSettings(env: Env): Promise<AssistantRuntimeSettings> {
   const rows = await env.DB.prepare(
-    "SELECT key, value FROM app_settings WHERE key IN ('anthropic_api_key', 'claude_model')",
+    "SELECT key, value FROM app_settings WHERE key IN ('anthropic_api_key', 'claude_model', 'global_ai_rules', 'social_agent_rules')",
   ).all<{ key: string; value: string }>();
 
   let anthropicApiKey = env.CLAUDE_API_KEY ?? "";
   let claudeModel = env.CLAUDE_MODEL ?? "claude-sonnet-4-20250514";
+  let globalAiRules = "";
+  let socialAgentRules = "";
 
   for (const row of rows.results ?? []) {
     if (row.key === "anthropic_api_key" && row.value) {
@@ -110,9 +114,17 @@ async function readAssistantRuntimeSettings(env: Env): Promise<AssistantRuntimeS
     if (row.key === "claude_model" && row.value) {
       claudeModel = row.value;
     }
+
+    if (row.key === "global_ai_rules") {
+      globalAiRules = row.value ?? "";
+    }
+
+    if (row.key === "social_agent_rules") {
+      socialAgentRules = row.value ?? "";
+    }
   }
 
-  return { anthropicApiKey, claudeModel };
+  return { anthropicApiKey, claudeModel, globalAiRules, socialAgentRules };
 }
 
 async function buildAssistantContext(env: Env): Promise<AssistantContext> {
@@ -259,8 +271,8 @@ async function buildAssistantContext(env: Env): Promise<AssistantContext> {
   };
 }
 
-function buildSystemPrompt(context: AssistantContext): string {
-  return [
+function buildSystemPrompt(context: AssistantContext, runtimeSettings: AssistantRuntimeSettings): string {
+  const sections = [
     "You are the internal assistant for BlogPoster, a dashboard that manages articles, Reddit agents, and trading strategies.",
     "Use the provided dashboard context to answer clearly and practically.",
     "You may suggest plans, content ideas, trading observations, and operational next steps.",
@@ -273,8 +285,22 @@ function buildSystemPrompt(context: AssistantContext): string {
     "1. create_planner_items -> {\"type\":\"create_planner_items\",\"items\":[{\"title\":string,\"description\"?:string,\"platform\":string,\"status\"?:\"planned\"|\"drafting\"|\"approved\"|\"published\"|\"archived\",\"scheduled_for\"?:ISO8601 string|null,\"related_strategy_id\"?:number|null}]}",
     "2. create_trading_note -> {\"type\":\"create_trading_note\",\"note\":{\"strategy_id\"?:number|null,\"title\":string,\"content\":string,\"note_type\"?:\"analysis\"|\"idea\"|\"review\"|\"risk\"}}",
     "Keep replies concise, grounded in the dashboard data, and mention saved records when actions are created.",
-    `Dashboard context JSON:\n${JSON.stringify(context, null, 2)}`,
-  ].join("\n\n");
+  ];
+
+  if (runtimeSettings.globalAiRules.trim()) {
+    sections.push(
+      `Workspace global AI rules from the owner. Treat these as standing instructions unless they conflict with safety or the user's direct request:\n${runtimeSettings.globalAiRules.trim()}`,
+    );
+  }
+
+  if (runtimeSettings.socialAgentRules.trim()) {
+    sections.push(
+      `Social media agent brief. Use this whenever the user asks for content, campaigns, hooks, positioning, or publishing guidance for social channels:\n${runtimeSettings.socialAgentRules.trim()}`,
+    );
+  }
+
+  sections.push(`Dashboard context JSON:\n${JSON.stringify(context, null, 2)}`);
+  return sections.join("\n\n");
 }
 
 function parseAssistantPlan(raw: string): AssistantPlan {
@@ -422,7 +448,7 @@ export async function chatWithAssistant(env: Env, request: Request): Promise<Res
       apiKey: runtimeSettings.anthropicApiKey,
       model: runtimeSettings.claudeModel,
       maxTokens: 1400,
-      system: buildSystemPrompt(context),
+      system: buildSystemPrompt(context, runtimeSettings),
       messages,
     });
 

@@ -4,6 +4,8 @@ import "../styles/api-connection-panel.css";
 interface APIConnectionPanelProps {
   aiApiConnected?: boolean;
   claudeModel?: string;
+  globalAiRules?: string;
+  socialAgentRules?: string;
   tradingAgentUrl?: string;
   tradingAgentConnected?: boolean;
   tradingAgentTokenSaved?: boolean;
@@ -16,6 +18,8 @@ interface APIConnectionPanelProps {
   onSave?: (payload: {
     anthropic_api_key?: string;
     claude_model?: string;
+    global_ai_rules?: string;
+    social_agent_rules?: string;
     trading_agent_url?: string;
     trading_agent_token?: string;
     ctrader_client_id?: string;
@@ -31,6 +35,8 @@ interface APIConnectionPanelProps {
 export function APIConnectionPanel({
   aiApiConnected,
   claudeModel = "claude-sonnet-4-20250514",
+  globalAiRules = "",
+  socialAgentRules = "",
   tradingAgentUrl = "",
   tradingAgentConnected,
   tradingAgentTokenSaved,
@@ -47,6 +53,8 @@ export function APIConnectionPanel({
 }: APIConnectionPanelProps) {
   const [claudeKey, setClaudeKey] = useState("");
   const [model, setModel] = useState(claudeModel);
+  const [globalRules, setGlobalRules] = useState(globalAiRules);
+  const [socialRules, setSocialRules] = useState(socialAgentRules);
   const [agentUrl, setAgentUrl] = useState(tradingAgentUrl);
   const [agentToken, setAgentToken] = useState("");
   const [ctraderClientIdValue, setCtraderClientIdValue] = useState(ctraderClientId);
@@ -66,6 +74,14 @@ export function APIConnectionPanel({
   }, [tradingAgentUrl]);
 
   useEffect(() => {
+    setGlobalRules(globalAiRules);
+  }, [globalAiRules]);
+
+  useEffect(() => {
+    setSocialRules(socialAgentRules);
+  }, [socialAgentRules]);
+
+  useEffect(() => {
     setCtraderClientIdValue(ctraderClientId);
   }, [ctraderClientId]);
 
@@ -82,6 +98,8 @@ export function APIConnectionPanel({
   const buildPayload = () => ({
     anthropic_api_key: claudeKey || undefined,
     claude_model: model,
+    global_ai_rules: globalRules,
+    social_agent_rules: socialRules,
     trading_agent_url: agentUrl,
     trading_agent_token: agentToken || undefined,
     ctrader_client_id: ctraderClientIdValue,
@@ -94,6 +112,8 @@ export function APIConnectionPanel({
     agentUrl !== tradingAgentUrl ||
     agentToken.trim().length > 0 ||
     model !== claudeModel ||
+    globalRules !== globalAiRules ||
+    socialRules !== socialAgentRules ||
     claudeKey.trim().length > 0;
 
   return (
@@ -137,6 +157,37 @@ export function APIConnectionPanel({
           >
             {testingConnection === "claude" ? "Testing..." : "Connect"}
           </button>
+        </div>
+      </div>
+
+      <div className="api-panel__section">
+        <div className="api-panel__header">
+          <h4>AI Operating Rules</h4>
+        </div>
+        <div className="api-panel__inputs">
+          <label className="api-panel__field">
+            <span className="api-panel__field-label">Global AI Rules</span>
+            <textarea
+              placeholder="Add always-on rules, brand voice, hard constraints, and context the assistant should follow across the dashboard."
+              value={globalRules}
+              onChange={(e) => setGlobalRules(e.target.value)}
+              className="api-panel__textarea"
+              rows={5}
+            />
+          </label>
+          <label className="api-panel__field">
+            <span className="api-panel__field-label">Social Media Agent Brief</span>
+            <textarea
+              placeholder="Add audience context, positioning, banned claims, tone, hooks, product facts, and posting guidance for X, Threads, Reddit, and other social tasks."
+              value={socialRules}
+              onChange={(e) => setSocialRules(e.target.value)}
+              className="api-panel__textarea"
+              rows={6}
+            />
+          </label>
+          <p className="api-panel__helper">
+            These rules are stored at the workspace level so the dashboard assistant can follow them whenever it writes, plans, or reviews AI-driven work.
+          </p>
         </div>
       </div>
 
