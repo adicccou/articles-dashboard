@@ -141,7 +141,7 @@ export type RedditReplyDraft = {
 
 export type KnowledgeBase = {
   id?: number | null;
-  entity_type?: "reddit_campaign" | "trading_strategy";
+  entity_type?: "reddit_campaign" | "trading_strategy" | "social_platform";
   entity_id?: number;
   title: string;
   content: string;

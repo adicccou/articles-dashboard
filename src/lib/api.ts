@@ -63,10 +63,10 @@ export const api = {
 
     return response.json() as Promise<{ key: string; url: string }>;
   },
-  getKnowledgeBase: (type: "reddit_campaign" | "trading_strategy", id: number) =>
+  getKnowledgeBase: (type: "reddit_campaign" | "trading_strategy" | "social_platform", id: number) =>
     request<KnowledgeBase>(`/api/knowledge-base/${type}/${id}`),
   saveKnowledgeBase: (
-    type: "reddit_campaign" | "trading_strategy",
+    type: "reddit_campaign" | "trading_strategy" | "social_platform",
     id: number,
     title: string,
     content: string,
@@ -76,10 +76,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ title, content, change_summary }),
     }),
-  getKnowledgeBaseVersions: (type: "reddit_campaign" | "trading_strategy", id: number) =>
+  getKnowledgeBaseVersions: (type: "reddit_campaign" | "trading_strategy" | "social_platform", id: number) =>
     request<KnowledgeBaseVersion[]>(`/api/knowledge-base/${type}/${id}/versions`),
   getKnowledgeBaseVersion: (
-    type: "reddit_campaign" | "trading_strategy",
+    type: "reddit_campaign" | "trading_strategy" | "social_platform",
     id: number,
     version: number,
   ) =>

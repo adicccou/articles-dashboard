@@ -4,9 +4,15 @@
   gap: 20px;
 }
 
+.social-workspace {
+  display: grid;
+  gap: 20px;
+}
+
 /* Platform tab bar */
 .social-platform-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   background: var(--surface);
   border: 1.5px solid var(--border);
@@ -76,6 +82,590 @@
   flex: 1;
 }
 
+.social-hero {
+  align-items: flex-start;
+  background:
+    linear-gradient(145deg, #ffffff 0%, #f8fbff 54%, #eef4ff 100%),
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.1), transparent 36%);
+  border: 1px solid #d9e7ff;
+  color: #0f172a;
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+}
+
+.social-hero__content {
+  display: grid;
+  gap: 12px;
+}
+
+.social-kicker {
+  color: #60a5fa;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  margin: 0 0 10px;
+  text-transform: uppercase;
+}
+
+.social-title-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.social-title-row h2 {
+  color: #0f172a;
+  margin: 0;
+}
+
+.social-subtitle {
+  color: #475569;
+  margin: 0;
+  max-width: 780px;
+}
+
+.social-hero__status {
+  color: #334155;
+  font-size: 0.92rem;
+  margin: 0;
+  max-width: 760px;
+}
+
+.social-hero__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.social-mini-stat {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  color: #475569;
+  display: inline-flex;
+  font-size: 0.8rem;
+  font-weight: 600;
+  gap: 6px;
+  padding: 0.55rem 0.8rem;
+}
+
+.social-mini-stat strong {
+  color: #0f172a;
+  font-size: 0.94rem;
+}
+
+.social-hero__actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+  max-width: 420px;
+}
+
+.social-hero__caption {
+  align-items: center;
+  color: #64748b;
+  display: inline-flex;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.7rem 0.2rem;
+}
+
+.social-hero__helper {
+  margin-top: 2px;
+}
+
+.social-toolbar-badge {
+  align-items: center;
+  background: #2563eb;
+  border-radius: 999px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 700;
+  height: 20px;
+  justify-content: center;
+  margin-left: 8px;
+  min-width: 20px;
+  padding: 0 6px;
+}
+
+.social-hero .button-secondary {
+  background: #fff;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+.social-hero .button-secondary:hover {
+  background: #eff6ff;
+}
+
+.social-utility-button--active {
+  background: #dbeafe !important;
+  border-color: #93c5fd !important;
+  color: #1d4ed8 !important;
+}
+
+.social-meta-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.social-meta-card {
+  background: linear-gradient(180deg, #fff, #f8fafc);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: none;
+  padding: 16px 18px;
+}
+
+.social-meta-card span {
+  color: var(--text-soft);
+  display: block;
+  font-size: 0.8rem;
+  margin-bottom: 8px;
+}
+
+.social-meta-card strong {
+  font-size: 2rem;
+  letter-spacing: -0.04em;
+}
+
+.social-status-banner {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+}
+
+.social-status-banner strong,
+.social-status-banner p {
+  margin: 0;
+}
+
+.social-status-banner p {
+  color: var(--text-soft);
+  margin-top: 4px;
+}
+
+.social-status-banner__dot {
+  border-radius: 999px;
+  display: inline-flex;
+  height: 10px;
+  margin-top: 8px;
+  width: 10px;
+}
+
+.social-status-banner--connected {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+}
+
+.social-status-banner--connected .social-status-banner__dot {
+  background: #16a34a;
+}
+
+.social-status-banner--warning {
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+}
+
+.social-status-banner--warning .social-status-banner__dot {
+  background: #f59e0b;
+}
+
+.social-panel-shell {
+  display: grid;
+  gap: 18px;
+}
+
+.social-panel-tabs {
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+
+.social-panel-tab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--text-soft);
+  padding: 0.6rem 0.95rem;
+}
+
+.social-panel-tab:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.social-panel-tab--active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.social-panel-tab--active:hover {
+  background: var(--accent-strong);
+  color: #fff;
+}
+
+.social-panel-section {
+  display: grid;
+  gap: 16px;
+}
+
+.social-composer {
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  overflow: hidden;
+}
+
+.social-composer textarea {
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  min-height: 140px;
+  resize: vertical;
+}
+
+.social-composer__schedule {
+  align-items: end;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+  padding: 14px;
+}
+
+.social-composer__schedule-field {
+  display: grid;
+  gap: 8px;
+}
+
+.social-composer__schedule-field span {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.social-composer__schedule-field input {
+  min-width: 0;
+}
+
+.social-composer__schedule-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.social-composer__footer {
+  align-items: center;
+  background: #f8fafc;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.social-counter {
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.social-counter.is-warning {
+  color: #dc2626;
+}
+
+.social-empty,
+.social-muted {
+  color: var(--text-soft);
+}
+
+.social-empty-card {
+  background: linear-gradient(180deg, #fff, #f8fafc);
+  border: 1px dashed var(--border-strong);
+  border-radius: 18px;
+  padding: 32px 28px;
+  text-align: center;
+}
+
+.social-empty-card__actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+.social-empty-card__title {
+  color: #0f172a;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.social-empty-card__copy {
+  color: var(--text-soft);
+  margin: 0;
+}
+
+.social-content-preview {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.social-table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.social-inline-button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--accent);
+  font-size: 0.78rem;
+  padding: 0.38rem 0.6rem;
+}
+
+.social-inline-button:hover {
+  background: var(--accent-soft);
+}
+
+.social-inline-button--danger {
+  border-color: #fecaca;
+  color: #dc2626;
+}
+
+.social-inline-button--danger:hover {
+  background: #fef2f2;
+}
+
+.social-status-pill {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 0.3rem 0.65rem;
+  text-transform: capitalize;
+}
+
+.social-status-pill--success {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.social-status-pill--warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.social-status-pill--danger {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.social-status-pill--info {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.social-status-pill--neutral {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.social-credentials-intro {
+  color: var(--text-soft);
+}
+
+.social-credentials-intro p {
+  margin: 0;
+}
+
+.social-knowledge-pane .kb-editor {
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
+.social-credential-list {
+  display: grid;
+  gap: 12px;
+}
+
+.social-credential-row {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(180px, 0.9fr) minmax(0, 1.8fr) auto auto;
+}
+
+.social-credential-row__label {
+  display: grid;
+  gap: 4px;
+}
+
+.social-credential-row__label strong {
+  font-size: 0.9rem;
+}
+
+.social-credential-row__label span,
+.social-credential-row__check {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+}
+
+.social-credential-row__check.is-saved {
+  color: #16a34a;
+  font-weight: 700;
+}
+
+.social-account-adder {
+  background: linear-gradient(180deg, #fff, #f8fbff);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.social-account-adder__intro strong,
+.social-account-adder__intro p {
+  margin: 0;
+}
+
+.social-account-adder__intro p {
+  color: var(--text-soft);
+  margin-top: 6px;
+}
+
+.social-account-adder__controls {
+  align-items: end;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.social-account-adder__field {
+  display: grid;
+  gap: 8px;
+}
+
+.social-account-adder__field span {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.social-account-adder__error {
+  color: #dc2626;
+  margin: 0;
+}
+
+.social-note {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.social-note strong,
+.social-note p {
+  margin: 0;
+}
+
+.social-note p {
+  color: var(--text-soft);
+  margin-top: 6px;
+}
+
+.social-connections-modal-backdrop {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: 40;
+}
+
+.social-connections-modal {
+  display: grid;
+  gap: 20px;
+  max-height: min(88vh, 920px);
+  max-width: 980px;
+  overflow: auto;
+  width: min(980px, 100%);
+}
+
+.social-editor-modal {
+  max-width: 720px;
+}
+
+.social-editor-form {
+  display: grid;
+  gap: 16px;
+}
+
+.social-editor-form__actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.social-connections-summary {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.social-connections-summary__card {
+  background: linear-gradient(180deg, #fff, #f8fafc);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 18px;
+}
+
+.social-connections-summary__card span {
+  color: var(--text-soft);
+  display: block;
+  font-size: 0.8rem;
+  margin-bottom: 8px;
+}
+
+.social-connections-summary__card strong {
+  color: #0f172a;
+  display: block;
+  font-size: 1.9rem;
+  letter-spacing: -0.04em;
+}
+
+.social-connections-summary__card small {
+  color: var(--text-soft);
+  display: block;
+  font-size: 0.82rem;
+  margin-top: 6px;
+}
+
+.social-panel-tabs--modal {
+  padding-top: 2px;
+}
+
 /* Coming soon placeholder */
 .social-coming-soon {
   display: flex;
@@ -100,4 +690,46 @@
   font-weight: 700;
   color: var(--accent);
   margin: 0;
+}
+
+@media (max-width: 960px) {
+  .social-hero,
+  .social-hero__actions,
+  .social-composer__footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .social-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .social-connections-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .social-credential-row {
+    grid-template-columns: 1fr;
+  }
+
+  .social-account-adder__controls {
+    grid-template-columns: 1fr;
+  }
+
+  .social-composer__schedule {
+    grid-template-columns: 1fr;
+  }
+
+  .social-composer__schedule-actions {
+    align-items: flex-start;
+    justify-content: flex-start;
+  }
+
+  .social-connections-modal-backdrop {
+    padding: 12px;
+  }
+
+  .social-editor-form__actions {
+    flex-direction: column;
+  }
 }

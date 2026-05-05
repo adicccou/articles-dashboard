@@ -7,13 +7,15 @@ interface SaveKBPayload {
   change_summary?: string;
 }
 
+const allowedKnowledgeBaseTypes = ["reddit_campaign", "trading_strategy", "social_platform"];
+
 export async function getKnowledgeBase(
   env: Env,
   type: string,
   id: string,
 ): Promise<Response> {
   try {
-    if (!["reddit_campaign", "trading_strategy"].includes(type)) {
+    if (!allowedKnowledgeBaseTypes.includes(type)) {
       return errorResponse("Invalid entity type", 400);
     }
 
@@ -45,7 +47,7 @@ export async function saveKnowledgeBase(
   request: Request,
 ): Promise<Response> {
   try {
-    if (!["reddit_campaign", "trading_strategy"].includes(type)) {
+    if (!allowedKnowledgeBaseTypes.includes(type)) {
       return errorResponse("Invalid entity type", 400);
     }
 
@@ -129,7 +131,7 @@ export async function getVersions(
   id: string,
 ): Promise<Response> {
   try {
-    if (!["reddit_campaign", "trading_strategy"].includes(type)) {
+    if (!allowedKnowledgeBaseTypes.includes(type)) {
       return errorResponse("Invalid entity type", 400);
     }
 
@@ -167,7 +169,7 @@ export async function getVersion(
   version: string,
 ): Promise<Response> {
   try {
-    if (!["reddit_campaign", "trading_strategy"].includes(type)) {
+    if (!allowedKnowledgeBaseTypes.includes(type)) {
       return errorResponse("Invalid entity type", 400);
     }
 
