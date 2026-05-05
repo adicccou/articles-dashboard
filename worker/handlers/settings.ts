@@ -139,6 +139,12 @@ async function syncTradingAgent(
     anthropic_api_key: settings.anthropic_api_key,
     claude_model: settings.claude_model,
     strategy_active: Boolean(strategy),
+    ctrader_connected: Boolean(
+      settings.ctrader_client_id &&
+      settings.ctrader_client_secret &&
+      settings.ctrader_access_token &&
+      settings.ctrader_account_id,
+    ),
     ctrader_client_id: settings.ctrader_client_id,
     ctrader_client_secret: settings.ctrader_client_secret,
     ctrader_access_token: settings.ctrader_access_token,
