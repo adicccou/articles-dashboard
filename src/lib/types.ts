@@ -389,6 +389,11 @@ export type SocialAccount = {
   updated_at: string;
 };
 
+export type SocialAccountInput = {
+  username?: string;
+  [key: string]: string | undefined;
+};
+
 export type SocialPost = {
   id: number;
   platform: "twitter" | "threads" | "reddit";

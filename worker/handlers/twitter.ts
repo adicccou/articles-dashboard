@@ -1,6 +1,24 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 
+type TwitterAccountPayload = {
+  username: string;
+  api_key: string;
+  api_secret: string;
+  access_token: string;
+  access_secret: string;
+};
+
+async function upsertSetting(env: Env, key: string, value: string, updatedAt: string): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO app_settings (key, value, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+  )
+    .bind(key, value, updatedAt)
+    .run();
+}
+
 // ------------------------------------------------------------------ social posts
 
 export async function listSocialPosts(env: Env, platform: string): Promise<Response> {
@@ -23,14 +41,26 @@ export async function createSocialPost(env: Env, platform: string, request: Requ
       return errorResponse("content is required", 400);
     }
     const now = new Date().toISOString();
+    const status = payload.scheduled_at ? "scheduled" : "draft";
     const result = await env.DB.prepare(
       `INSERT INTO social_posts (platform, content, status, scheduled_at, created_by, created_at, updated_at)
-       VALUES (?, ?, 'draft', ?, 'dashboard', ?, ?)`,
+       VALUES (?, ?, ?, ?, 'dashboard', ?, ?)`,
     )
-      .bind(platform, payload.content.trim(), payload.scheduled_at ?? null, now, now)
+      .bind(platform, payload.content.trim(), status, payload.scheduled_at ?? null, now, now)
       .run() as { meta: { last_row_id: number } };
 
-    return jsonResponse({ id: result.meta.last_row_id, platform, ...payload, status: "draft", created_at: now }, { status: 201 });
+    return jsonResponse({
+      id: result.meta.last_row_id,
+      platform,
+      content: payload.content.trim(),
+      status,
+      scheduled_at: payload.scheduled_at ?? null,
+      posted_at: null,
+      external_id: null,
+      created_by: "dashboard",
+      created_at: now,
+      updated_at: now,
+    }, { status: 201 });
   } catch {
     return errorResponse("Failed to create post", 500);
   }
@@ -87,16 +117,38 @@ export async function listTwitterAccounts(env: Env): Promise<Response> {
 
 export async function addTwitterAccount(env: Env, request: Request): Promise<Response> {
   try {
-    const payload = await parseJson<{ username: string }>(request);
-    if (!payload.username) return errorResponse("username is required", 400);
+    const payload = await parseJson<TwitterAccountPayload>(request);
+    const username = payload.username?.trim().replace(/^@+/, "");
+    if (!username) return errorResponse("username is required", 400);
+    if (!payload.api_key?.trim()) return errorResponse("API key is required", 400);
+    if (!payload.api_secret?.trim()) return errorResponse("API secret is required", 400);
+    if (!payload.access_token?.trim()) return errorResponse("Access token is required", 400);
+    if (!payload.access_secret?.trim()) return errorResponse("Access secret is required", 400);
+
     const now = new Date().toISOString();
     const result = await env.DB.prepare(
       `INSERT INTO social_accounts (platform, username, status, created_at, updated_at)
        VALUES ('twitter', ?, 'active', ?, ?)`,
     )
-      .bind(payload.username, now, now)
+      .bind(username, now, now)
       .run() as { meta: { last_row_id: number } };
-    return jsonResponse({ id: result.meta.last_row_id, platform: "twitter", username: payload.username, status: "active", created_at: now }, { status: 201 });
+
+    const accountId = result.meta.last_row_id;
+    await Promise.all([
+      upsertSetting(env, `social_account:${accountId}:twitter_api_key`, payload.api_key.trim(), now),
+      upsertSetting(env, `social_account:${accountId}:twitter_api_secret`, payload.api_secret.trim(), now),
+      upsertSetting(env, `social_account:${accountId}:twitter_access_token`, payload.access_token.trim(), now),
+      upsertSetting(env, `social_account:${accountId}:twitter_access_secret`, payload.access_secret.trim(), now),
+      upsertSetting(env, "twitter_api_key", payload.api_key.trim(), now),
+      upsertSetting(env, "twitter_api_secret", payload.api_secret.trim(), now),
+      upsertSetting(env, "twitter_access_token", payload.access_token.trim(), now),
+      upsertSetting(env, "twitter_access_secret", payload.access_secret.trim(), now),
+    ]);
+
+    return jsonResponse(
+      { id: accountId, platform: "twitter", username, status: "active", created_at: now, updated_at: now },
+      { status: 201 },
+    );
   } catch {
     return errorResponse("Failed to add account", 500);
   }
@@ -107,6 +159,7 @@ export async function deleteTwitterAccount(env: Env, accountId: string): Promise
     const id = Number(accountId);
     if (isNaN(id)) return errorResponse("Invalid account ID", 400);
     await env.DB.prepare("DELETE FROM social_accounts WHERE id = ? AND platform = 'twitter'").bind(id).run();
+    await env.DB.prepare("DELETE FROM app_settings WHERE key LIKE ?").bind(`social_account:${id}:%`).run();
     return jsonResponse({ success: true });
   } catch {
     return errorResponse("Failed to delete account", 500);

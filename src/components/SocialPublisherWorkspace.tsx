@@ -2,14 +2,17 @@ import { useRef, useState } from "react";
 import type { SocialAccount, SocialPost } from "../lib/types";
 
 type Tab = "posts" | "campaigns";
-type SetupTab = "overview" | "knowledge" | "accounts" | "credentials";
+type SetupTab = "overview" | "knowledge" | "accounts";
 
-type CredentialField = {
+export type SocialAccountField = {
   key: string;
   label: string;
-  saved: boolean;
-  onSave: (value: string) => Promise<unknown>;
+  placeholder?: string;
+  type?: "text" | "password";
+  required?: boolean;
 };
+
+export type SocialAccountPayload = Record<string, string>;
 
 type SocialPublisherWorkspaceProps = {
   icon: string;
@@ -22,8 +25,6 @@ type SocialPublisherWorkspaceProps = {
   queueHint: string;
   queueLimit: number;
   accountsEmptyMessage: string;
-  credentialsIntro: React.ReactNode;
-  credentialsNote: string;
   isConnected: boolean;
   loading: boolean;
   posts: SocialPost[];
@@ -36,12 +37,10 @@ type SocialPublisherWorkspaceProps = {
   onQueueChange: (value: string) => void;
   onCreatePost: (scheduledAt: string | null) => Promise<void>;
   onDeletePost: (id: number) => Promise<void>;
-  onAddAccount?: (value: string) => Promise<void>;
+  onAddAccount?: (values: SocialAccountPayload) => Promise<void>;
   onDeleteAccount: (id: number) => Promise<void>;
-  credentialFields: CredentialField[];
+  accountFields: SocialAccountField[];
   knowledgeBaseContent?: React.ReactNode;
-  accountInputLabel?: string;
-  accountInputPlaceholder?: string;
   accountInputHint?: string;
   onCreateCampaign?: () => void;
   extraActions?: React.ReactNode;
@@ -54,44 +53,6 @@ function toDateTimeLocalValue(date: Date) {
   const hours = `${date.getHours()}`.padStart(2, "0");
   const minutes = `${date.getMinutes()}`.padStart(2, "0");
   return `${year}-${month}-${day}T${hours}:${minutes}`;
-}
-
-function CredentialRow({ field }: { field: CredentialField }) {
-  const [value, setValue] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  return (
-    <div className="social-credential-row">
-      <div className="social-credential-row__label">
-        <strong>{field.label}</strong>
-        <span>{field.saved ? "Saved and hidden" : "Not saved yet"}</span>
-      </div>
-      <input
-        type="password"
-        placeholder={field.saved ? "Replace saved value only if needed" : "Enter value"}
-        value={value}
-        onChange={(event) => setValue(event.target.value)}
-      />
-      <button
-        type="button"
-        disabled={!value.trim() || saving}
-        onClick={async () => {
-          setSaving(true);
-          try {
-            await field.onSave(value.trim());
-            setValue("");
-          } finally {
-            setSaving(false);
-          }
-        }}
-      >
-        {saving ? "Saving..." : "Save"}
-      </button>
-      <span className={`social-credential-row__check ${field.saved ? "is-saved" : ""}`}>
-        {field.saved ? "Saved" : "Pending"}
-      </span>
-    </div>
-  );
 }
 
 function statusTone(status: SocialPost["status"] | SocialAccount["status"]) {
@@ -121,8 +82,6 @@ export function SocialPublisherWorkspace({
   queueHint,
   queueLimit,
   accountsEmptyMessage,
-  credentialsIntro,
-  credentialsNote,
   isConnected,
   loading,
   posts,
@@ -137,11 +96,9 @@ export function SocialPublisherWorkspace({
   onDeletePost,
   onAddAccount,
   onDeleteAccount,
-  credentialFields,
+  accountFields,
   knowledgeBaseContent,
-  accountInputLabel = "Account username",
-  accountInputPlaceholder = "@youraccount",
-  accountInputHint = "Add another account so this workspace can support multiple publishing profiles later.",
+  accountInputHint = "Add another account with the credentials this platform requires.",
   onCreateCampaign,
   extraActions,
 }: SocialPublisherWorkspaceProps) {
@@ -149,7 +106,7 @@ export function SocialPublisherWorkspace({
   const [isSetupOpen, setIsSetupOpen] = useState(false);
   const [setupTab, setSetupTab] = useState<SetupTab>("overview");
   const [scheduledAtInput, setScheduledAtInput] = useState("");
-  const [accountInput, setAccountInput] = useState("");
+  const [accountInput, setAccountInput] = useState<SocialAccountPayload>({});
   const [addingAccount, setAddingAccount] = useState(false);
   const [accountError, setAccountError] = useState<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -158,13 +115,13 @@ export function SocialPublisherWorkspace({
     { id: "posts", label: `Posts (${posts.length})` },
     { id: "campaigns", label: `Campaigns (${campaignCount})` },
   ];
-  const savedCredentialCount = credentialFields.filter((field) => field.saved).length;
   const setupTabs: Array<{ id: SetupTab; label: string }> = [
     { id: "overview", label: "Overview" },
     ...(knowledgeBaseContent ? [{ id: "knowledge" as const, label: "Knowledge Base" }] : []),
     { id: "accounts", label: "Accounts" },
-    { id: "credentials", label: "Credentials" },
   ];
+  const requiredAccountFields = accountFields.filter((field) => field.required !== false);
+  const isAccountFormComplete = requiredAccountFields.every((field) => accountInput[field.key]?.trim());
 
   const minSchedule = toDateTimeLocalValue(new Date());
 
@@ -191,7 +148,7 @@ export function SocialPublisherWorkspace({
             <span className="social-mini-stat"><strong>{posts.length}</strong> posts</span>
             <span className="social-mini-stat"><strong>{campaignCount}</strong> campaigns</span>
             <span className="social-mini-stat"><strong>{accounts.length}</strong> accounts</span>
-            <span className="social-mini-stat"><strong>{savedCredentialCount}/{credentialFields.length}</strong> credentials</span>
+            <span className="social-mini-stat"><strong>{accountFields.length}</strong> fields</span>
           </div>
           {extraActions ? <div className="social-hero__helper">{extraActions}</div> : null}
         </div>
@@ -217,12 +174,12 @@ export function SocialPublisherWorkspace({
             className={`button-secondary ${isSetupOpen ? "social-utility-button--active" : ""}`}
             type="button"
             onClick={() => {
-              setSetupTab(knowledgeBaseContent ? "knowledge" : "accounts");
+              setSetupTab("accounts");
               setIsSetupOpen(true);
             }}
           >
             Manage
-            <span className="social-toolbar-badge">{accounts.length + savedCredentialCount}</span>
+            <span className="social-toolbar-badge">{accounts.length}</span>
           </button>
           <button className="button-secondary" type="button" onClick={() => void onReload()}>
             Refresh
@@ -244,10 +201,8 @@ export function SocialPublisherWorkspace({
           <strong>{accounts.length}</strong>
         </article>
         <article className="social-meta-card">
-          <span>Credentials</span>
-          <strong>
-            {credentialFields.filter((field) => field.saved).length}/{credentialFields.length}
-          </strong>
+          <span>Account Fields</span>
+          <strong>{accountFields.length}</strong>
         </article>
       </section>
 
@@ -385,9 +340,9 @@ export function SocialPublisherWorkspace({
                 <small>{accounts.length ? "Connected profiles ready" : "No connected profiles yet"}</small>
               </article>
               <article className="social-connections-summary__card">
-                <span>Credentials</span>
-                <strong>{savedCredentialCount}/{credentialFields.length}</strong>
-                <small>{savedCredentialCount ? "Saved securely in dashboard settings" : "Still needs setup"}</small>
+                <span>Account fields</span>
+                <strong>{accountFields.length}</strong>
+                <small>Filled when you add each platform account.</small>
               </article>
             </div>
 
@@ -415,13 +370,13 @@ export function SocialPublisherWorkspace({
                   <article className="social-connections-summary__card">
                     <span>Readiness</span>
                     <strong>{isConnected ? "Ready" : "Setup"}</strong>
-                    <small>{isConnected ? "Publishing path is configured." : "Finish credentials and accounts to publish safely."}</small>
+                    <small>{isConnected ? "At least one account is configured." : "Add an account with the required fields."}</small>
                   </article>
                 </div>
                 <div className="social-note">
                   <strong>Workspace summary</strong>
                   <p>
-                    Use this modal to keep platform knowledge, account access, and credentials together in one place while the main page stays focused on content.
+                    Use this modal to keep platform knowledge and account setup together while the main page stays focused on content.
                   </p>
                 </div>
               </section>
@@ -449,28 +404,39 @@ export function SocialPublisherWorkspace({
                       <strong>Add another account</strong>
                       <p>{accountInputHint}</p>
                     </div>
-                    <div className="social-account-adder__controls">
-                      <label className="social-account-adder__field">
-                        <span>{accountInputLabel}</span>
-                        <input
-                          type="text"
-                          placeholder={accountInputPlaceholder}
-                          value={accountInput}
-                          onChange={(event) => {
-                            setAccountInput(event.target.value);
-                            if (accountError) setAccountError(null);
-                          }}
-                        />
-                      </label>
+                    <div className="social-account-adder__fields">
+                      {accountFields.map((field) => (
+                        <label className="social-account-adder__field" key={field.key}>
+                          <span>{field.label}{field.required === false ? "" : " *"}</span>
+                          <input
+                            type={field.type ?? "text"}
+                            placeholder={field.placeholder}
+                            value={accountInput[field.key] ?? ""}
+                            onChange={(event) => {
+                              setAccountInput((current) => ({ ...current, [field.key]: event.target.value }));
+                              if (accountError) setAccountError(null);
+                            }}
+                            autoComplete="off"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <div className="social-account-adder__actions">
                       <button
                         type="button"
-                        disabled={!accountInput.trim() || addingAccount}
+                        disabled={!isAccountFormComplete || addingAccount}
                         onClick={async () => {
                           setAddingAccount(true);
                           setAccountError(null);
                           try {
-                            await onAddAccount(accountInput.trim().replace(/^@+/, ""));
-                            setAccountInput("");
+                            const values = Object.fromEntries(
+                              Object.entries(accountInput).map(([key, value]) => [
+                                key,
+                                key === "username" ? value.trim().replace(/^@+/, "") : value.trim(),
+                              ]),
+                            );
+                            await onAddAccount(values);
+                            setAccountInput({});
                           } catch (error) {
                             setAccountError(error instanceof Error ? error.message : "Failed to add account");
                           } finally {
@@ -516,23 +482,6 @@ export function SocialPublisherWorkspace({
               </section>
             ) : null}
 
-            {setupTab === "credentials" ? (
-              <section className="social-panel-section">
-                <div className="panel__title-row">
-                  <h2>{shortLabel} Credentials</h2>
-                </div>
-                <div className="social-credentials-intro">{credentialsIntro}</div>
-                <div className="social-credential-list">
-                  {credentialFields.map((field) => (
-                    <CredentialRow key={field.key} field={field} />
-                  ))}
-                </div>
-                <div className="social-note">
-                  <strong>Automation note</strong>
-                  <p>{credentialsNote}</p>
-                </div>
-              </section>
-            ) : null}
           </div>
         </div>
       ) : null}

@@ -551,11 +551,23 @@
   margin-top: 6px;
 }
 
-.social-account-adder__controls {
+.social-account-adder__controls,
+.social-account-adder__actions {
   align-items: end;
   display: grid;
   gap: 12px;
   grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.social-account-adder__fields {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.social-account-adder__actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .social-account-adder__field {
@@ -714,6 +726,14 @@
 
   .social-account-adder__controls {
     grid-template-columns: 1fr;
+  }
+
+  .social-account-adder__fields {
+    grid-template-columns: 1fr;
+  }
+
+  .social-account-adder__actions {
+    justify-content: stretch;
   }
 
   .social-composer__schedule {

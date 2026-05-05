@@ -1,4 +1,4 @@
-import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialPost } from "./types";
+import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialAccountInput, SocialPost } from "./types";
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -193,10 +193,10 @@ export const api = {
 
   // Twitter accounts
   listTwitterAccounts: () => request<SocialAccount[]>("/api/social/twitter/accounts"),
-  addTwitterAccount: (username: string) =>
+  addTwitterAccount: (payload: SocialAccountInput) =>
     request<SocialAccount>("/api/social/twitter/accounts", {
       method: "POST",
-      body: JSON.stringify({ username }),
+      body: JSON.stringify(payload),
     }),
   deleteTwitterAccount: (id: number) =>
     request<{ success: boolean }>(`/api/social/twitter/accounts/${id}`, {
@@ -205,10 +205,10 @@ export const api = {
 
   // Threads accounts
   listThreadsAccounts: () => request<SocialAccount[]>("/api/social/threads/accounts"),
-  addThreadsAccount: (username: string) =>
+  addThreadsAccount: (payload: SocialAccountInput) =>
     request<SocialAccount>("/api/social/threads/accounts", {
       method: "POST",
-      body: JSON.stringify({ username }),
+      body: JSON.stringify(payload),
     }),
   deleteThreadsAccount: (id: number) =>
     request<{ success: boolean }>(`/api/social/threads/accounts/${id}`, {

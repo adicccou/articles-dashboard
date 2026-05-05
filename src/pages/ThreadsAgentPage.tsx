@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { SocialAccount, SocialPost, AppSettings, PlannerItem } from "../lib/types";
+import type { SocialAccount, SocialPost, PlannerItem } from "../lib/types";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
 import { SocialPublisherWorkspace } from "../components/SocialPublisherWorkspace";
@@ -12,7 +12,6 @@ export function ThreadsAgentPage() {
   const [posts, setPosts] = useState<SocialPost[]>([]);
   const [plannerItems, setPlannerItems] = useState<PlannerItem[]>([]);
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
-  const [settings, setSettings] = useState<AppSettings | null>(null);
   const [newPost, setNewPost] = useState("");
   const [adding, setAdding] = useState(false);
   const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
@@ -22,16 +21,14 @@ export function ThreadsAgentPage() {
   async function load() {
     try {
       setLoading(true);
-      const [postsData, plannerData, accountsData, settingsData] = await Promise.all([
+      const [postsData, plannerData, accountsData] = await Promise.all([
         api.listSocialPosts("threads"),
         api.listPlannerItems(),
         api.listThreadsAccounts(),
-        api.getSettings(),
       ]);
       setPosts(asArray<SocialPost>(postsData));
       setPlannerItems(asArray<PlannerItem>(plannerData));
       setAccounts(asArray<SocialAccount>(accountsData));
-      setSettings(settingsData);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
@@ -44,7 +41,7 @@ export function ThreadsAgentPage() {
     void load();
   }, []);
 
-  const isConnected = Boolean(settings?.threads_access_token_saved && settings?.threads_user_id);
+  const isConnected = accounts.length > 0;
   const campaigns = plannerItems.filter(
     (item) => item.item_type === "campaign" && item.platform.trim().toLowerCase() === "threads",
   );
@@ -57,17 +54,11 @@ export function ThreadsAgentPage() {
         shortLabel="🧵"
         campaignCount={campaigns.length}
         connectedMessage="Threads credentials are configured and queued posts are ready for workflow-based publishing."
-        disconnectedMessage="Threads access is not configured yet. Add the required credentials before using the queue."
+        disconnectedMessage="Add a Threads account with its Meta credentials before relying on the queue."
         queuePlaceholder="Write a Threads post for the queue..."
         queueHint="Draft a Threads post above, or send planned content in from the bot for later approval."
         queueLimit={500}
-        accountsEmptyMessage="No Threads accounts are attached yet. Save your Threads credentials to unlock account linking."
-        credentialsIntro={
-          <p>
-            Threads uses the Meta Graph API. Save your Threads access token and user ID here so the publishing path stays consistent with the rest of the system.
-          </p>
-        }
-        credentialsNote="Once connected, the trading agent can publish approved Threads content through your existing Telegram workflow."
+        accountsEmptyMessage="No Threads accounts are attached yet. Add an account with its Meta Graph API fields to start publishing."
         isConnected={isConnected}
         loading={loading}
         posts={posts}
@@ -126,8 +117,8 @@ export function ThreadsAgentPage() {
           await api.deleteSocialPost(id);
           await load();
         }}
-        onAddAccount={async (value) => {
-          await api.addThreadsAccount(value);
+        onAddAccount={async (values) => {
+          await api.addThreadsAccount(values);
           await load();
         }}
         onDeleteAccount={async (id) => {
@@ -135,28 +126,22 @@ export function ThreadsAgentPage() {
           await load();
         }}
         knowledgeBaseContent={<KnowledgeBaseEditor type="social_platform" entityId={THREADS_KB_ID} />}
-        accountInputLabel="Threads username"
-        accountInputPlaceholder="username"
-        accountInputHint="Keep multiple Threads profiles here so the dashboard can support several publishing accounts over time."
+        accountInputHint="Add each Threads profile with the Meta fields required for publishing from that account."
         onCreateCampaign={() => setIsCampaignModalOpen(true)}
-        credentialFields={[
+        accountFields={[
           {
-            key: "threads_access_token",
-            label: "Access Token",
-            saved: Boolean(settings?.threads_access_token_saved),
-            onSave: async (value) => {
-              await api.updateSettings({ threads_access_token: value });
-              await load();
-            },
+            key: "username",
+            label: "Threads username",
+            placeholder: "username",
           },
           {
-            key: "threads_user_id",
+            key: "access_token",
+            label: "Access Token",
+            type: "password",
+          },
+          {
+            key: "user_id",
             label: "User ID",
-            saved: Boolean(settings?.threads_user_id),
-            onSave: async (value) => {
-              await api.updateSettings({ threads_user_id: value });
-              await load();
-            },
           },
         ]}
         extraActions={<span className="social-hero__caption">Planner campaigns and queued posts stay aligned here.</span>}

@@ -177,7 +177,7 @@ export function RedditAgentPage() {
             type="button"
             className={`button-secondary ${isSetupOpen ? "social-utility-button--active" : ""}`}
             onClick={() => {
-              setSetupTab("knowledge");
+              setSetupTab("accounts");
               setIsSetupOpen(true);
             }}
           >
