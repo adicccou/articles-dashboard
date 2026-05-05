@@ -99,20 +99,6 @@ export function RedditAgentPage() {
               {accounts.length ? "Connected" : "Needs setup"}
             </span>
           </div>
-          <div className="social-meta-grid" aria-label="Reddit Agent stats">
-            <article className="social-meta-card">
-              <span>Posts</span>
-              <strong>{redditPosts.length}</strong>
-            </article>
-            <article className="social-meta-card">
-              <span>Campaigns</span>
-              <strong>{campaigns.length}</strong>
-            </article>
-            <article className="social-meta-card">
-              <span>Replies</span>
-              <strong>{redditReplyCount}</strong>
-            </article>
-          </div>
         </div>
         <div className="social-hero__actions">
           <button type="button" onClick={() => setIsPostModalOpen(true)}>
@@ -243,7 +229,7 @@ export function RedditAgentPage() {
                 </span>
                 <span className="social-muted">{campaign.throttle_interval_minutes ? `${campaign.throttle_interval_minutes} min` : "—"}</span>
                 <span className="social-muted">
-                  {campaign.start_at ? new Date(campaign.start_at).toLocaleString() : "Any time"}
+                  {campaign.start_at ? new Date(campaign.start_at).toLocaleString() : "Started immediately"}
                   {campaign.end_at ? ` → ${new Date(campaign.end_at).toLocaleString()}` : ""}
                 </span>
                 <span className="social-table-actions">

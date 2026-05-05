@@ -101,16 +101,21 @@ async function getThreadsCredentials(env: Env, requestedAccountId?: number): Pro
 
 async function postThreadsContainer(
   env: Env,
-  payload: { text: string; replyToId?: string; accountId?: number },
+  payload: { text: string; imageUrl?: string; replyToId?: string; accountId?: number },
 ): Promise<{ containerId: string; credentials: ThreadsCredentials }> {
   const credentials = await getThreadsCredentials(env, payload.accountId);
   if (!credentials) throw new Error("No active Threads account with access token was found.");
 
   const containerBody = new URLSearchParams({
-    media_type: "TEXT",
-    text: payload.text,
+    media_type: payload.imageUrl ? "IMAGE" : "TEXT",
     access_token: credentials.accessToken,
   });
+  if (payload.imageUrl) {
+    containerBody.set("image_url", payload.imageUrl);
+    if (payload.text) containerBody.set("text", payload.text);
+  } else {
+    containerBody.set("text", payload.text);
+  }
   if (payload.replyToId) containerBody.set("reply_to_id", payload.replyToId);
 
   const containerResponse = await fetch(`${THREADS_GRAPH_BASE}/me/threads`, {
@@ -148,7 +153,7 @@ async function publishThreadsContainer(credentials: ThreadsCredentials, containe
 
 async function publishThreadsText(
   env: Env,
-  payload: { text: string; replyToId?: string; accountId?: number },
+  payload: { text: string; imageUrl?: string; replyToId?: string; accountId?: number },
 ): Promise<{ externalId: string; accountId: number }> {
   const { containerId, credentials } = await postThreadsContainer(env, payload);
   const externalId = await publishThreadsContainer(credentials, containerId);
@@ -269,15 +274,18 @@ export async function publishThreadsPost(env: Env, postId: string): Promise<Resp
     const id = Number(postId);
     if (Number.isNaN(id)) return errorResponse("Invalid post ID", 400);
 
-    const post = await env.DB.prepare("SELECT id, content, status FROM social_posts WHERE id = ? AND platform = 'threads'")
+    const post = await env.DB.prepare("SELECT id, content, image_url, status FROM social_posts WHERE id = ? AND platform = 'threads'")
       .bind(id)
-      .first<{ id: number; content: string; status: string }>();
+      .first<{ id: number; content: string; image_url: string | null; status: string }>();
     if (!post) return errorResponse("Threads post not found", 404);
-    if (!post.content?.trim()) return errorResponse("Post content is empty", 400);
+    if (!post.content?.trim() && !post.image_url?.trim()) return errorResponse("Post content is empty", 400);
     if (post.status === "posted") return errorResponse("Post is already published", 400);
 
     const now = new Date().toISOString();
-    const published = await publishThreadsText(env, { text: post.content.trim() });
+    const published = await publishThreadsText(env, {
+      text: post.content.trim(),
+      imageUrl: post.image_url?.trim() || undefined,
+    });
     await env.DB.prepare(
       `UPDATE social_posts
        SET status = 'posted', posted_at = ?, external_id = ?, updated_at = ?

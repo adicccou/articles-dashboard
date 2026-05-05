@@ -107,7 +107,7 @@ export function TwitterAgentPage() {
                   </span>
                   <span className="social-muted">{item.interval_minutes ? `${item.interval_minutes} min` : "—"}</span>
                   <span className="social-muted">
-                    {item.duration_start ? new Date(item.duration_start).toLocaleString() : "Any time"}
+                    {item.duration_start ? new Date(item.duration_start).toLocaleString() : "Started immediately"}
                     {item.duration_end ? ` → ${new Date(item.duration_end).toLocaleString()}` : ""}
                   </span>
                   <span className="social-table-actions">

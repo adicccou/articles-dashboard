@@ -136,23 +136,26 @@ export async function listSocialPosts(env: Env, platform: string): Promise<Respo
 
 export async function createSocialPost(env: Env, platform: string, request: Request): Promise<Response> {
   try {
-    const payload = await parseJson<{ content: string; scheduled_at?: string }>(request);
-    if (!payload.content?.trim()) {
-      return errorResponse("content is required", 400);
+    const payload = await parseJson<{ content?: string; scheduled_at?: string; image_url?: string }>(request);
+    const content = payload.content?.trim() ?? "";
+    const imageUrl = payload.image_url?.trim() ?? "";
+    if (!content && !imageUrl) {
+      return errorResponse("content or image_url is required", 400);
     }
     const now = new Date().toISOString();
     const status = payload.scheduled_at ? "scheduled" : "draft";
     const result = await env.DB.prepare(
-      `INSERT INTO social_posts (platform, content, status, scheduled_at, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'dashboard', ?, ?)`,
+      `INSERT INTO social_posts (platform, content, image_url, status, scheduled_at, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'dashboard', ?, ?)`,
     )
-      .bind(platform, payload.content.trim(), status, payload.scheduled_at ?? null, now, now)
+      .bind(platform, content, imageUrl || null, status, payload.scheduled_at ?? null, now, now)
       .run() as { meta: { last_row_id: number } };
 
     return jsonResponse({
       id: result.meta.last_row_id,
       platform,
-      content: payload.content.trim(),
+      content,
+      image_url: imageUrl || null,
       status,
       scheduled_at: payload.scheduled_at ?? null,
       posted_at: null,
@@ -170,13 +173,14 @@ export async function updateSocialPost(env: Env, postId: string, request: Reques
   try {
     const id = Number(postId);
     if (isNaN(id)) return errorResponse("Invalid post ID", 400);
-    const payload = await parseJson<{ content?: string; status?: string; scheduled_at?: string }>(request);
+    const payload = await parseJson<{ content?: string; image_url?: string | null; status?: string; scheduled_at?: string }>(request);
     const now = new Date().toISOString();
 
     const updates: string[] = [];
     const values: unknown[] = [];
 
     if (payload.content !== undefined) { updates.push("content = ?"); values.push(payload.content); }
+    if (payload.image_url !== undefined) { updates.push("image_url = ?"); values.push(payload.image_url); }
     if (payload.status !== undefined) { updates.push("status = ?"); values.push(payload.status); }
     if (payload.scheduled_at !== undefined) { updates.push("scheduled_at = ?"); values.push(payload.scheduled_at); }
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { SocialAccount, SocialPost } from "../lib/types";
 
 type Tab = "posts" | "campaigns" | "replies";
@@ -297,13 +297,26 @@ export function SocialPublisherWorkspace({
   accountInputHint = "Add another account with the credentials this platform requires.",
   onCreateCampaign,
 }: SocialPublisherWorkspaceProps) {
-  const [tab, setTab] = useState<Tab>("posts");
+  const tabStorageKey = useMemo(
+    () => `dashboard:social-tab:${platformLabel.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+    [platformLabel],
+  );
+  const [tab, setTab] = useState<Tab>(() => {
+    if (typeof window === "undefined") return "posts";
+    const stored = window.localStorage.getItem(tabStorageKey);
+    return stored === "posts" || stored === "campaigns" || stored === "replies" ? stored : "posts";
+  });
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
   const [isSetupOpen, setIsSetupOpen] = useState(false);
   const [setupTab, setSetupTab] = useState<SetupTab>("overview");
   const [accountInput, setAccountInput] = useState<SocialAccountPayload>({});
   const [addingAccount, setAddingAccount] = useState(false);
   const [accountError, setAccountError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(tabStorageKey, tab);
+  }, [tab, tabStorageKey]);
 
   const tabs: Array<{ id: Tab; label: string }> = [
     { id: "posts", label: `Posts (${posts.length})` },
@@ -337,20 +350,6 @@ export function SocialPublisherWorkspace({
             <span className={`social-status-pill social-status-pill--${isConnected ? "success" : "warning"}`}>
               {isConnected ? "Connected" : "Needs setup"}
             </span>
-          </div>
-          <div className="social-meta-grid" aria-label={`${platformLabel} stats`}>
-            <article className="social-meta-card">
-              <span>Posts</span>
-              <strong>{posts.length}</strong>
-            </article>
-            <article className="social-meta-card">
-              <span>Campaigns</span>
-              <strong>{campaignCount}</strong>
-            </article>
-            <article className="social-meta-card">
-              <span>Replies</span>
-              <strong>{replyCount}</strong>
-            </article>
           </div>
         </div>
         <div className="social-hero__actions">
@@ -430,7 +429,12 @@ export function SocialPublisherWorkspace({
                 </div>
                 {posts.map((post) => (
                   <div className="table__row" key={post.id}>
-                    <span className="social-content-preview">{post.content}</span>
+                    <span className="social-content-preview">
+                      {post.image_url ? (
+                        <img className="social-post-image" src={post.image_url} alt="" loading="lazy" />
+                      ) : null}
+                      <span>{post.content}</span>
+                    </span>
                     <span>
                       <span className={`social-status-pill social-status-pill--${statusTone(post.status)}`}>{post.status}</span>
                     </span>

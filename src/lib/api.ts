@@ -176,10 +176,10 @@ export const api = {
   // Social posts (shared across Twitter and Threads)
   listSocialPosts: (platform: string) =>
     request<SocialPost[]>(`/api/social/posts?platform=${platform}`),
-  createSocialPost: (platform: string, content: string, scheduled_at?: string) =>
+  createSocialPost: (platform: string, content: string, scheduled_at?: string, image_url?: string) =>
     request<SocialPost>(`/api/social/posts`, {
       method: "POST",
-      body: JSON.stringify({ platform, content, scheduled_at }),
+      body: JSON.stringify({ platform, content, scheduled_at, image_url }),
     }),
   updateSocialPost: (id: number, payload: Partial<SocialPost>) =>
     request<{ success: boolean; updated_at: string }>(`/api/social/posts/${id}`, {

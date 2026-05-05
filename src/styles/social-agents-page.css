@@ -385,11 +385,27 @@
 }
 
 .social-content-preview {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.social-content-preview > span {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   line-clamp: 2;
   overflow: hidden;
+}
+
+.social-post-image {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  display: block;
+  max-height: 180px;
+  max-width: min(280px, 100%);
+  object-fit: cover;
 }
 
 .social-table-actions {

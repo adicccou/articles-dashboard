@@ -411,6 +411,7 @@ export type SocialPost = {
   id: number;
   platform: "twitter" | "threads" | "reddit";
   content: string;
+  image_url?: string | null;
   status: "draft" | "approved" | "scheduled" | "posted" | "failed";
   scheduled_at: string | null;
   posted_at: string | null;

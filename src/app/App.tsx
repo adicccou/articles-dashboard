@@ -8,12 +8,22 @@ import { TopNav, type NavView } from "../components/TopNav";
 import { DashboardPage } from "../pages/DashboardPage";
 import "../styles/app.css";
 
+const DASHBOARD_VIEW_STORAGE_KEY = "dashboard:last-view";
+
+function readStoredView(): NavView {
+  if (typeof window === "undefined") return "articles";
+  const stored = window.localStorage.getItem(DASHBOARD_VIEW_STORAGE_KEY);
+  return stored === "articles" || stored === "reddit" || stored === "trading" || stored === "planner" || stored === "statistics"
+    ? stored
+    : "articles";
+}
+
 export function App() {
   const [auth, setAuth] = useState<AuthState>({ authenticated: false });
   const [sites, setSites] = useState<Site[]>([]);
   const [articles, setArticles] = useState<ArticleRecord[]>([]);
   const [categories, setCategories] = useState<ArticleCategory[]>([]);
-  const [view, setView] = useState<NavView>("articles");
+  const [view, setView] = useState<NavView>(readStoredView);
   const [selectedArticle, setSelectedArticle] = useState<ArticleRecord | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +70,11 @@ export function App() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(DASHBOARD_VIEW_STORAGE_KEY, view);
+  }, [view]);
 
   async function saveSettings(payload: AppSettingsInput) {
     const next = await api.updateSettings(payload);

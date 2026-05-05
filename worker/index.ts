@@ -160,21 +160,21 @@ async function handleInternalContext(env: Env) {
        ORDER BY created_at DESC`,
     ).all(),
     env.DB.prepare(
-      `SELECT id, platform, content, status, scheduled_at, updated_at
+      `SELECT id, platform, content, image_url, status, scheduled_at, updated_at
        FROM social_posts
        WHERE platform = 'reddit'
        ORDER BY updated_at DESC
        LIMIT 20`,
     ).all(),
     env.DB.prepare(
-      `SELECT id, platform, content, status, scheduled_at, updated_at
+      `SELECT id, platform, content, image_url, status, scheduled_at, updated_at
        FROM social_posts
        WHERE platform = 'twitter'
        ORDER BY updated_at DESC
        LIMIT 20`,
     ).all(),
     env.DB.prepare(
-      `SELECT id, platform, content, status, scheduled_at, updated_at
+      `SELECT id, platform, content, image_url, status, scheduled_at, updated_at
        FROM social_posts
        WHERE platform = 'threads'
        ORDER BY updated_at DESC
@@ -620,11 +620,11 @@ export default {
     if (url.pathname === "/api/internal/social/posts" && request.method === "POST") {
       const unauthorized = await requireAgentAuth(request, env);
       if (unauthorized) return unauthorized;
-      const body = await parseJson<{ platform: string; content: string; scheduled_at?: string }>(request);
+      const body = await parseJson<{ platform: string; content?: string; scheduled_at?: string; image_url?: string }>(request);
       const platform = body.platform ?? "twitter";
       return await createSocialPost(env, platform, new Request(request.url, {
         method: "POST",
-        body: JSON.stringify({ content: body.content, scheduled_at: body.scheduled_at }),
+        body: JSON.stringify({ content: body.content, scheduled_at: body.scheduled_at, image_url: body.image_url }),
         headers: { "Content-Type": "application/json" },
       }));
     }
@@ -1012,11 +1012,11 @@ export default {
     if (url.pathname === "/api/social/posts" && request.method === "POST") {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
-      const body = await parseJson<{ platform: string; content: string; scheduled_at?: string }>(request);
+      const body = await parseJson<{ platform: string; content?: string; scheduled_at?: string; image_url?: string }>(request);
       const platform = body.platform ?? "twitter";
       return await createSocialPost(env, platform, new Request(request.url, {
         method: "POST",
-        body: JSON.stringify({ content: body.content, scheduled_at: body.scheduled_at }),
+        body: JSON.stringify({ content: body.content, scheduled_at: body.scheduled_at, image_url: body.image_url }),
         headers: { "Content-Type": "application/json" },
       }));
     }

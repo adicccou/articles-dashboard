@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { RedditAgentPage } from "./RedditAgentPage";
 import { TwitterAgentPage } from "./TwitterAgentPage";
 import { ThreadsAgentPage } from "./ThreadsAgentPage";
@@ -13,6 +13,16 @@ const PLATFORMS: { id: Platform; label: string; icon: string; available: boolean
   { id: "linkedin", label: "LinkedIn", icon: "💼", available: false },
 ];
 
+const SOCIAL_PLATFORM_STORAGE_KEY = "dashboard:social-platform";
+
+function readStoredPlatform(): Platform {
+  if (typeof window === "undefined") return "reddit";
+  const stored = window.localStorage.getItem(SOCIAL_PLATFORM_STORAGE_KEY);
+  return PLATFORMS.some((platform) => platform.id === stored && platform.available)
+    ? (stored as Platform)
+    : "reddit";
+}
+
 function ComingSoon({ platform }: { platform: string }) {
   return (
     <section className="panel">
@@ -25,7 +35,12 @@ function ComingSoon({ platform }: { platform: string }) {
 }
 
 export function SocialAgentsPage() {
-  const [platform, setPlatform] = useState<Platform>("reddit");
+  const [platform, setPlatform] = useState<Platform>(readStoredPlatform);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(SOCIAL_PLATFORM_STORAGE_KEY, platform);
+  }, [platform]);
 
   return (
     <div className="social-agents-page">
