@@ -130,6 +130,7 @@ async function syncTradingAgent(
   const payload: Record<string, unknown> = {
     anthropic_api_key: settings.anthropic_api_key,
     claude_model: settings.claude_model,
+    strategy_active: Boolean(strategy),
     ctrader_client_id: settings.ctrader_client_id,
     ctrader_client_secret: settings.ctrader_client_secret,
     ctrader_access_token: settings.ctrader_access_token,
