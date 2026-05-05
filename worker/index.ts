@@ -125,6 +125,29 @@ async function handleInternalContext(env: Env) {
   });
 }
 
+async function handleInternalMediaUpload(request: Request, env: Env) {
+  const formData = await request.formData();
+  const file = formData.get("file");
+  if (!(file instanceof File)) {
+    return text("Missing file upload", 400);
+  }
+
+  const extension = file.name.includes(".") ? file.name.split(".").pop() : "bin";
+  const key = `uploads/${Date.now()}-${crypto.randomUUID()}.${extension}`;
+  await env.MEDIA_BUCKET.put(key, await file.arrayBuffer(), {
+    httpMetadata: {
+      contentType: file.type || "application/octet-stream",
+    },
+  });
+
+  const publicBaseUrl = env.PUBLIC_MEDIA_BASE_URL ?? "/api/media/";
+  const url = publicBaseUrl.startsWith("http")
+    ? `${publicBaseUrl.replace(/\/$/, "")}/${key}`
+    : `${new URL(publicBaseUrl + key, request.url).toString()}`;
+
+  return json({ key, url });
+}
+
 async function handleInternalArticlePatch(request: Request, env: Env, id: number) {
   const patch = await parseJson<{
     title?: string;
@@ -346,6 +369,12 @@ export default {
       const unauthorized = await requireAgentAuth(request, env);
       if (unauthorized) return unauthorized;
       return handleInternalContext(env);
+    }
+
+    if (url.pathname === "/api/internal/media" && request.method === "POST") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return handleInternalMediaUpload(request, env);
     }
 
     if (url.pathname.startsWith("/api/internal/articles/") && request.method === "PATCH") {
