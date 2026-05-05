@@ -10,6 +10,14 @@ type StoredSettings = {
   ctrader_client_secret: string;
   ctrader_access_token: string;
   ctrader_account_id: string;
+  // Twitter/X
+  twitter_api_key: string;
+  twitter_api_secret: string;
+  twitter_access_token: string;
+  twitter_access_secret: string;
+  // Threads
+  threads_access_token: string;
+  threads_user_id: string;
   updated_at?: string;
 };
 
@@ -24,6 +32,12 @@ const DEFAULTS: StoredSettings = {
   ctrader_client_secret: "",
   ctrader_access_token: "",
   ctrader_account_id: "",
+  twitter_api_key: "",
+  twitter_api_secret: "",
+  twitter_access_token: "",
+  twitter_access_secret: "",
+  threads_access_token: "",
+  threads_user_id: "",
 };
 
 async function readSettings(env: Env): Promise<StoredSettings> {
@@ -70,6 +84,21 @@ function publicSettings(settings: StoredSettings) {
     ),
     ctrader_client_secret_saved: Boolean(settings.ctrader_client_secret),
     ctrader_access_token_saved: Boolean(settings.ctrader_access_token),
+    // Twitter/X
+    twitter_api_key_saved: Boolean(settings.twitter_api_key),
+    twitter_api_secret_saved: Boolean(settings.twitter_api_secret),
+    twitter_access_token_saved: Boolean(settings.twitter_access_token),
+    twitter_access_secret_saved: Boolean(settings.twitter_access_secret),
+    twitter_connected: Boolean(
+      settings.twitter_api_key &&
+      settings.twitter_api_secret &&
+      settings.twitter_access_token &&
+      settings.twitter_access_secret,
+    ),
+    // Threads
+    threads_access_token_saved: Boolean(settings.threads_access_token),
+    threads_user_id: settings.threads_user_id,
+    threads_connected: Boolean(settings.threads_access_token && settings.threads_user_id),
     updated_at: settings.updated_at ?? null,
   };
 }
@@ -105,6 +134,12 @@ async function syncTradingAgent(
     ctrader_client_secret: settings.ctrader_client_secret,
     ctrader_access_token: settings.ctrader_access_token,
     ctrader_account_id: settings.ctrader_account_id,
+    twitter_api_key: settings.twitter_api_key,
+    twitter_api_secret: settings.twitter_api_secret,
+    twitter_access_token: settings.twitter_access_token,
+    twitter_access_secret: settings.twitter_access_secret,
+    threads_access_token: settings.threads_access_token,
+    threads_user_id: settings.threads_user_id,
   };
 
   // Push active strategy's trading params if available
@@ -185,6 +220,12 @@ export async function updateAppSettings(env: Env, request: Request): Promise<Res
     await upsertSetting(env, "ctrader_client_secret", next.ctrader_client_secret, updatedAt);
     await upsertSetting(env, "ctrader_access_token", next.ctrader_access_token, updatedAt);
     await upsertSetting(env, "ctrader_account_id", next.ctrader_account_id, updatedAt);
+    await upsertSetting(env, "twitter_api_key", next.twitter_api_key, updatedAt);
+    await upsertSetting(env, "twitter_api_secret", next.twitter_api_secret, updatedAt);
+    await upsertSetting(env, "twitter_access_token", next.twitter_access_token, updatedAt);
+    await upsertSetting(env, "twitter_access_secret", next.twitter_access_secret, updatedAt);
+    await upsertSetting(env, "threads_access_token", next.threads_access_token, updatedAt);
+    await upsertSetting(env, "threads_user_id", next.threads_user_id, updatedAt);
 
     let syncResult: { ok: boolean; message: string } | null = null;
     if (
@@ -195,7 +236,13 @@ export async function updateAppSettings(env: Env, request: Request): Promise<Res
       payload.ctrader_client_id !== undefined ||
       payload.ctrader_client_secret !== undefined ||
       payload.ctrader_access_token !== undefined ||
-      payload.ctrader_account_id !== undefined
+      payload.ctrader_account_id !== undefined ||
+      payload.twitter_api_key !== undefined ||
+      payload.twitter_api_secret !== undefined ||
+      payload.twitter_access_token !== undefined ||
+      payload.twitter_access_secret !== undefined ||
+      payload.threads_access_token !== undefined ||
+      payload.threads_user_id !== undefined
     ) {
       try {
         const activeStrategy = await getActiveStrategy(env);

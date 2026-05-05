@@ -294,6 +294,16 @@ export type AppSettings = {
   ctrader_connected: boolean;
   ctrader_client_secret_saved?: boolean;
   ctrader_access_token_saved?: boolean;
+  // Twitter/X
+  twitter_api_key_saved?: boolean;
+  twitter_api_secret_saved?: boolean;
+  twitter_access_token_saved?: boolean;
+  twitter_access_secret_saved?: boolean;
+  twitter_connected?: boolean;
+  // Threads
+  threads_access_token_saved?: boolean;
+  threads_user_id?: string;
+  threads_connected?: boolean;
   updated_at?: string | null;
   sync_result?: {
     ok: boolean;
@@ -310,6 +320,14 @@ export type AppSettingsInput = {
   ctrader_client_secret?: string;
   ctrader_access_token?: string;
   ctrader_account_id?: string;
+  // Twitter/X
+  twitter_api_key?: string;
+  twitter_api_secret?: string;
+  twitter_access_token?: string;
+  twitter_access_secret?: string;
+  // Threads
+  threads_access_token?: string;
+  threads_user_id?: string;
 };
 
 export type PlannerItem = {
@@ -354,4 +372,28 @@ export type TradingNoteInput = {
   title: string;
   content: string;
   note_type?: "analysis" | "idea" | "review" | "risk";
+};
+
+// ------------------------------------------------------------------ Social Media
+
+export type SocialAccount = {
+  id: number;
+  platform: "twitter" | "threads" | "reddit";
+  username: string;
+  status: "active" | "inactive";
+  created_at: string;
+  updated_at: string;
+};
+
+export type SocialPost = {
+  id: number;
+  platform: "twitter" | "threads" | "reddit";
+  content: string;
+  status: "draft" | "approved" | "scheduled" | "posted" | "failed";
+  scheduled_at: string | null;
+  posted_at: string | null;
+  external_id: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
 };

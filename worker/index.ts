@@ -18,6 +18,20 @@ import {
   updateTradingNote,
   deleteTradingNote,
 } from "./handlers/planner";
+import {
+  listSocialPosts,
+  createSocialPost,
+  updateSocialPost,
+  deleteSocialPost,
+  listTwitterAccounts,
+  addTwitterAccount,
+  deleteTwitterAccount,
+} from "./handlers/twitter";
+import {
+  listThreadsAccounts,
+  addThreadsAccount,
+  deleteThreadsAccount,
+} from "./handlers/threads";
 
 function withCors(response: Response): Response {
   const headers = new Headers(response.headers);
@@ -464,6 +478,80 @@ export default {
       if (unauthorized) return unauthorized;
       const id = url.pathname.split("/")[4];
       return await deleteTradingNote(env, id);
+    }
+
+    // Social posts (Twitter + Threads shared)
+    if (url.pathname === "/api/social/posts" && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const platform = url.searchParams.get("platform") ?? "twitter";
+      return await listSocialPosts(env, platform);
+    }
+
+    if (url.pathname === "/api/social/posts" && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const body = await parseJson<{ platform: string; content: string; scheduled_at?: string }>(request);
+      const platform = body.platform ?? "twitter";
+      return await createSocialPost(env, platform, new Request(request.url, {
+        method: "POST",
+        body: JSON.stringify({ content: body.content, scheduled_at: body.scheduled_at }),
+        headers: { "Content-Type": "application/json" },
+      }));
+    }
+
+    if (url.pathname.startsWith("/api/social/posts/") && request.method === "PUT") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      return await updateSocialPost(env, id, request);
+    }
+
+    if (url.pathname.startsWith("/api/social/posts/") && request.method === "DELETE") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      return await deleteSocialPost(env, id);
+    }
+
+    // Twitter accounts
+    if (url.pathname === "/api/social/twitter/accounts" && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await listTwitterAccounts(env);
+    }
+
+    if (url.pathname === "/api/social/twitter/accounts" && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await addTwitterAccount(env, request);
+    }
+
+    if (url.pathname.startsWith("/api/social/twitter/accounts/") && request.method === "DELETE") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[5];
+      return await deleteTwitterAccount(env, id);
+    }
+
+    // Threads accounts
+    if (url.pathname === "/api/social/threads/accounts" && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await listThreadsAccounts(env);
+    }
+
+    if (url.pathname === "/api/social/threads/accounts" && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await addThreadsAccount(env, request);
+    }
+
+    if (url.pathname.startsWith("/api/social/threads/accounts/") && request.method === "DELETE") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[5];
+      return await deleteThreadsAccount(env, id);
     }
 
     if (url.pathname === "/api/stats/journl" && request.method === "GET") {

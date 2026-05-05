@@ -1,4 +1,4 @@
-import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats } from "./types";
+import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialPost } from "./types";
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -172,4 +172,46 @@ export const api = {
       body: JSON.stringify({}),
     }),
   getJournlStats: () => request<JournlStats>("/api/stats/journl"),
+
+  // Social posts (shared across Twitter and Threads)
+  listSocialPosts: (platform: string) =>
+    request<SocialPost[]>(`/api/social/posts?platform=${platform}`),
+  createSocialPost: (platform: string, content: string, scheduled_at?: string) =>
+    request<SocialPost>(`/api/social/posts`, {
+      method: "POST",
+      body: JSON.stringify({ platform, content, scheduled_at }),
+    }),
+  updateSocialPost: (id: number, payload: Partial<SocialPost>) =>
+    request<{ success: boolean; updated_at: string }>(`/api/social/posts/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  deleteSocialPost: (id: number) =>
+    request<{ success: boolean }>(`/api/social/posts/${id}`, {
+      method: "DELETE",
+    }),
+
+  // Twitter accounts
+  listTwitterAccounts: () => request<SocialAccount[]>("/api/social/twitter/accounts"),
+  addTwitterAccount: (username: string) =>
+    request<SocialAccount>("/api/social/twitter/accounts", {
+      method: "POST",
+      body: JSON.stringify({ username }),
+    }),
+  deleteTwitterAccount: (id: number) =>
+    request<{ success: boolean }>(`/api/social/twitter/accounts/${id}`, {
+      method: "DELETE",
+    }),
+
+  // Threads accounts
+  listThreadsAccounts: () => request<SocialAccount[]>("/api/social/threads/accounts"),
+  addThreadsAccount: (username: string) =>
+    request<SocialAccount>("/api/social/threads/accounts", {
+      method: "POST",
+      body: JSON.stringify({ username }),
+    }),
+  deleteThreadsAccount: (id: number) =>
+    request<{ success: boolean }>(`/api/social/threads/accounts/${id}`, {
+      method: "DELETE",
+    }),
 };

@@ -1,13 +1,15 @@
 import { useState } from "react";
 import { RedditAgentPage } from "./RedditAgentPage";
+import { TwitterAgentPage } from "./TwitterAgentPage";
+import { ThreadsAgentPage } from "./ThreadsAgentPage";
 import "../styles/social-agents-page.css";
 
 type Platform = "reddit" | "twitter" | "threads" | "linkedin";
 
 const PLATFORMS: { id: Platform; label: string; icon: string; available: boolean }[] = [
   { id: "reddit",   label: "Reddit",   icon: "🟠", available: true },
-  { id: "twitter",  label: "Twitter",  icon: "𝕏",  available: false },
-  { id: "threads",  label: "Threads",  icon: "🧵", available: false },
+  { id: "twitter",  label: "Twitter",  icon: "𝕏",  available: true },
+  { id: "threads",  label: "Threads",  icon: "🧵", available: true },
   { id: "linkedin", label: "LinkedIn", icon: "💼", available: false },
 ];
 
@@ -45,8 +47,8 @@ export function SocialAgentsPage() {
 
       <div className="social-tab-content">
         {platform === "reddit"   && <RedditAgentPage />}
-        {platform === "twitter"  && <ComingSoon platform="Twitter" />}
-        {platform === "threads"  && <ComingSoon platform="Threads" />}
+        {platform === "twitter"  && <TwitterAgentPage />}
+        {platform === "threads"  && <ThreadsAgentPage />}
         {platform === "linkedin" && <ComingSoon platform="LinkedIn" />}
       </div>
     </div>
