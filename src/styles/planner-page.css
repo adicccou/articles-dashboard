@@ -257,6 +257,96 @@
   font-size: 0.78rem;
 }
 
+.scheduler-week__range {
+  margin: 6px 0 0;
+  color: var(--text-soft);
+  font-size: 0.92rem;
+}
+
+.scheduler-week__grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.scheduler-week__day {
+  background: linear-gradient(180deg, #fff, #f8fafc);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  min-height: 260px;
+}
+
+.scheduler-week__day-header {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.scheduler-week__day-label {
+  color: var(--text-soft);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin: 0 0 4px;
+  text-transform: uppercase;
+}
+
+.scheduler-week__count {
+  align-items: center;
+  background: #e2e8f0;
+  border-radius: 999px;
+  color: #0f172a;
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 700;
+  justify-content: center;
+  min-width: 32px;
+  padding: 5px 10px;
+}
+
+.scheduler-week__empty {
+  color: var(--text-soft);
+  font-size: 0.88rem;
+  margin: 0;
+}
+
+.scheduler-week__items {
+  display: grid;
+  gap: 10px;
+}
+
+.scheduler-week__item {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  text-align: left;
+}
+
+.scheduler-week__item strong {
+  color: #0f172a;
+  font-size: 0.92rem;
+}
+
+.scheduler-week__item--post {
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.08);
+}
+
+.scheduler-week__item--campaign {
+  box-shadow: inset 0 0 0 1px rgba(109, 40, 217, 0.08);
+}
+
+.scheduler-week__meta {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+}
+
 .scheduler-detail__grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -293,6 +383,10 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .scheduler-week__grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .scheduler-list__row {
     grid-template-columns: 1.6fr 0.8fr 0.8fr 1fr;
   }
@@ -315,7 +409,8 @@
   .scheduler-metrics,
   .scheduler-filters,
   .scheduler-calendar__grid,
-  .scheduler-detail__grid {
+  .scheduler-detail__grid,
+  .scheduler-week__grid {
     grid-template-columns: 1fr;
   }
 

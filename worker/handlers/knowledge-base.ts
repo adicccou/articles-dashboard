@@ -64,26 +64,32 @@ export async function saveKnowledgeBase(
     const now = new Date().toISOString();
 
     const existing = await env.DB.prepare(
-      "SELECT id, version FROM knowledge_bases WHERE entity_type = ? AND entity_id = ?",
+      "SELECT id, version, content FROM knowledge_bases WHERE entity_type = ? AND entity_id = ?",
     )
       .bind(type, entityId)
       .first();
 
     if (existing) {
       // Update existing KB and create version history entry
-      const newVersion = (existing.version as number) + 1;
-
-      await env.DB.prepare(
-        "INSERT INTO knowledge_base_versions (knowledge_base_id, version, content, change_summary, created_at) VALUES (?, ?, ?, ?, ?)",
-      )
-        .bind(existing.id, existing.version, payload.content, payload.change_summary || null, now)
-        .run();
+      const currentVersion = Number(existing.version) || 0;
+      const newVersion = currentVersion + 1;
 
       await env.DB.prepare(
         "UPDATE knowledge_bases SET title = ?, content = ?, version = ?, updated_at = ? WHERE id = ?",
       )
         .bind(payload.title, payload.content, newVersion, now, existing.id)
         .run();
+
+      try {
+        await env.DB.prepare(
+          "INSERT INTO knowledge_base_versions (knowledge_base_id, version, content, change_summary, created_at) VALUES (?, ?, ?, ?, ?)",
+        )
+          .bind(existing.id, currentVersion, String(existing.content ?? ""), payload.change_summary || null, now)
+          .run();
+      } catch {
+        // Some older D1 databases have stale FK metadata on the optional history table.
+        // Saving the current knowledge base should not fail because history is unavailable.
+      }
 
       return jsonResponse(
         {

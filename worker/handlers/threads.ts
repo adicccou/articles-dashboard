@@ -23,6 +23,41 @@ const THREADS_AUTHORIZE_URL = "https://threads.net/oauth/authorize";
 const THREADS_TOKEN_URL = "https://graph.threads.net/oauth/access_token";
 const THREADS_LONG_LIVED_TOKEN_URL = "https://graph.threads.net/access_token";
 const THREADS_GRAPH_BASE = "https://graph.threads.net/v1.0";
+const THREADS_MEDIA_FIELDS = [
+  "id",
+  "media_product_type",
+  "media_type",
+  "media_url",
+  "permalink",
+  "username",
+  "text",
+  "timestamp",
+  "shortcode",
+  "thumbnail_url",
+  "has_replies",
+  "is_quote_post",
+  "root_post",
+  "replied_to",
+  "is_reply",
+  "is_reply_owned_by_me",
+  "reply_audience",
+].join(",");
+
+type ThreadsCredentials = {
+  accountId: number;
+  accessToken: string;
+  userId: string;
+};
+
+type ThreadsGraphError = {
+  error?: {
+    message?: string;
+    type?: string;
+    code?: number;
+    error_subcode?: number;
+    fbtrace_id?: string;
+  };
+};
 
 async function upsertSetting(env: Env, key: string, value: string, updatedAt: string): Promise<void> {
   await env.DB.prepare(
@@ -32,6 +67,92 @@ async function upsertSetting(env: Env, key: string, value: string, updatedAt: st
   )
     .bind(key, value, updatedAt)
     .run();
+}
+
+function getGraphErrorMessage(payload: unknown, fallback: string): string {
+  const graphError = payload as ThreadsGraphError;
+  return graphError.error?.message || fallback;
+}
+
+async function readSetting(env: Env, key: string): Promise<string> {
+  const row = await env.DB.prepare("SELECT value FROM app_settings WHERE key = ?").bind(key).first<{ value: string }>();
+  return row?.value ?? "";
+}
+
+async function getThreadsCredentials(env: Env, requestedAccountId?: number): Promise<ThreadsCredentials | null> {
+  const account = requestedAccountId
+    ? await env.DB.prepare("SELECT id FROM social_accounts WHERE id = ? AND platform = 'threads' AND status = 'active'")
+      .bind(requestedAccountId)
+      .first<{ id: number }>()
+    : await env.DB.prepare(
+      "SELECT id FROM social_accounts WHERE platform = 'threads' AND status = 'active' ORDER BY updated_at DESC, id DESC LIMIT 1",
+    ).first<{ id: number }>();
+
+  if (!account?.id) return null;
+
+  const [accessToken, userId] = await Promise.all([
+    readSetting(env, `social_account:${account.id}:threads_access_token`),
+    readSetting(env, `social_account:${account.id}:threads_user_id`),
+  ]);
+
+  if (!accessToken || !userId) return null;
+  return { accountId: account.id, accessToken, userId };
+}
+
+async function postThreadsContainer(
+  env: Env,
+  payload: { text: string; replyToId?: string; accountId?: number },
+): Promise<{ containerId: string; credentials: ThreadsCredentials }> {
+  const credentials = await getThreadsCredentials(env, payload.accountId);
+  if (!credentials) throw new Error("No active Threads account with access token was found.");
+
+  const containerBody = new URLSearchParams({
+    media_type: "TEXT",
+    text: payload.text,
+    access_token: credentials.accessToken,
+  });
+  if (payload.replyToId) containerBody.set("reply_to_id", payload.replyToId);
+
+  const containerResponse = await fetch(`${THREADS_GRAPH_BASE}/me/threads`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: containerBody.toString(),
+  });
+  const containerPayload = await containerResponse.json() as { id?: string } & ThreadsGraphError;
+  if (!containerResponse.ok || !containerPayload.id) {
+    throw new Error(getGraphErrorMessage(containerPayload, "Threads media container creation failed."));
+  }
+
+  return { containerId: containerPayload.id, credentials };
+}
+
+async function publishThreadsContainer(credentials: ThreadsCredentials, containerId: string): Promise<string> {
+  let lastError = "Threads publish failed.";
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 2500));
+    const publishBody = new URLSearchParams({
+      creation_id: containerId,
+      access_token: credentials.accessToken,
+    });
+    const publishResponse = await fetch(`${THREADS_GRAPH_BASE}/${credentials.userId}/threads_publish`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: publishBody.toString(),
+    });
+    const publishPayload = await publishResponse.json() as { id?: string } & ThreadsGraphError;
+    if (publishResponse.ok && publishPayload.id) return publishPayload.id;
+    lastError = getGraphErrorMessage(publishPayload, lastError);
+  }
+  throw new Error(lastError);
+}
+
+async function publishThreadsText(
+  env: Env,
+  payload: { text: string; replyToId?: string; accountId?: number },
+): Promise<{ externalId: string; accountId: number }> {
+  const { containerId, credentials } = await postThreadsContainer(env, payload);
+  const externalId = await publishThreadsContainer(credentials, containerId);
+  return { externalId, accountId: credentials.accountId };
 }
 
 async function createThreadsAccount(env: Env, payload: ThreadsAccountPayload): Promise<{
@@ -44,14 +165,27 @@ async function createThreadsAccount(env: Env, payload: ThreadsAccountPayload): P
 }> {
   const username = payload.username.trim().replace(/^@+/, "");
   const now = new Date().toISOString();
-  const result = await env.DB.prepare(
-    `INSERT INTO social_accounts (platform, username, status, created_at, updated_at)
-     VALUES ('threads', ?, 'active', ?, ?)`,
-  )
-    .bind(username, now, now)
-    .run() as { meta: { last_row_id: number } };
+  const existing = await env.DB.prepare("SELECT id, created_at FROM social_accounts WHERE platform = 'threads' AND username = ? ORDER BY id DESC LIMIT 1")
+    .bind(username)
+    .first<{ id: number; created_at: string }>();
+  let accountId = existing?.id;
+  let createdAt = existing?.created_at ?? now;
 
-  const accountId = result.meta.last_row_id;
+  if (accountId) {
+    await env.DB.prepare("UPDATE social_accounts SET status = 'active', updated_at = ? WHERE id = ?")
+      .bind(now, accountId)
+      .run();
+  } else {
+    const result = await env.DB.prepare(
+      `INSERT INTO social_accounts (platform, username, status, created_at, updated_at)
+       VALUES ('threads', ?, 'active', ?, ?)`,
+    )
+      .bind(username, now, now)
+      .run() as { meta: { last_row_id: number } };
+    accountId = result.meta.last_row_id;
+    createdAt = now;
+  }
+
   await Promise.all([
     upsertSetting(env, `social_account:${accountId}:threads_client_id`, payload.client_id.trim(), now),
     upsertSetting(env, `social_account:${accountId}:threads_client_secret`, payload.client_secret.trim(), now),
@@ -63,7 +197,7 @@ async function createThreadsAccount(env: Env, payload: ThreadsAccountPayload): P
     upsertSetting(env, "threads_user_id", payload.user_id.trim(), now),
   ]);
 
-  return { id: accountId, platform: "threads", username, status: "active", created_at: now, updated_at: now };
+  return { id: accountId, platform: "threads", username, status: "active", created_at: createdAt, updated_at: now };
 }
 
 function validateThreadsAppPayload(payload: PendingThreadsOAuth): string | null {
@@ -127,6 +261,107 @@ export async function authorizeThreadsAccount(env: Env, request: Request): Promi
     return jsonResponse({ auth_url: authUrl.toString() });
   } catch {
     return errorResponse("Failed to start Threads authorization", 500);
+  }
+}
+
+export async function publishThreadsPost(env: Env, postId: string): Promise<Response> {
+  try {
+    const id = Number(postId);
+    if (Number.isNaN(id)) return errorResponse("Invalid post ID", 400);
+
+    const post = await env.DB.prepare("SELECT id, content, status FROM social_posts WHERE id = ? AND platform = 'threads'")
+      .bind(id)
+      .first<{ id: number; content: string; status: string }>();
+    if (!post) return errorResponse("Threads post not found", 404);
+    if (!post.content?.trim()) return errorResponse("Post content is empty", 400);
+    if (post.status === "posted") return errorResponse("Post is already published", 400);
+
+    const now = new Date().toISOString();
+    const published = await publishThreadsText(env, { text: post.content.trim() });
+    await env.DB.prepare(
+      `UPDATE social_posts
+       SET status = 'posted', posted_at = ?, external_id = ?, updated_at = ?
+       WHERE id = ?`,
+    )
+      .bind(now, published.externalId, now, id)
+      .run();
+
+    return jsonResponse({ success: true, external_id: published.externalId, posted_at: now });
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Failed to publish Threads post", 500);
+  }
+}
+
+export async function searchThreads(env: Env, url: URL): Promise<Response> {
+  try {
+    const q = url.searchParams.get("q")?.trim();
+    if (!q) return errorResponse("Search query is required", 400);
+    const credentials = await getThreadsCredentials(env);
+    if (!credentials) return errorResponse("No active Threads account with access token was found.", 400);
+
+    const searchUrl = new URL(`${THREADS_GRAPH_BASE}/keyword_search`);
+    searchUrl.searchParams.set("q", q);
+    searchUrl.searchParams.set("search_type", url.searchParams.get("search_type") || "TOP");
+    searchUrl.searchParams.set("search_mode", url.searchParams.get("search_mode") || "KEYWORD");
+    searchUrl.searchParams.set("fields", THREADS_MEDIA_FIELDS);
+    searchUrl.searchParams.set("limit", url.searchParams.get("limit") || "20");
+    searchUrl.searchParams.set("access_token", credentials.accessToken);
+
+    const response = await fetch(searchUrl.toString());
+    const payload = await response.json();
+    if (!response.ok) {
+      return errorResponse(getGraphErrorMessage(payload, "Threads search failed"), response.status);
+    }
+    return jsonResponse(payload);
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Failed to search Threads", 500);
+  }
+}
+
+export async function listThreadsReplies(env: Env, url: URL): Promise<Response> {
+  try {
+    const credentials = await getThreadsCredentials(env);
+    if (!credentials) return errorResponse("No active Threads account with access token was found.", 400);
+
+    const mediaId = url.searchParams.get("media_id")?.trim();
+    const endpoint = mediaId
+      ? `${THREADS_GRAPH_BASE}/${mediaId}/conversation`
+      : `${THREADS_GRAPH_BASE}/me/replies`;
+    const repliesUrl = new URL(endpoint);
+    repliesUrl.searchParams.set("fields", THREADS_MEDIA_FIELDS);
+    repliesUrl.searchParams.set("reverse", url.searchParams.get("reverse") || "false");
+    repliesUrl.searchParams.set("limit", url.searchParams.get("limit") || "20");
+    repliesUrl.searchParams.set("access_token", credentials.accessToken);
+
+    const response = await fetch(repliesUrl.toString());
+    const payload = await response.json();
+    if (!response.ok) {
+      return errorResponse(getGraphErrorMessage(payload, "Threads replies lookup failed"), response.status);
+    }
+    return jsonResponse(payload);
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Failed to load Threads replies", 500);
+  }
+}
+
+export async function createThreadsReply(env: Env, request: Request): Promise<Response> {
+  try {
+    const payload = await parseJson<{ reply_to_id: string; text: string; account_id?: number }>(request);
+    const replyToId = payload.reply_to_id?.trim();
+    const text = payload.text?.trim();
+    if (!replyToId) return errorResponse("Reply target ID is required", 400);
+    if (!text) return errorResponse("Reply text is required", 400);
+    if (text.length > 500) return errorResponse("Threads replies must be 500 characters or fewer", 400);
+
+    const published = await publishThreadsText(env, {
+      text,
+      replyToId,
+      accountId: payload.account_id,
+    });
+
+    return jsonResponse({ success: true, external_id: published.externalId, account_id: published.accountId });
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Failed to publish Threads reply", 500);
   }
 }
 

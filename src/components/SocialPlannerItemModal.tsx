@@ -34,7 +34,7 @@ export function SocialPlannerItemModal({
       <div className="social-connections-modal panel social-editor-modal" onClick={(event) => event.stopPropagation()}>
         <div className="panel__title-row">
           <div>
-            <p className="social-kicker">Planner</p>
+            <p className="social-kicker">{actionLabel}</p>
             <h2>New {platformLabel} {actionLabel}</h2>
           </div>
           <button className="button-secondary" type="button" onClick={onClose}>

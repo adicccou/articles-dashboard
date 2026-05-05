@@ -23,6 +23,7 @@ import {
   createSocialPost,
   updateSocialPost,
   deleteSocialPost,
+  publishTwitterPost,
   listTwitterAccounts,
   addTwitterAccount,
   deleteTwitterAccount,
@@ -33,6 +34,10 @@ import {
   deleteThreadsAccount,
   authorizeThreadsAccount,
   handleThreadsOAuthCallback,
+  publishThreadsPost,
+  searchThreads,
+  listThreadsReplies,
+  createThreadsReply,
 } from "./handlers/threads";
 
 function withCors(response: Response): Response {
@@ -96,8 +101,10 @@ async function handleInternalContext(env: Env) {
     plannerItemsResult,
     tradingNotesResult,
     redditCampaignsResult,
+    redditAccountsResult,
     twitterAccountsResult,
     threadsAccountsResult,
+    redditPostsResult,
     twitterPostsResult,
     threadsPostsResult,
     knowledgeBasesResult,
@@ -131,15 +138,27 @@ async function handleInternalContext(env: Env) {
     ).all(),
     env.DB.prepare(
       `SELECT id, username, status, created_at
+       FROM reddit_accounts
+       ORDER BY created_at DESC`,
+    ).all(),
+    env.DB.prepare(
+      `SELECT id, username, status, created_at
        FROM social_accounts
        WHERE platform = 'twitter'
        ORDER BY created_at DESC`,
     ).all(),
     env.DB.prepare(
       `SELECT id, username, status, created_at
-       FROM social_accounts
+      FROM social_accounts
        WHERE platform = 'threads'
        ORDER BY created_at DESC`,
+    ).all(),
+    env.DB.prepare(
+      `SELECT id, platform, content, status, scheduled_at, updated_at
+       FROM social_posts
+       WHERE platform = 'reddit'
+       ORDER BY updated_at DESC
+       LIMIT 20`,
     ).all(),
     env.DB.prepare(
       `SELECT id, platform, content, status, scheduled_at, updated_at
@@ -237,10 +256,12 @@ async function handleInternalContext(env: Env) {
     trading_notes: tradingNotesResult.results ?? [],
     knowledge_bases: knowledgeBasesResult.results ?? [],
     social_accounts: {
+      reddit: redditAccountsResult.results ?? [],
       twitter: twitterAccountsResult.results ?? [],
       threads: threadsAccountsResult.results ?? [],
     },
     social_posts: {
+      reddit: redditPostsResult.results ?? [],
       twitter: twitterPostsResult.results ?? [],
       threads: threadsPostsResult.results ?? [],
     },
@@ -505,6 +526,123 @@ export default {
       const id = Number(url.pathname.split("/").pop());
       if (!id) return text("Invalid article id", 400);
       return handleInternalArticlePatch(request, env, id);
+    }
+
+    if (url.pathname === "/api/internal/planner/items" && request.method === "GET") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await listPlannerItems(env);
+    }
+
+    if (url.pathname === "/api/internal/planner/items" && request.method === "POST") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await createPlannerItem(env, request);
+    }
+
+    if (url.pathname.startsWith("/api/internal/planner/items/") && request.method === "PUT") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[5];
+      return await updatePlannerItem(env, id, request);
+    }
+
+    if (url.pathname.startsWith("/api/internal/planner/items/") && request.method === "DELETE") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[5];
+      return await deletePlannerItem(env, id);
+    }
+
+    if (url.pathname === "/api/internal/reddit/campaigns" && request.method === "GET") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await listCampaigns(env);
+    }
+
+    if (url.pathname === "/api/internal/reddit/campaigns" && request.method === "POST") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await createCampaign(env, request);
+    }
+
+    if (url.pathname.startsWith("/api/internal/reddit/campaigns/") && request.method === "PUT") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[5];
+      return await updateCampaign(env, id, request);
+    }
+
+    if (url.pathname.startsWith("/api/internal/reddit/campaigns/") && request.method === "DELETE") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[5];
+      return await deleteCampaign(env, id);
+    }
+
+    if (url.pathname === "/api/internal/social/posts" && request.method === "GET") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const platform = url.searchParams.get("platform") ?? "twitter";
+      return await listSocialPosts(env, platform);
+    }
+
+    if (url.pathname === "/api/internal/social/posts" && request.method === "POST") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const body = await parseJson<{ platform: string; content: string; scheduled_at?: string }>(request);
+      const platform = body.platform ?? "twitter";
+      return await createSocialPost(env, platform, new Request(request.url, {
+        method: "POST",
+        body: JSON.stringify({ content: body.content, scheduled_at: body.scheduled_at }),
+        headers: { "Content-Type": "application/json" },
+      }));
+    }
+
+    if (url.pathname.startsWith("/api/internal/social/posts/") && url.pathname.endsWith("/publish") && request.method === "POST") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const parts = url.pathname.split("/");
+      const id = parts[5];
+      const post = await env.DB.prepare("SELECT platform FROM social_posts WHERE id = ?")
+        .bind(id)
+        .first<{ platform: string }>();
+      if (!post) return json({ error: "Social post not found" }, { status: 404 });
+      if (post.platform === "threads") return await publishThreadsPost(env, id);
+      if (post.platform === "twitter") return await publishTwitterPost(env, id);
+      return json({ error: "Direct publishing is not available for this platform yet." }, { status: 400 });
+    }
+
+    if (url.pathname.startsWith("/api/internal/social/posts/") && request.method === "PUT") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[5];
+      return await updateSocialPost(env, id, request);
+    }
+
+    if (url.pathname.startsWith("/api/internal/social/posts/") && request.method === "DELETE") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[5];
+      return await deleteSocialPost(env, id);
+    }
+
+    if (url.pathname === "/api/internal/social/threads/search" && request.method === "GET") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await searchThreads(env, url);
+    }
+
+    if (url.pathname === "/api/internal/social/threads/replies" && request.method === "GET") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await listThreadsReplies(env, url);
+    }
+
+    if (url.pathname === "/api/internal/social/threads/replies" && request.method === "POST") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await createThreadsReply(env, request);
     }
 
     if (url.pathname === "/api/sites" && request.method === "GET") {
@@ -848,6 +986,26 @@ export default {
       return await deleteSocialPost(env, id);
     }
 
+    if (url.pathname.startsWith("/api/social/posts/") && url.pathname.endsWith("/publish") && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      const post = await env.DB.prepare("SELECT platform FROM social_posts WHERE id = ?")
+        .bind(id)
+        .first<{ platform: string }>();
+      if (!post) return json({ error: "Social post not found" }, { status: 404 });
+      if (post.platform === "threads") return await publishThreadsPost(env, id);
+      if (post.platform === "twitter") return await publishTwitterPost(env, id);
+      return json({ error: "Direct publishing is not available for this platform yet." }, { status: 400 });
+    }
+
+    if (url.pathname.startsWith("/api/social/threads/posts/") && url.pathname.endsWith("/publish") && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[5];
+      return await publishThreadsPost(env, id);
+    }
+
     // Twitter accounts
     if (url.pathname === "/api/social/twitter/accounts" && request.method === "GET") {
       const unauthorized = await requireAuth(request, env);
@@ -896,6 +1054,24 @@ export default {
       if (unauthorized) return unauthorized;
       const id = url.pathname.split("/")[5];
       return await deleteThreadsAccount(env, id);
+    }
+
+    if (url.pathname === "/api/social/threads/search" && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await searchThreads(env, url);
+    }
+
+    if (url.pathname === "/api/social/threads/replies" && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await listThreadsReplies(env, url);
+    }
+
+    if (url.pathname === "/api/social/threads/replies" && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await createThreadsReply(env, request);
     }
 
     if (url.pathname === "/api/stats/journl" && request.method === "GET") {

@@ -1,7 +1,7 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import type { SocialAccount, SocialPost } from "../lib/types";
 
-type Tab = "posts" | "campaigns";
+type Tab = "posts" | "campaigns" | "replies";
 type SetupTab = "overview" | "knowledge" | "accounts";
 
 export type SocialAccountField = {
@@ -20,17 +20,20 @@ type SocialPublisherWorkspaceProps = {
   platformLabel: string;
   shortLabel: string;
   campaignCount: number;
-  connectedMessage: string;
-  disconnectedMessage: string;
   queuePlaceholder: string;
   queueHint: string;
   queueLimit: number;
+  scheduledSlots?: string[];
+  postActionLabel?: string;
+  postContentLabel?: string;
   accountsEmptyMessage: string;
   isConnected: boolean;
   loading: boolean;
   posts: SocialPost[];
   accounts: SocialAccount[];
   campaignContent: React.ReactNode;
+  repliesContent?: React.ReactNode;
+  replyCount?: number;
   newPost: string;
   adding: boolean;
   error: string | null;
@@ -38,6 +41,7 @@ type SocialPublisherWorkspaceProps = {
   onQueueChange: (value: string) => void;
   onCreatePost: (scheduledAt: string | null) => Promise<void>;
   onDeletePost: (id: number) => Promise<void>;
+  onPublishPost?: (id: number) => Promise<void>;
   onAddAccount?: (values: SocialAccountPayload) => Promise<void>;
   onConnectAccount?: (values: SocialAccountPayload) => Promise<void>;
   onDeleteAccount: (id: number) => Promise<void>;
@@ -49,8 +53,12 @@ type SocialPublisherWorkspaceProps = {
   knowledgeBaseContent?: React.ReactNode;
   accountInputHint?: string;
   onCreateCampaign?: () => void;
-  extraActions?: React.ReactNode;
 };
+
+const AUTO_SCHEDULE_HOURS = [10, 13, 16];
+const AUTO_SCHEDULE_MIN_GAP_MS = 90 * 60 * 1000;
+const AUTO_SCHEDULE_MAX_ITEMS_PER_DAY = 3;
+const AUTO_SCHEDULE_LOOKAHEAD_DAYS = 14;
 
 function toDateTimeLocalValue(date: Date) {
   const year = date.getFullYear();
@@ -77,22 +85,198 @@ function statusTone(status: SocialPost["status"] | SocialAccount["status"]) {
   }
 }
 
+function sameLocalDay(left: Date, right: Date) {
+  return (
+    left.getFullYear() === right.getFullYear()
+    && left.getMonth() === right.getMonth()
+    && left.getDate() === right.getDate()
+  );
+}
+
+function chooseAutoSchedule(existingSlots: string[]) {
+  const now = new Date();
+  const minLead = new Date(now.getTime() + 45 * 60 * 1000);
+  const scheduled = existingSlots
+    .map((value) => new Date(value))
+    .filter((value) => !Number.isNaN(value.getTime()))
+    .sort((left, right) => left.getTime() - right.getTime());
+
+  for (let offset = 0; offset < AUTO_SCHEDULE_LOOKAHEAD_DAYS; offset += 1) {
+    const day = new Date(now);
+    day.setHours(0, 0, 0, 0);
+    day.setDate(day.getDate() + offset);
+    const weekday = day.getDay();
+    if (weekday === 0 || weekday === 6) continue;
+
+    const dayItems = scheduled.filter((item) => sameLocalDay(item, day));
+    if (dayItems.length >= AUTO_SCHEDULE_MAX_ITEMS_PER_DAY) continue;
+
+    for (const hour of AUTO_SCHEDULE_HOURS) {
+      const candidate = new Date(day);
+      candidate.setHours(hour, 0, 0, 0);
+      if (candidate.getTime() <= minLead.getTime()) continue;
+
+      const tooClose = dayItems.some(
+        (item) => Math.abs(item.getTime() - candidate.getTime()) < AUTO_SCHEDULE_MIN_GAP_MS,
+      );
+      if (tooClose) continue;
+
+      return candidate.toISOString();
+    }
+  }
+
+  const fallback = new Date(minLead);
+  fallback.setDate(fallback.getDate() + 1);
+  fallback.setHours(AUTO_SCHEDULE_HOURS[0], 0, 0, 0);
+  return fallback.toISOString();
+}
+
+type SocialPostComposerModalProps = {
+  platformLabel: string;
+  postActionLabel: string;
+  postContentLabel: string;
+  placeholder: string;
+  value: string;
+  limit: number;
+  scheduledSlots?: string[];
+  saving: boolean;
+  onChange: (value: string) => void;
+  onClose: () => void;
+  onSubmit: (scheduledAt: string | null) => Promise<void>;
+};
+
+function SocialPostComposerModal({
+  platformLabel,
+  postActionLabel,
+  postContentLabel,
+  placeholder,
+  value,
+  limit,
+  scheduledSlots = [],
+  saving,
+  onChange,
+  onClose,
+  onSubmit,
+}: SocialPostComposerModalProps) {
+  const [scheduledAtInput, setScheduledAtInput] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const minSchedule = toDateTimeLocalValue(new Date());
+  const cleanPlatformLabel = platformLabel.replace(/\s+Agent$/i, "");
+
+  async function submitPost(scheduledAt: string | null) {
+    if (!value.trim()) {
+      setError(`${postContentLabel} content is required.`);
+      return;
+    }
+    setError(null);
+    try {
+      await onSubmit(scheduledAt);
+      onClose();
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : `Failed to create ${postContentLabel.toLowerCase()}`);
+    }
+  }
+
+  return (
+    <div className="social-connections-modal-backdrop">
+      <div className="social-connections-modal panel social-editor-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="panel__title-row">
+          <div>
+            <p className="social-kicker">Post</p>
+            <h2>New {cleanPlatformLabel} {postContentLabel}</h2>
+          </div>
+          <button className="button-secondary" type="button" onClick={onClose}>
+            Close
+          </button>
+        </div>
+
+        {error ? <p className="error">{error}</p> : null}
+
+        <form
+          className="social-editor-form"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            await submitPost(scheduledAtInput ? new Date(scheduledAtInput).toISOString() : null);
+          }}
+        >
+          <label>
+            {postContentLabel}
+            <textarea
+              rows={5}
+              value={value}
+              onChange={(event) => {
+                onChange(event.target.value.slice(0, limit));
+                if (error) setError(null);
+              }}
+              placeholder={placeholder}
+              required
+            />
+          </label>
+
+          <div className="grid-two">
+            <label>
+              Publish date & time
+              <input
+                type="datetime-local"
+                min={minSchedule}
+                value={scheduledAtInput}
+                onChange={(event) => setScheduledAtInput(event.target.value)}
+              />
+            </label>
+            <label>
+              Characters
+              <input readOnly value={`${value.length}/${limit}`} />
+            </label>
+          </div>
+
+          <p className="social-muted">
+            Leave date blank to publish now, choose a time manually, or auto-schedule into the next two weeks based on the current planner.
+          </p>
+
+          <div className="social-editor-form__actions">
+            <button className="button-secondary" type="button" onClick={onClose} disabled={saving}>
+              Cancel
+            </button>
+            <button
+              className="button-secondary"
+              type="button"
+              disabled={saving || !value.trim()}
+              onClick={async () => {
+                const autoscheduledAt = chooseAutoSchedule(scheduledSlots);
+                await submitPost(autoscheduledAt);
+              }}
+            >
+              Auto-schedule
+            </button>
+            <button type="submit" disabled={saving || !value.trim()}>
+              {saving ? "Saving..." : scheduledAtInput ? "Schedule" : postActionLabel}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export function SocialPublisherWorkspace({
   icon,
   platformLabel,
   shortLabel,
   campaignCount,
-  connectedMessage,
-  disconnectedMessage,
   queuePlaceholder,
   queueHint,
   queueLimit,
+  scheduledSlots = [],
+  postActionLabel = "Post",
+  postContentLabel = "Post",
   accountsEmptyMessage,
   isConnected,
   loading,
   posts,
   accounts,
   campaignContent,
+  repliesContent,
+  replyCount = 0,
   newPost,
   adding,
   error,
@@ -100,6 +284,7 @@ export function SocialPublisherWorkspace({
   onQueueChange,
   onCreatePost,
   onDeletePost,
+  onPublishPost,
   onAddAccount,
   onConnectAccount,
   onDeleteAccount,
@@ -111,20 +296,19 @@ export function SocialPublisherWorkspace({
   knowledgeBaseContent,
   accountInputHint = "Add another account with the credentials this platform requires.",
   onCreateCampaign,
-  extraActions,
 }: SocialPublisherWorkspaceProps) {
   const [tab, setTab] = useState<Tab>("posts");
+  const [isPostModalOpen, setIsPostModalOpen] = useState(false);
   const [isSetupOpen, setIsSetupOpen] = useState(false);
   const [setupTab, setSetupTab] = useState<SetupTab>("overview");
-  const [scheduledAtInput, setScheduledAtInput] = useState("");
   const [accountInput, setAccountInput] = useState<SocialAccountPayload>({});
   const [addingAccount, setAddingAccount] = useState(false);
   const [accountError, setAccountError] = useState<string | null>(null);
-  const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   const tabs: Array<{ id: Tab; label: string }> = [
     { id: "posts", label: `Posts (${posts.length})` },
     { id: "campaigns", label: `Campaigns (${campaignCount})` },
+    ...(repliesContent ? [{ id: "replies" as const, label: `Replies (${replyCount})` }] : []),
   ];
   const setupTabs: Array<{ id: SetupTab; label: string }> = [
     { id: "overview", label: "Overview" },
@@ -142,44 +326,39 @@ export function SocialPublisherWorkspace({
   const isAccountFormComplete = hasValuesForKeys(requiredAccountFieldKeys);
   const isConnectFormComplete = hasValuesForKeys(requiredConnectFieldKeys);
 
-  const minSchedule = toDateTimeLocalValue(new Date());
-
   return (
     <div className="social-workspace stack">
       {error ? <p className="error panel">{error}</p> : null}
 
       <section className="panel social-hero">
         <div className="social-hero__content">
-          <p className="social-kicker">Social Agent</p>
           <div className="social-title-row">
             <h2>{icon} {platformLabel}</h2>
             <span className={`social-status-pill social-status-pill--${isConnected ? "success" : "warning"}`}>
               {isConnected ? "Connected" : "Needs setup"}
             </span>
           </div>
-          <p className="social-subtitle">
-            A simpler publishing workspace for posts, campaigns, connections, and operating notes.
-          </p>
-          <p className="social-hero__status">
-            {isConnected ? connectedMessage : disconnectedMessage}
-          </p>
-          <div className="social-hero__metrics">
-            <span className="social-mini-stat"><strong>{posts.length}</strong> posts</span>
-            <span className="social-mini-stat"><strong>{campaignCount}</strong> campaigns</span>
-            <span className="social-mini-stat"><strong>{accounts.length}</strong> accounts</span>
-            <span className="social-mini-stat"><strong>{accountFields.length}</strong> fields</span>
+          <div className="social-meta-grid" aria-label={`${platformLabel} stats`}>
+            <article className="social-meta-card">
+              <span>Posts</span>
+              <strong>{posts.length}</strong>
+            </article>
+            <article className="social-meta-card">
+              <span>Campaigns</span>
+              <strong>{campaignCount}</strong>
+            </article>
+            <article className="social-meta-card">
+              <span>Replies</span>
+              <strong>{replyCount}</strong>
+            </article>
           </div>
-          {extraActions ? <div className="social-hero__helper">{extraActions}</div> : null}
         </div>
         <div className="social-hero__actions">
           <button
             type="button"
             onClick={() => {
               setTab("posts");
-              requestAnimationFrame(() => {
-                composerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-                composerRef.current?.focus();
-              });
+              setIsPostModalOpen(true);
             }}
           >
             + Post
@@ -190,39 +369,28 @@ export function SocialPublisherWorkspace({
             </button>
           ) : null}
           <button
-            className={`button-secondary ${isSetupOpen ? "social-utility-button--active" : ""}`}
+            aria-label="Manage accounts and setup"
+            className={`button-secondary social-icon-button ${isSetupOpen ? "social-utility-button--active" : ""}`}
+            title="Manage"
             type="button"
             onClick={() => {
               setSetupTab("accounts");
               setIsSetupOpen(true);
             }}
           >
-            Manage
+            ⚙
             <span className="social-toolbar-badge">{accounts.length}</span>
           </button>
-          <button className="button-secondary" type="button" onClick={() => void onReload()}>
-            Refresh
+          <button
+            aria-label="Refresh"
+            className="button-secondary social-icon-button"
+            title="Refresh"
+            type="button"
+            onClick={() => void onReload()}
+          >
+            ↻
           </button>
         </div>
-      </section>
-
-      <section className="social-meta-grid">
-        <article className="social-meta-card">
-          <span>Posts</span>
-          <strong>{posts.length}</strong>
-        </article>
-        <article className="social-meta-card">
-          <span>Campaigns</span>
-          <strong>{campaignCount}</strong>
-        </article>
-        <article className="social-meta-card">
-          <span>Accounts</span>
-          <strong>{accounts.length}</strong>
-        </article>
-        <article className="social-meta-card">
-          <span>Account Fields</span>
-          <strong>{accountFields.length}</strong>
-        </article>
       </section>
 
       <section className="panel social-panel-shell">
@@ -242,62 +410,14 @@ export function SocialPublisherWorkspace({
         {tab === "posts" ? (
           <div className="social-panel-section stack">
             <div className="panel__title-row">
-              <h2>{shortLabel} Post Queue</h2>
-            </div>
-            <div className="social-composer">
-              <textarea
-                ref={composerRef}
-                placeholder={queuePlaceholder}
-                value={newPost}
-                onChange={(event) => onQueueChange(event.target.value.slice(0, queueLimit))}
-                rows={4}
-              />
-              <div className="social-composer__schedule">
-                <label className="social-composer__schedule-field">
-                  <span>Publish date & time</span>
-                  <input
-                    type="datetime-local"
-                    min={minSchedule}
-                    value={scheduledAtInput}
-                    onChange={(event) => setScheduledAtInput(event.target.value)}
-                  />
-                </label>
-                <div className="social-composer__schedule-actions">
-                  <span className="social-muted">Optional. Leave blank to add it as an unscheduled draft.</span>
-                  {scheduledAtInput ? (
-                    <button
-                      className="social-inline-button"
-                      type="button"
-                      onClick={() => setScheduledAtInput("")}
-                    >
-                      Clear time
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-              <div className="social-composer__footer">
-                <span className={`social-counter ${newPost.length > queueLimit - 20 ? "is-warning" : ""}`}>
-                  {newPost.length}/{queueLimit}
-                </span>
-                <button
-                  type="button"
-                  disabled={!newPost.trim() || adding}
-                  onClick={async () => {
-                    const scheduledAt = scheduledAtInput ? new Date(scheduledAtInput).toISOString() : null;
-                    await onCreatePost(scheduledAt);
-                    setScheduledAtInput("");
-                  }}
-                >
-                  {adding ? "Saving..." : scheduledAtInput ? "Schedule Post" : "Add to Queue"}
-                </button>
-              </div>
+              <h2>{shortLabel} Posts</h2>
             </div>
 
             {loading ? (
               <p className="social-empty">Loading...</p>
             ) : posts.length === 0 ? (
               <div className="social-empty-card">
-                <p className="social-empty-card__title">No queued posts yet.</p>
+                <p className="social-empty-card__title">No posts yet.</p>
                 <p className="social-empty-card__copy">{queueHint}</p>
               </div>
             ) : (
@@ -318,6 +438,11 @@ export function SocialPublisherWorkspace({
                       {post.scheduled_at ? new Date(post.scheduled_at).toLocaleString() : "—"}
                     </span>
                     <span className="social-table-actions">
+                      {onPublishPost && post.status !== "posted" ? (
+                        <button className="social-inline-button" type="button" onClick={() => void onPublishPost(post.id)}>
+                          Publish
+                        </button>
+                      ) : null}
                       <button className="social-inline-button social-inline-button--danger" type="button" onClick={() => void onDeletePost(post.id)}>
                         Delete
                       </button>
@@ -337,10 +462,19 @@ export function SocialPublisherWorkspace({
             {campaignContent}
           </div>
         ) : null}
+
+        {tab === "replies" && repliesContent ? (
+          <div className="social-panel-section stack">
+            <div className="panel__title-row">
+              <h2>{shortLabel} Replies</h2>
+            </div>
+            {repliesContent}
+          </div>
+        ) : null}
       </section>
 
       {isSetupOpen ? (
-        <div className="social-connections-modal-backdrop" onClick={() => setIsSetupOpen(false)}>
+        <div className="social-connections-modal-backdrop">
           <div className="social-connections-modal panel" onClick={(event) => event.stopPropagation()}>
             <div className="panel__title-row">
               <div>
@@ -350,19 +484,6 @@ export function SocialPublisherWorkspace({
               <button className="button-secondary" type="button" onClick={() => setIsSetupOpen(false)}>
                 Close
               </button>
-            </div>
-
-            <div className="social-connections-summary">
-              <article className="social-connections-summary__card">
-                <span>Accounts</span>
-                <strong>{accounts.length}</strong>
-                <small>{accounts.length ? "Connected profiles ready" : "No connected profiles yet"}</small>
-              </article>
-              <article className="social-connections-summary__card">
-                <span>Account fields</span>
-                <strong>{accountFields.length}</strong>
-                <small>Filled when you add each platform account.</small>
-              </article>
             </div>
 
             <div className="social-panel-tabs social-panel-tabs--modal">
@@ -536,6 +657,22 @@ export function SocialPublisherWorkspace({
 
           </div>
         </div>
+      ) : null}
+
+      {isPostModalOpen ? (
+        <SocialPostComposerModal
+          platformLabel={platformLabel}
+          postActionLabel={postActionLabel}
+          postContentLabel={postContentLabel}
+          placeholder={queuePlaceholder}
+          value={newPost}
+          limit={queueLimit}
+          scheduledSlots={scheduledSlots}
+          saving={adding}
+          onChange={onQueueChange}
+          onClose={() => setIsPostModalOpen(false)}
+          onSubmit={onCreatePost}
+        />
       ) : null}
     </div>
   );

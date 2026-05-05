@@ -1,6 +1,7 @@
 .kb-editor {
   background: white;
   border-radius: 8px;
+  min-width: 0;
   padding: 24px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
@@ -42,11 +43,13 @@
 .kb-editor__view {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .kb-editor__content {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .kb-editor__meta {
@@ -121,7 +124,12 @@
   padding: 16px;
   background: #f9f9f9;
   min-height: 300px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
   line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .kb-editor__preview h1,

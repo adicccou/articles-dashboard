@@ -4,7 +4,7 @@ import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
 import { SocialPublisherWorkspace } from "../components/SocialPublisherWorkspace";
 import { KnowledgeBaseEditor } from "../components/KnowledgeBaseEditor";
-import { SocialPlannerItemModal } from "../components/SocialPlannerItemModal";
+import { SocialCampaignModal } from "../components/SocialCampaignModal";
 
 const TWITTER_KB_ID = 1;
 
@@ -15,6 +15,7 @@ export function TwitterAgentPage() {
   const [newPost, setNewPost] = useState("");
   const [adding, setAdding] = useState(false);
   const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
+  const [editingCampaignId, setEditingCampaignId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,10 +42,15 @@ export function TwitterAgentPage() {
     void load();
   }, []);
 
-  const isConnected = accounts.length > 0;
+  const isConnected = accounts.some((account) => account.status === "active" && Boolean(account.credentials_ready));
   const campaigns = plannerItems.filter(
     (item) => item.item_type === "campaign" && ["x", "twitter", "twitter/x"].includes(item.platform.trim().toLowerCase()),
   );
+  const scheduledSlots = [
+    ...plannerItems.map((item) => item.scheduled_for).filter((value): value is string => Boolean(value)),
+    ...posts.map((post) => post.scheduled_at).filter((value): value is string => Boolean(value)),
+  ];
+  const editingCampaign = editingCampaignId ? campaigns.find((item) => item.id === editingCampaignId) ?? null : null;
 
   return (
     <>
@@ -53,11 +59,12 @@ export function TwitterAgentPage() {
         platformLabel="Twitter / X Agent"
         shortLabel="𝕏"
         campaignCount={campaigns.length}
-        connectedMessage="Twitter/X credentials are in place and the queue is ready for approved publishing."
-        disconnectedMessage="Add an X account with its API credentials before relying on the queue."
-        queuePlaceholder="Write a tweet for the queue..."
-        queueHint="Draft a post above, or send content into the queue from your Telegram bot."
+        queuePlaceholder="Write a tweet..."
+        queueHint="Post immediately above, pick a time manually, or auto-schedule into an open planner slot."
         queueLimit={280}
+        scheduledSlots={scheduledSlots}
+        postActionLabel="Tweet"
+        postContentLabel="Tweet"
         accountsEmptyMessage="No Twitter/X accounts are attached yet. Add an account with its API credentials to start publishing."
         isConnected={isConnected}
         loading={loading}
@@ -69,30 +76,62 @@ export function TwitterAgentPage() {
               <p className="social-empty-card__title">No X campaigns yet.</p>
               <p className="social-empty-card__copy">Create your first X campaign here and it will start showing up in this workspace.</p>
               <div className="social-empty-card__actions">
-                <button type="button" onClick={() => setIsCampaignModalOpen(true)}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingCampaignId(null);
+                    setIsCampaignModalOpen(true);
+                  }}
+                >
                   + Campaign
                 </button>
               </div>
             </div>
           ) : (
-            <div className="table">
+            <div className="table social-campaign-table">
               <div className="table__row table__row--header">
                 <span>Campaign</span>
-                <span>Status</span>
-                <span>Scheduled</span>
-                <span>Strategy</span>
+                <span>Account</span>
+                <span>Interval</span>
+                <span>Duration</span>
+                <span>Actions</span>
               </div>
               {campaigns.map((item) => (
                 <div className="table__row" key={item.id}>
                   <span>
                     {item.title}
-                    {item.description ? <small>{item.description}</small> : null}
+                    {item.instruction ? <small>{item.instruction}</small> : null}
                   </span>
-                  <span>
-                    <span className="social-status-pill social-status-pill--neutral">{item.status}</span>
+                  <span className="social-muted">
+                    {accounts.find((account) => account.id === item.account_id)?.username || "—"}
                   </span>
-                  <span className="social-muted">{item.scheduled_for ? new Date(item.scheduled_for).toLocaleString() : "—"}</span>
-                  <span className="social-muted">{item.related_strategy_name || "—"}</span>
+                  <span className="social-muted">{item.interval_minutes ? `${item.interval_minutes} min` : "—"}</span>
+                  <span className="social-muted">
+                    {item.duration_start ? new Date(item.duration_start).toLocaleString() : "Any time"}
+                    {item.duration_end ? ` → ${new Date(item.duration_end).toLocaleString()}` : ""}
+                  </span>
+                  <span className="social-table-actions">
+                    <button
+                      type="button"
+                      className="social-inline-button"
+                      onClick={() => {
+                        setEditingCampaignId(item.id);
+                        setIsCampaignModalOpen(true);
+                      }}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="social-inline-button social-inline-button--danger"
+                      onClick={async () => {
+                        await api.deletePlannerItem(item.id);
+                        await load();
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </span>
                 </div>
               ))}
             </div>
@@ -106,7 +145,20 @@ export function TwitterAgentPage() {
         onCreatePost={async (scheduledAt) => {
           setAdding(true);
           try {
-            await api.createSocialPost("twitter", newPost.trim(), scheduledAt ?? undefined);
+            const content = newPost.trim();
+            const post = await api.createSocialPost("twitter", content, scheduledAt ?? undefined);
+            if (!scheduledAt) {
+              await api.publishSocialPost(post.id);
+            } else {
+              await api.createPlannerItem({
+                title: `Twitter post: ${content.slice(0, 80) || "Scheduled post"}`,
+                description: content,
+                item_type: "post",
+                platform: "twitter",
+                status: "approved",
+                scheduled_for: scheduledAt,
+              });
+            }
             setNewPost("");
             await load();
           } finally {
@@ -115,6 +167,10 @@ export function TwitterAgentPage() {
         }}
         onDeletePost={async (id) => {
           await api.deleteSocialPost(id);
+          await load();
+        }}
+        onPublishPost={async (id) => {
+          await api.publishSocialPost(id);
           await load();
         }}
         onAddAccount={async (values) => {
@@ -127,7 +183,10 @@ export function TwitterAgentPage() {
         }}
         knowledgeBaseContent={<KnowledgeBaseEditor type="social_platform" entityId={TWITTER_KB_ID} />}
         accountInputHint="Add each X profile with the credentials required for publishing from that account."
-        onCreateCampaign={() => setIsCampaignModalOpen(true)}
+        onCreateCampaign={() => {
+          setEditingCampaignId(null);
+          setIsCampaignModalOpen(true);
+        }}
         accountFields={[
           {
             key: "username",
@@ -155,16 +214,25 @@ export function TwitterAgentPage() {
             type: "password",
           },
         ]}
-        extraActions={<span className="social-hero__caption">Posts and campaigns share the same approval pipeline.</span>}
       />
       {isCampaignModalOpen ? (
-        <SocialPlannerItemModal
-          itemType="campaign"
-          platform="Twitter"
+        <SocialCampaignModal
+          platform="twitter"
           platformLabel="X"
-          onClose={() => setIsCampaignModalOpen(false)}
+          accounts={accounts.map((account) => ({ id: account.id, label: account.username }))}
+          initialData={editingCampaign}
+          mode={editingCampaign ? "edit" : "create"}
+          onClose={() => {
+            setIsCampaignModalOpen(false);
+            setEditingCampaignId(null);
+          }}
           onSubmit={async (payload) => {
-            await api.createPlannerItem(payload);
+            if (editingCampaign) {
+              await api.updatePlannerItem(editingCampaign.id, payload);
+              setEditingCampaignId(null);
+            } else {
+              await api.createPlannerItem(payload);
+            }
             await load();
           }}
         />

@@ -1,4 +1,4 @@
-import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialAccountInput, SocialPost } from "./types";
+import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialAccountInput, SocialPost, ThreadsMediaResponse } from "./types";
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -190,6 +190,11 @@ export const api = {
     request<{ success: boolean }>(`/api/social/posts/${id}`, {
       method: "DELETE",
     }),
+  publishSocialPost: (id: number) =>
+    request<{ success: boolean; external_id: string; posted_at: string }>(`/api/social/posts/${id}/publish`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
 
   // Twitter accounts
   listTwitterAccounts: () => request<SocialAccount[]>("/api/social/twitter/accounts"),
@@ -218,5 +223,23 @@ export const api = {
   deleteThreadsAccount: (id: number) =>
     request<{ success: boolean }>(`/api/social/threads/accounts/${id}`, {
       method: "DELETE",
+    }),
+  publishThreadsPost: (id: number) =>
+    request<{ success: boolean; external_id: string; posted_at: string }>(`/api/social/threads/posts/${id}/publish`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  searchThreads: (query: string, searchType = "TOP") =>
+    request<ThreadsMediaResponse>(
+      `/api/social/threads/search?q=${encodeURIComponent(query)}&search_type=${encodeURIComponent(searchType)}`,
+    ),
+  listThreadsReplies: (mediaId?: string) =>
+    request<ThreadsMediaResponse>(
+      `/api/social/threads/replies${mediaId ? `?media_id=${encodeURIComponent(mediaId)}` : ""}`,
+    ),
+  createThreadsReply: (reply_to_id: string, text: string) =>
+    request<{ success: boolean; external_id: string; account_id: number }>("/api/social/threads/replies", {
+      method: "POST",
+      body: JSON.stringify({ reply_to_id, text }),
     }),
 };

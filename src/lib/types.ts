@@ -104,6 +104,8 @@ export type RedditCampaign = {
   batch_window_hours: number;
   throttle_enabled: boolean;
   throttle_interval_minutes: number;
+  start_at?: string | null;
+  end_at?: string | null;
   telegram_chat_id?: string;
   created_at: string;
   updated_at: string;
@@ -342,6 +344,11 @@ export type PlannerItem = {
   platform: string;
   status: "planned" | "drafting" | "approved" | "published" | "archived";
   scheduled_for?: string | null;
+  account_id?: number | null;
+  instruction?: string | null;
+  interval_minutes?: number | null;
+  duration_start?: string | null;
+  duration_end?: string | null;
   related_strategy_id?: number | null;
   related_strategy_name?: string | null;
   created_by: string;
@@ -368,6 +375,11 @@ export type PlannerItemInput = {
   platform: string;
   status?: "planned" | "drafting" | "approved" | "published" | "archived";
   scheduled_for?: string | null;
+  account_id?: number | null;
+  instruction?: string | null;
+  interval_minutes?: number | null;
+  duration_start?: string | null;
+  duration_end?: string | null;
   related_strategy_id?: number | null;
 };
 
@@ -385,6 +397,7 @@ export type SocialAccount = {
   platform: "twitter" | "threads" | "reddit";
   username: string;
   status: "active" | "inactive";
+  credentials_ready?: boolean | number;
   created_at: string;
   updated_at: string;
 };
@@ -405,4 +418,34 @@ export type SocialPost = {
   created_by: string;
   created_at: string;
   updated_at: string;
+};
+
+export type ThreadsMedia = {
+  id: string;
+  media_product_type?: string;
+  media_type?: string;
+  media_url?: string;
+  permalink?: string;
+  username?: string;
+  text?: string;
+  timestamp?: string;
+  shortcode?: string;
+  thumbnail_url?: string;
+  has_replies?: boolean;
+  is_quote_post?: boolean;
+  root_post?: { id: string };
+  replied_to?: { id: string };
+  is_reply?: boolean;
+  is_reply_owned_by_me?: boolean;
+  reply_audience?: string;
+};
+
+export type ThreadsMediaResponse = {
+  data?: ThreadsMedia[];
+  paging?: {
+    cursors?: {
+      before?: string;
+      after?: string;
+    };
+  };
 };

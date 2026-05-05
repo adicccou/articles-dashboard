@@ -68,6 +68,7 @@ export function APIConnectionPanel({
   const [testingConnection, setTestingConnection] = useState<string | null>(null);
   const [savingAgent, setSavingAgent] = useState(false);
   const [savingCtrader, setSavingCtrader] = useState(false);
+  const [savingRules, setSavingRules] = useState(false);
 
   useEffect(() => {
     setModel(claudeModel);
@@ -213,6 +214,26 @@ export function APIConnectionPanel({
           <p className="api-panel__helper">
             These rules are stored at the workspace level so the dashboard assistant can follow them whenever it writes, plans, or reviews AI-driven work.
           </p>
+          <div className="api-panel__button-row">
+            <button
+              onClick={async () => {
+                setSavingRules(true);
+                try {
+                  await onSave?.({
+                    global_ai_rules: globalRules,
+                    social_agent_rules: socialRules,
+                  });
+                } finally {
+                  setSavingRules(false);
+                }
+              }}
+              disabled={savingRules}
+              className="api-panel__button"
+            >
+              {savingRules ? "Saving..." : "Save Rules"}
+            </button>
+          </div>
+          {syncMessage ? <p className="api-panel__helper">{syncMessage}</p> : null}
         </div>
       </div>
 

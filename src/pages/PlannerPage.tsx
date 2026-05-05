@@ -4,7 +4,7 @@ import { asArray } from "../lib/collections";
 import type { PlannerItem, PlannerItemInput, TradingStrategy } from "../lib/types";
 import "../styles/planner-page.css";
 
-type SchedulerView = "list" | "calendar";
+type SchedulerView = "list" | "calendar" | "week";
 type SchedulerStatus = PlannerItem["status"] | "all";
 type SchedulerType = PlannerItem["item_type"] | "all";
 
@@ -78,6 +78,22 @@ function monthGrid(date: Date): Date[] {
     days.push(new Date(cursor));
   }
   return days;
+}
+
+function startOfWeek(date: Date): Date {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - start.getDay());
+  return start;
+}
+
+function weekDays(date: Date): Date[] {
+  const start = startOfWeek(date);
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(start);
+    day.setDate(start.getDate() + index);
+    return day;
+  });
 }
 
 export function PlannerPage() {
@@ -162,6 +178,7 @@ export function PlannerPage() {
   }, [items]);
 
   const calendarDays = useMemo(() => monthGrid(calendarDate), [calendarDate]);
+  const currentWeekDays = useMemo(() => weekDays(calendarDate), [calendarDate]);
 
   const calendarItemsByDay = useMemo(() => {
     return calendarDays.map((day) => ({
@@ -169,6 +186,38 @@ export function PlannerPage() {
       items: filteredItems.filter((item) => item.scheduled_for && sameDay(new Date(item.scheduled_for), day)),
     }));
   }, [calendarDays, filteredItems]);
+
+  const weekItemsByDay = useMemo(() => {
+    return currentWeekDays.map((day) => {
+      const itemsForDay = filteredItems
+        .filter((item) => item.scheduled_for && sameDay(new Date(item.scheduled_for), day))
+        .sort((left, right) => {
+          const leftTime = left.scheduled_for ? new Date(left.scheduled_for).getTime() : 0;
+          const rightTime = right.scheduled_for ? new Date(right.scheduled_for).getTime() : 0;
+          return leftTime - rightTime;
+        });
+
+      return {
+        day,
+        items: itemsForDay,
+      };
+    });
+  }, [currentWeekDays, filteredItems]);
+
+  const weekRangeLabel = useMemo(() => {
+    const first = currentWeekDays[0];
+    const last = currentWeekDays[currentWeekDays.length - 1];
+    if (!first || !last) return "";
+    const sameMonth = first.getMonth() === last.getMonth() && first.getFullYear() === last.getFullYear();
+    const firstLabel = first.toLocaleString("en-US", { month: "short", day: "numeric" });
+    const lastLabel = last.toLocaleString(
+      "en-US",
+      sameMonth
+        ? { day: "numeric", year: "numeric" }
+        : { month: "short", day: "numeric", year: "numeric" },
+    );
+    return `${firstLabel} - ${lastLabel}`;
+  }, [currentWeekDays]);
 
   function openCreateModal() {
     setForm(createEmptyScheduleForm());
@@ -304,6 +353,12 @@ export function PlannerPage() {
           >
             Calendar view
           </button>
+          <button
+            className={view === "week" ? "scheduler-tab scheduler-tab--active" : "scheduler-tab"}
+            onClick={() => setView("week")}
+          >
+            Week view
+          </button>
         </div>
         <div className="scheduler-filters">
           <label>
@@ -396,7 +451,7 @@ export function PlannerPage() {
             </div>
           )}
         </section>
-      ) : (
+      ) : view === "calendar" ? (
         <section className="panel scheduler-calendar">
           <div className="panel__title-row">
             <h2>{calendarDate.toLocaleString("en-US", { month: "long", year: "numeric" })}</h2>
@@ -446,6 +501,69 @@ export function PlannerPage() {
                     <span className="scheduler-calendar__more">+{dayItems.length - 3} more</span>
                   ) : null}
                 </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : (
+        <section className="panel scheduler-week">
+          <div className="panel__title-row">
+            <div>
+              <h2>This Week</h2>
+              <p className="scheduler-week__range">{weekRangeLabel}</p>
+            </div>
+            <div className="scheduler-calendar__nav">
+              <button
+                className="button-secondary"
+                onClick={() => setCalendarDate((current) => new Date(current.getFullYear(), current.getMonth(), current.getDate() - 7))}
+              >
+                Prev Week
+              </button>
+              <button
+                className="button-secondary"
+                onClick={() => setCalendarDate((current) => new Date(current.getFullYear(), current.getMonth(), current.getDate() + 7))}
+              >
+                Next Week
+              </button>
+            </div>
+          </div>
+          <div className="scheduler-week__grid">
+            {weekItemsByDay.map(({ day, items: dayItems }) => (
+              <div key={day.toISOString()} className="scheduler-week__day">
+                <div className="scheduler-week__day-header">
+                  <div>
+                    <p className="scheduler-week__day-label">
+                      {day.toLocaleString("en-US", { weekday: "short" })}
+                    </p>
+                    <strong>{day.toLocaleString("en-US", { month: "short", day: "numeric" })}</strong>
+                  </div>
+                  <span className="scheduler-week__count">{dayItems.length}</span>
+                </div>
+                {dayItems.length === 0 ? (
+                  <p className="scheduler-week__empty">No planned posts or campaigns.</p>
+                ) : (
+                  <div className="scheduler-week__items">
+                    {dayItems.map((item) => (
+                      <button
+                        key={item.id}
+                        className={`scheduler-week__item scheduler-week__item--${item.item_type}`}
+                        onClick={() => setSelectedItemId(item.id)}
+                      >
+                        <span className={`scheduler-pill scheduler-pill--${item.item_type}`}>{item.item_type}</span>
+                        <strong>{item.title}</strong>
+                        <span className="scheduler-week__meta">
+                          {item.scheduled_for ? new Date(item.scheduled_for).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "Unscheduled"}
+                          {" • "}
+                          {item.platform}
+                        </span>
+                        <span className="scheduler-week__meta">
+                          {item.status}
+                          {item.related_strategy_name ? ` • ${item.related_strategy_name}` : ""}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>

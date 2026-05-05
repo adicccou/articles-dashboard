@@ -8,6 +8,11 @@ interface PlannerItemPayload {
   platform: string;
   status?: "planned" | "drafting" | "approved" | "published" | "archived";
   scheduled_for?: string | null;
+  account_id?: number | null;
+  instruction?: string | null;
+  interval_minutes?: number | null;
+  duration_start?: string | null;
+  duration_end?: string | null;
   related_strategy_id?: number | null;
 }
 
@@ -30,6 +35,11 @@ export async function listPlannerItems(env: Env): Promise<Response> {
           pi.platform,
           pi.status,
           pi.scheduled_for,
+          pi.account_id,
+          pi.instruction,
+          pi.interval_minutes,
+          pi.duration_start,
+          pi.duration_end,
           pi.related_strategy_id,
           ts.name AS related_strategy_name,
           pi.created_by,
@@ -67,13 +77,18 @@ export async function createPlannerItem(env: Env, request: Request): Promise<Res
           platform,
           status,
           scheduled_for,
+          account_id,
+          instruction,
+          interval_minutes,
+          duration_start,
+          duration_end,
           related_strategy_id,
           created_by,
           created_at,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?)
-        RETURNING id, title, description, item_type, platform, status, scheduled_for, related_strategy_id, created_by, created_at, updated_at
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?)
+        RETURNING id, title, description, item_type, platform, status, scheduled_for, account_id, instruction, interval_minutes, duration_start, duration_end, related_strategy_id, created_by, created_at, updated_at
       `,
     )
       .bind(
@@ -83,6 +98,11 @@ export async function createPlannerItem(env: Env, request: Request): Promise<Res
         payload.platform.trim(),
         payload.status ?? "planned",
         payload.scheduled_for ?? null,
+        payload.account_id ?? null,
+        payload.instruction?.trim() || null,
+        payload.interval_minutes ?? null,
+        payload.duration_start ?? null,
+        payload.duration_end ?? null,
         payload.related_strategy_id ?? null,
         now,
         now,
@@ -133,6 +153,26 @@ export async function updatePlannerItem(
     if (payload.scheduled_for !== undefined) {
       updates.push("scheduled_for = ?");
       values.push(payload.scheduled_for);
+    }
+    if (payload.account_id !== undefined) {
+      updates.push("account_id = ?");
+      values.push(payload.account_id);
+    }
+    if (payload.instruction !== undefined) {
+      updates.push("instruction = ?");
+      values.push(payload.instruction?.trim() || null);
+    }
+    if (payload.interval_minutes !== undefined) {
+      updates.push("interval_minutes = ?");
+      values.push(payload.interval_minutes);
+    }
+    if (payload.duration_start !== undefined) {
+      updates.push("duration_start = ?");
+      values.push(payload.duration_start);
+    }
+    if (payload.duration_end !== undefined) {
+      updates.push("duration_end = ?");
+      values.push(payload.duration_end);
     }
     if (payload.related_strategy_id !== undefined) {
       updates.push("related_strategy_id = ?");

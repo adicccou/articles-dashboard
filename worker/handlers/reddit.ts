@@ -14,6 +14,8 @@ interface CreateCampaignPayload {
   batch_window_hours?: number;
   throttle_enabled?: boolean;
   throttle_interval_minutes?: number;
+  start_at?: string | null;
+  end_at?: string | null;
   telegram_chat_id?: string;
 }
 
@@ -52,11 +54,13 @@ export async function createCampaign(env: Env, request: Request): Promise<Respon
         batch_window_hours,
         throttle_enabled,
         throttle_interval_minutes,
+        start_at,
+        end_at,
         telegram_chat_id,
         status,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
     )
       .bind(
         payload.reddit_account_id,
@@ -70,6 +74,8 @@ export async function createCampaign(env: Env, request: Request): Promise<Respon
         payload.batch_window_hours || 24,
         payload.throttle_enabled ? 1 : 0,
         payload.throttle_interval_minutes || 60,
+        payload.start_at || null,
+        payload.end_at || null,
         payload.telegram_chat_id || "",
         now,
         now,
@@ -129,13 +135,33 @@ export async function updateCampaign(
       updates.push("agent_instructions = ?");
       values.push(payload.agent_instructions);
     }
+    if (payload.reddit_account_id !== undefined) {
+      updates.push("reddit_account_id = ?");
+      values.push(payload.reddit_account_id);
+    }
     if (payload.batch_size !== undefined) {
       updates.push("batch_size = ?");
       values.push(payload.batch_size);
     }
+    if (payload.batch_window_hours !== undefined) {
+      updates.push("batch_window_hours = ?");
+      values.push(payload.batch_window_hours);
+    }
     if (payload.throttle_enabled !== undefined) {
       updates.push("throttle_enabled = ?");
       values.push(payload.throttle_enabled ? 1 : 0);
+    }
+    if (payload.throttle_interval_minutes !== undefined) {
+      updates.push("throttle_interval_minutes = ?");
+      values.push(payload.throttle_interval_minutes);
+    }
+    if (payload.start_at !== undefined) {
+      updates.push("start_at = ?");
+      values.push(payload.start_at);
+    }
+    if (payload.end_at !== undefined) {
+      updates.push("end_at = ?");
+      values.push(payload.end_at);
     }
     if (payload.telegram_chat_id !== undefined) {
       updates.push("telegram_chat_id = ?");

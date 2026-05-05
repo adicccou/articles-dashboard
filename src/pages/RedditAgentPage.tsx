@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
 import type { RedditCampaign, RedditAccount, PlannerItem } from "../lib/types";
 import { api } from "../lib/api";
-import { RedditCampaignForm } from "../components/RedditCampaignForm";
 import { KnowledgeBaseEditor } from "../components/KnowledgeBaseEditor";
 import { SocialPlannerItemModal } from "../components/SocialPlannerItemModal";
+import { SocialCampaignModal } from "../components/SocialCampaignModal";
 import { asArray } from "../lib/collections";
 
-type TabView = "campaigns" | "form";
 type ContentMode = "posts" | "campaigns";
 type SetupTab = "overview" | "knowledge" | "accounts";
 
@@ -17,11 +16,11 @@ export function RedditAgentPage() {
   const [campaigns, setCampaigns] = useState<RedditCampaign[]>([]);
   const [plannerItems, setPlannerItems] = useState<PlannerItem[]>([]);
   const [accounts, setAccounts] = useState<RedditAccount[]>([]);
-  const [tab, setTab] = useState<TabView>("campaigns");
   const [mode, setMode] = useState<ContentMode>("campaigns");
   const [isSetupOpen, setIsSetupOpen] = useState(false);
   const [setupTab, setSetupTab] = useState<SetupTab>("overview");
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
+  const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [accountName, setAccountName] = useState("");
   const [connectingAccount, setConnectingAccount] = useState(false);
@@ -55,6 +54,7 @@ export function RedditAgentPage() {
   const redditPosts = plannerItems.filter(
     (item) => item.item_type === "post" && item.platform.trim().toLowerCase() === "reddit",
   );
+  const redditReplyCount = 0;
   const editingCampaign = editingId ? campaigns.find((campaign) => campaign.id === editingId) : undefined;
 
   async function connectRedditAccount() {
@@ -88,125 +88,69 @@ export function RedditAgentPage() {
     return <div className="loading-screen">Loading...</div>;
   }
 
-  if (tab === "form") {
-    return (
-      <div className="social-workspace stack">
-        <section className="panel social-hero">
-          <div className="social-hero__content">
-            <p className="social-kicker">Social Agent</p>
-            <div className="social-title-row">
-              <h2>🟠 Reddit Agent</h2>
-              <span className="social-status-pill social-status-pill--info">Campaign builder</span>
-            </div>
-            <p className="social-subtitle">Create or edit campaigns with the same layout and navigation style as the other social agents.</p>
-          </div>
-          <div className="social-hero__actions">
-            <button
-              onClick={() => {
-                setEditingId(null);
-                setTab("campaigns");
-              }}
-              className="button-secondary"
-            >
-              Back to Campaigns
-            </button>
-          </div>
-        </section>
-        <RedditCampaignForm
-          accounts={asArray<RedditAccount>(accounts)}
-          initialData={editingCampaign}
-          onSubmit={async (data) => {
-            if (editingId) {
-              await api.updateCampaign(editingId, data);
-            } else {
-              await api.createCampaign(data as Omit<RedditCampaign, "id" | "created_at" | "updated_at">);
-            }
-            await load();
-            setTab("campaigns");
-            setEditingId(null);
-          }}
-          onCancel={() => {
-            setTab("campaigns");
-            setEditingId(null);
-          }}
-        />
-      </div>
-    );
-  }
-
   return (
     <div className="social-workspace stack">
       {error && <p className="error panel">{error}</p>}
       <section className="panel social-hero">
         <div className="social-hero__content">
-          <p className="social-kicker">Social Agent</p>
           <div className="social-title-row">
             <h2>🟠 Reddit Agent</h2>
             <span className={`social-status-pill social-status-pill--${campaigns.length ? "success" : "neutral"}`}>
               {accounts.length ? "Connected" : "Needs setup"}
             </span>
           </div>
-          <p className="social-subtitle">Manage subreddit campaigns, planned Reddit posts, connected accounts, and response guidance from one workspace.</p>
-          <p className="social-hero__status">
-            {accounts.length
-              ? "Reddit accounts are connected and ready to power campaign discovery and approvals."
-              : "Connect a Reddit account to start powering campaign discovery and approval workflows."}
-          </p>
-          <div className="social-hero__metrics">
-            <span className="social-mini-stat"><strong>{redditPosts.length}</strong> posts</span>
-            <span className="social-mini-stat"><strong>{campaigns.length}</strong> campaigns</span>
-            <span className="social-mini-stat"><strong>{accounts.length}</strong> accounts</span>
-            <span className="social-mini-stat"><strong>{campaigns.filter((campaign) => campaign.status === "active").length}</strong> active</span>
+          <div className="social-meta-grid" aria-label="Reddit Agent stats">
+            <article className="social-meta-card">
+              <span>Posts</span>
+              <strong>{redditPosts.length}</strong>
+            </article>
+            <article className="social-meta-card">
+              <span>Campaigns</span>
+              <strong>{campaigns.length}</strong>
+            </article>
+            <article className="social-meta-card">
+              <span>Replies</span>
+              <strong>{redditReplyCount}</strong>
+            </article>
           </div>
         </div>
         <div className="social-hero__actions">
           <button type="button" onClick={() => setIsPostModalOpen(true)}>
             + Post
           </button>
-          <button
-            type="button"
-            className="button-secondary"
-            onClick={() => {
-              setEditingId(null);
-              setTab("form");
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => {
+                  setEditingId(null);
+              setIsCampaignModalOpen(true);
             }}
           >
             + Campaign
           </button>
           <button
             type="button"
-            className={`button-secondary ${isSetupOpen ? "social-utility-button--active" : ""}`}
+            aria-label="Manage accounts and setup"
+            className={`button-secondary social-icon-button ${isSetupOpen ? "social-utility-button--active" : ""}`}
+            title="Manage"
             onClick={() => {
               setSetupTab("accounts");
               setIsSetupOpen(true);
             }}
           >
-            Manage
+            ⚙
             <span className="social-toolbar-badge">{accounts.length}</span>
           </button>
-          <button type="button" className="button-secondary" onClick={() => void load()}>
-            Refresh
+          <button
+            type="button"
+            aria-label="Refresh"
+            className="button-secondary social-icon-button"
+            title="Refresh"
+            onClick={() => void load()}
+          >
+            ↻
           </button>
         </div>
-      </section>
-
-      <section className="social-meta-grid">
-        <article className="social-meta-card">
-          <span>Posts</span>
-          <strong>{redditPosts.length}</strong>
-        </article>
-        <article className="social-meta-card">
-          <span>Campaigns</span>
-          <strong>{campaigns.length}</strong>
-        </article>
-        <article className="social-meta-card">
-          <span>Accounts</span>
-          <strong>{accounts.length}</strong>
-        </article>
-        <article className="social-meta-card">
-          <span>Active</span>
-          <strong>{campaigns.filter((campaign) => campaign.status === "active").length}</strong>
-        </article>
       </section>
 
       <section className="panel social-panel-shell">
@@ -272,7 +216,7 @@ export function RedditAgentPage() {
                 type="button"
                 onClick={() => {
                   setEditingId(null);
-                  setTab("form");
+                  setIsCampaignModalOpen(true);
                 }}
               >
                 + Campaign
@@ -280,29 +224,33 @@ export function RedditAgentPage() {
             </div>
           </div>
         ) : (
-          <div className="table">
+          <div className="table social-campaign-table">
             <div className="table__row table__row--header">
-              <span>Name</span>
-              <span>Subreddit</span>
-              <span>Query</span>
-              <span>Status</span>
+              <span>Campaign</span>
+              <span>Account</span>
+              <span>Interval</span>
+              <span>Duration</span>
               <span>Actions</span>
             </div>
             {asArray<RedditCampaign>(campaigns).map((campaign) => (
               <div className="table__row" key={campaign.id}>
-                <span className="truncate">{campaign.name}</span>
-                <span>r/{campaign.subreddit}</span>
-                <span className="truncate">{campaign.search_query}</span>
                 <span>
-                  <span className={`social-status-pill social-status-pill--${campaign.status === "active" ? "success" : campaign.status === "paused" ? "warning" : "neutral"}`}>
-                    {campaign.status}
-                  </span>
+                  {campaign.name}
+                  <small>{`r/${campaign.subreddit} • ${campaign.search_query}`}</small>
+                </span>
+                <span className="social-muted">
+                  {accounts.find((account) => account.id === campaign.reddit_account_id)?.name || "—"}
+                </span>
+                <span className="social-muted">{campaign.throttle_interval_minutes ? `${campaign.throttle_interval_minutes} min` : "—"}</span>
+                <span className="social-muted">
+                  {campaign.start_at ? new Date(campaign.start_at).toLocaleString() : "Any time"}
+                  {campaign.end_at ? ` → ${new Date(campaign.end_at).toLocaleString()}` : ""}
                 </span>
                 <span className="social-table-actions">
                   <button
                     onClick={() => {
                       setEditingId(campaign.id);
-                      setTab("form");
+                      setIsCampaignModalOpen(true);
                     }}
                     className="social-inline-button"
                   >
@@ -335,19 +283,6 @@ export function RedditAgentPage() {
               <button className="button-secondary" type="button" onClick={() => setIsSetupOpen(false)}>
                 Close
               </button>
-            </div>
-
-            <div className="social-connections-summary">
-              <article className="social-connections-summary__card">
-                <span>Accounts</span>
-                <strong>{accounts.length}</strong>
-                <small>{accounts.length ? "Connected Reddit profiles ready for campaigns" : "No Reddit profiles connected yet"}</small>
-              </article>
-              <article className="social-connections-summary__card">
-                <span>Connection type</span>
-                <strong>OAuth</strong>
-                <small>Use Reddit authorization so you can safely manage several accounts later.</small>
-              </article>
             </div>
 
             <div className="social-panel-tabs social-panel-tabs--modal">
@@ -483,6 +418,48 @@ export function RedditAgentPage() {
           onSubmit={async (payload) => {
             await api.createPlannerItem(payload);
             await load();
+          }}
+        />
+      ) : null}
+      {isCampaignModalOpen ? (
+        <SocialCampaignModal
+          platform="reddit"
+          platformLabel="Reddit"
+          accounts={accounts.map((account) => ({ id: account.id, label: account.name }))}
+          initialData={editingCampaign}
+          mode={editingCampaign ? "edit" : "create"}
+          onClose={() => {
+            setIsCampaignModalOpen(false);
+            setEditingId(null);
+          }}
+          onSubmit={async (payload) => {
+            if (editingCampaign?.id) {
+              await api.updateCampaign(editingCampaign.id, payload);
+            } else {
+              await api.createCampaign({
+                reddit_account_id: Number(payload.reddit_account_id),
+                name: payload.name || "",
+                description: payload.description || "",
+                subreddit: payload.subreddit || "",
+                search_query: payload.search_query || "",
+                search_criteria: {
+                  min_score: 0,
+                  time_filter: "week",
+                },
+                agent_instructions: payload.agent_instructions || "",
+                batch_size: 10,
+                batch_window_hours: 24,
+                throttle_enabled: true,
+                throttle_interval_minutes: Number(payload.throttle_interval_minutes) || 60,
+                start_at: payload.start_at || null,
+                end_at: payload.end_at || null,
+                telegram_chat_id: payload.telegram_chat_id || "",
+                status: "active",
+                approval_method: "batch",
+              } as Omit<RedditCampaign, "id" | "created_at" | "updated_at">);
+            }
+            await load();
+            setEditingId(null);
           }}
         />
       ) : null}

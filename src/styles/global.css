@@ -185,6 +185,12 @@ label {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.grid-three {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .table {
   display: grid;
 }
@@ -355,6 +361,105 @@ h2 {
   gap: 1rem;
 }
 
+.article-editor__surface {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.article-editor__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, #f8fafc, #f1f5f9);
+}
+
+.article-editor__select {
+  width: auto;
+  min-width: 140px;
+  background: #fff;
+}
+
+.article-editor__color-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.article-editor__color-control input {
+  width: 44px;
+  min-width: 44px;
+  height: 36px;
+  padding: 4px;
+  border-radius: 10px;
+}
+
+.article-editor__content {
+  min-height: 420px;
+  padding: 16px 18px;
+  line-height: 1.7;
+}
+
+.article-editor__content:focus {
+  outline: none;
+}
+
+.article-editor__content:empty::before {
+  content: attr(data-placeholder);
+  color: #94a3b8;
+}
+
+.article-editor__content h1,
+.article-editor__content h2,
+.article-editor__content h3 {
+  line-height: 1.2;
+  margin: 1.1em 0 0.55em;
+}
+
+.article-editor__content h1 {
+  font-size: 2rem;
+}
+
+.article-editor__content h2 {
+  font-size: 1.55rem;
+}
+
+.article-editor__content h3 {
+  font-size: 1.25rem;
+}
+
+.article-editor__content p,
+.article-editor__content ul,
+.article-editor__content ol,
+.article-editor__content blockquote {
+  margin: 0 0 1em;
+}
+
+.article-editor__content blockquote {
+  border-left: 4px solid #cbd5e1;
+  color: #475569;
+  margin-left: 0;
+  padding-left: 14px;
+}
+
+.article-editor__content ul,
+.article-editor__content ol {
+  padding-left: 1.35rem;
+}
+
+.article-editor__hint {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
 @media (max-width: 900px) {
   .shell {
     grid-template-columns: 1fr;
@@ -366,6 +471,7 @@ h2 {
   }
 
   .grid-two,
+  .grid-three,
   .table__row {
     grid-template-columns: 1fr;
   }
@@ -382,5 +488,11 @@ h2 {
 
   .shell__sidebar {
     padding: 1rem;
+  }
+
+  .article-editor__toolbar .button-secondary,
+  .article-editor__select,
+  .article-editor__color-control {
+    width: 100%;
   }
 }

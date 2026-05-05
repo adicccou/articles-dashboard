@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ArticleInput, ArticleRecord, Site, ArticleCategory } from "../lib/types";
 import { slugify } from "../lib/slug";
 
@@ -33,12 +33,42 @@ function toInitialState(article?: ArticleRecord): ArticleInput {
   );
 }
 
+const fontSizeMap: Record<string, string> = {
+  sm: "0.9rem",
+  base: "1rem",
+  lg: "1.125rem",
+  xl: "1.35rem",
+  "2xl": "1.7rem",
+};
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function normalizeContentForEditor(value: string): string {
+  if (!value.trim()) return "";
+  if (/<\/?[a-z][\s\S]*>/i.test(value)) {
+    return value;
+  }
+
+  return value
+    .split(/\n{2,}/)
+    .map((block) => `<p>${escapeHtml(block).replace(/\n/g, "<br>")}</p>`)
+    .join("");
+}
+
 export function ArticleEditor({ article, sites, categories, onSave, onUpload, onCancel }: ArticleEditorProps) {
   const [form, setForm] = useState<ArticleInput>(() => toInitialState(article));
   const [categoryText, setCategoryText] = useState(() => article?.category?.name ?? "");
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const editorRef = useRef<HTMLDivElement | null>(null);
 
   const selectedSites = useMemo(() => new Set(form.site_ids), [form.site_ids]);
 
@@ -47,6 +77,19 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
     setCategoryText(article?.category?.name ?? "");
     setError(null);
   }, [article]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const normalized = normalizeContentForEditor(form.content);
+    if (editor.innerHTML !== normalized) {
+      editor.innerHTML = normalized;
+    }
+  }, [form.content]);
+
+  useEffect(() => {
+    document.execCommand("styleWithCSS", false, "true");
+  }, []);
 
   function update<K extends keyof ArticleInput>(key: K, value: ArticleInput[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -63,6 +106,47 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
         [key]: value,
       },
     }));
+  }
+
+  function syncEditorContent() {
+    const editor = editorRef.current;
+    if (!editor) return;
+    update("content", editor.innerHTML);
+  }
+
+  function focusEditor() {
+    editorRef.current?.focus();
+  }
+
+  function applyEditorCommand(command: string, value?: string) {
+    focusEditor();
+    document.execCommand(command, false, value);
+    syncEditorContent();
+  }
+
+  function applyBlock(block: "p" | "h1" | "h2" | "h3" | "blockquote") {
+    applyEditorCommand("formatBlock", block);
+  }
+
+  function applyFontSize(sizeKey: keyof typeof fontSizeMap) {
+    focusEditor();
+    document.execCommand("fontSize", false, "7");
+    const editor = editorRef.current;
+    if (editor) {
+      editor.querySelectorAll('font[size="7"]').forEach((node) => {
+        const span = document.createElement("span");
+        span.style.fontSize = fontSizeMap[sizeKey];
+        span.innerHTML = node.innerHTML;
+        node.replaceWith(span);
+      });
+    }
+    syncEditorContent();
+  }
+
+  function createLink() {
+    const url = window.prompt("Enter link URL");
+    if (!url) return;
+    applyEditorCommand("createLink", url);
   }
 
   async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
@@ -98,6 +182,11 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
     event.preventDefault();
     if (form.site_ids.length === 0) {
       setError("Select at least one site before saving.");
+      return;
+    }
+    const editorText = editorRef.current?.textContent?.trim() ?? "";
+    if (!editorText) {
+      setError("Add article content before saving.");
       return;
     }
     setBusy(true);
@@ -219,13 +308,85 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
         </label>
         <label>
           Content
-          <textarea
-            value={form.content}
-            onChange={(e) => update("content", e.target.value)}
-            rows={16}
-            placeholder="Write in markdown or plain text for the MVP."
-            required
-          />
+          <div className="article-editor__surface">
+            <div className="article-editor__toolbar" role="toolbar" aria-label="Content formatting">
+              <select
+                className="article-editor__select"
+                defaultValue=""
+                onChange={(event) => {
+                  const value = event.target.value as "p" | "h1" | "h2" | "h3" | "blockquote" | "";
+                  if (value) {
+                    applyBlock(value);
+                    event.target.value = "";
+                  }
+                }}
+              >
+                <option value="">Paragraph style</option>
+                <option value="p">Paragraph</option>
+                <option value="h1">Heading 1</option>
+                <option value="h2">Heading 2</option>
+                <option value="h3">Heading 3</option>
+                <option value="blockquote">Quote</option>
+              </select>
+              <select
+                className="article-editor__select"
+                defaultValue=""
+                onChange={(event) => {
+                  const value = event.target.value as keyof typeof fontSizeMap | "";
+                  if (value) {
+                    applyFontSize(value);
+                    event.target.value = "";
+                  }
+                }}
+              >
+                <option value="">Font size</option>
+                <option value="sm">Small</option>
+                <option value="base">Base</option>
+                <option value="lg">Large</option>
+                <option value="xl">XL</option>
+                <option value="2xl">2XL</option>
+              </select>
+              <button type="button" className="button-secondary" onClick={() => applyEditorCommand("bold")}>
+                Bold
+              </button>
+              <button type="button" className="button-secondary" onClick={() => applyEditorCommand("italic")}>
+                Italic
+              </button>
+              <button type="button" className="button-secondary" onClick={() => applyEditorCommand("underline")}>
+                Underline
+              </button>
+              <button type="button" className="button-secondary" onClick={() => applyEditorCommand("insertUnorderedList")}>
+                Bullets
+              </button>
+              <button type="button" className="button-secondary" onClick={() => applyEditorCommand("insertOrderedList")}>
+                Numbers
+              </button>
+              <button type="button" className="button-secondary" onClick={createLink}>
+                Link
+              </button>
+              <label className="article-editor__color-control">
+                <span>Text</span>
+                <input type="color" defaultValue="#0f172a" onChange={(event) => applyEditorCommand("foreColor", event.target.value)} />
+              </label>
+              <label className="article-editor__color-control">
+                <span>Highlight</span>
+                <input type="color" defaultValue="#fef08a" onChange={(event) => applyEditorCommand("hiliteColor", event.target.value)} />
+              </label>
+              <button type="button" className="button-secondary" onClick={() => applyEditorCommand("removeFormat")}>
+                Clear
+              </button>
+            </div>
+            <div
+              ref={editorRef}
+              className="article-editor__content"
+              contentEditable
+              suppressContentEditableWarning
+              data-placeholder="Write your article here with rich formatting."
+              onInput={syncEditorContent}
+              onBlur={syncEditorContent}
+            />
+          </div>
+          <small className="article-editor__hint">Formatting is saved as rich HTML content.</small>
         </label>
       </section>
 
