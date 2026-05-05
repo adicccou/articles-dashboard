@@ -136,6 +136,7 @@ export function SocialCampaignModal(props: SocialCampaignModalProps) {
     setSaving(true);
     setError(null);
     try {
+      const effectiveDurationStart = form.duration_start ?? new Date().toISOString();
       if (platform === "reddit") {
         const payload: Partial<RedditCampaign> = {
           name: form.name.trim(),
@@ -143,7 +144,7 @@ export function SocialCampaignModal(props: SocialCampaignModalProps) {
           agent_instructions: form.instruction.trim(),
           throttle_enabled: true,
           throttle_interval_minutes: form.interval_minutes,
-          start_at: form.duration_start,
+          start_at: effectiveDurationStart,
           end_at: form.duration_end,
           subreddit: redditFields.subreddit.trim(),
           search_query: redditFields.search_query.trim(),
@@ -159,10 +160,10 @@ export function SocialCampaignModal(props: SocialCampaignModalProps) {
           account_id: form.account_id,
           instruction: form.instruction.trim(),
           interval_minutes: form.interval_minutes,
-          duration_start: form.duration_start,
+          duration_start: effectiveDurationStart,
           duration_end: form.duration_end,
           description: form.instruction.trim(),
-          scheduled_for: form.duration_start,
+          scheduled_for: effectiveDurationStart,
         };
         await props.onSubmit(payload);
       }
