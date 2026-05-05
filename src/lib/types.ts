@@ -449,3 +449,23 @@ export type ThreadsMediaResponse = {
     };
   };
 };
+
+export type ThreadsCampaignResult = {
+  id: number;
+  campaign_id: number;
+  account_id?: number | null;
+  campaign_title?: string | null;
+  search_query: string;
+  media_id: string;
+  username?: string | null;
+  media_text?: string | null;
+  permalink?: string | null;
+  media_type?: string | null;
+  published_at?: string | null;
+  review_status: "new" | "reviewed" | "dismissed" | "replied" | "drafted";
+  suggested_reply?: string | null;
+  suggested_post?: string | null;
+  suggestion_reason?: string | null;
+  created_at: string;
+  updated_at: string;
+};

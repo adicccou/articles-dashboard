@@ -39,6 +39,11 @@ import {
   listThreadsReplies,
   createThreadsReply,
 } from "./handlers/threads";
+import {
+  listThreadsCampaignResults,
+  upsertThreadsCampaignResults,
+  updateThreadsCampaignResult,
+} from "./handlers/threads-campaigns";
 
 function withCors(response: Response): Response {
   const headers = new Headers(response.headers);
@@ -107,6 +112,7 @@ async function handleInternalContext(env: Env) {
     redditPostsResult,
     twitterPostsResult,
     threadsPostsResult,
+    threadsCampaignResultsResult,
     knowledgeBasesResult,
   ] = await Promise.all([
     listSites(env),
@@ -175,6 +181,12 @@ async function handleInternalContext(env: Env) {
        LIMIT 20`,
     ).all(),
     env.DB.prepare(
+      `SELECT id, campaign_id, media_id, review_status, created_at, updated_at
+       FROM threads_campaign_results
+       ORDER BY created_at DESC
+       LIMIT 40`,
+    ).all(),
+    env.DB.prepare(
       `SELECT id, entity_type, entity_id, title, content, version, updated_at
        FROM knowledge_bases
        ORDER BY updated_at DESC
@@ -220,6 +232,7 @@ async function handleInternalContext(env: Env) {
         "knowledge_bases",
         "social_accounts",
         "social_posts",
+        "threads_campaign_results",
         "media_uploads",
       ],
       blocked: [
@@ -281,6 +294,7 @@ async function handleInternalContext(env: Env) {
       twitter: twitterPostsResult.results ?? [],
       threads: threadsPostsResult.results ?? [],
     },
+    threads_campaign_results: threadsCampaignResultsResult.results ?? [],
   });
 }
 
@@ -659,6 +673,25 @@ export default {
       const unauthorized = await requireAgentAuth(request, env);
       if (unauthorized) return unauthorized;
       return await createThreadsReply(env, request);
+    }
+
+    if (url.pathname === "/api/internal/social/threads/campaign-results" && request.method === "GET") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await listThreadsCampaignResults(env, url);
+    }
+
+    if (url.pathname === "/api/internal/social/threads/campaign-results" && request.method === "POST") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await upsertThreadsCampaignResults(env, request);
+    }
+
+    if (url.pathname.startsWith("/api/internal/social/threads/campaign-results/") && request.method === "PUT") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[6];
+      return await updateThreadsCampaignResult(env, id, request);
     }
 
     if (url.pathname === "/api/sites" && request.method === "GET") {
@@ -1088,6 +1121,19 @@ export default {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
       return await createThreadsReply(env, request);
+    }
+
+    if (url.pathname === "/api/social/threads/campaign-results" && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await listThreadsCampaignResults(env, url);
+    }
+
+    if (url.pathname.startsWith("/api/social/threads/campaign-results/") && request.method === "PUT") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[5];
+      return await updateThreadsCampaignResult(env, id, request);
     }
 
     if (url.pathname === "/api/stats/journl" && request.method === "GET") {

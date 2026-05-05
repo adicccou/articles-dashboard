@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { SocialAccount, SocialPost, PlannerItem, ThreadsMedia } from "../lib/types";
+import type { SocialAccount, SocialPost, PlannerItem, ThreadsCampaignResult, ThreadsMedia } from "../lib/types";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
 import { SocialPublisherWorkspace } from "../components/SocialPublisherWorkspace";
@@ -24,6 +24,7 @@ export function ThreadsAgentPage() {
   const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
   const [editingCampaignId, setEditingCampaignId] = useState<number | null>(null);
   const [replyLookupResults, setReplyLookupResults] = useState<ThreadsMedia[]>([]);
+  const [campaignResults, setCampaignResults] = useState<ThreadsCampaignResult[]>([]);
   const [replyLookupError, setReplyLookupError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -31,15 +32,17 @@ export function ThreadsAgentPage() {
   async function load() {
     try {
       setLoading(true);
-      const [postsData, plannerData, accountsData] = await Promise.all([
+      const [postsData, plannerData, accountsData, campaignResultsData] = await Promise.all([
         api.listSocialPosts("threads"),
         api.listPlannerItems(),
         api.listThreadsAccounts(),
+        api.listThreadsCampaignResults(),
       ]);
       const loadedAccounts = asArray<SocialAccount>(accountsData);
       setPosts(asArray<SocialPost>(postsData));
       setPlannerItems(asArray<PlannerItem>(plannerData));
       setAccounts(loadedAccounts);
+      setCampaignResults(asArray<ThreadsCampaignResult>(campaignResultsData));
       setError(null);
       if (loadedAccounts.length > 0) {
         try {
@@ -73,7 +76,7 @@ export function ThreadsAgentPage() {
     ...plannerItems.map((item) => item.scheduled_for).filter((value): value is string => Boolean(value)),
     ...posts.map((post) => post.scheduled_at).filter((value): value is string => Boolean(value)),
   ];
-  const replyCount = replyLookupResults.length;
+  const replyCount = campaignResults.filter((item) => item.review_status === "new").length || replyLookupResults.length;
   const editingCampaign = editingCampaignId ? campaigns.find((item) => item.id === editingCampaignId) ?? null : null;
 
   function renderThreadsResult(item: ThreadsMedia) {
@@ -88,6 +91,77 @@ export function ThreadsAgentPage() {
         <div className="social-thread-card__meta">
           <code>{item.id}</code>
           {item.permalink ? <a href={item.permalink} target="_blank" rel="noreferrer">Open</a> : null}
+        </div>
+      </article>
+    );
+  }
+
+  function renderCampaignResult(item: ThreadsCampaignResult) {
+    const displayName = item.username ? `@${item.username}` : "Threads result";
+    return (
+      <article className="social-thread-card" key={`campaign-${item.id}`}>
+        <div className="social-thread-card__header">
+          <strong>{item.campaign_title || "Threads campaign"}</strong>
+          <span>{new Date(item.created_at).toLocaleString()}</span>
+        </div>
+        <div className="social-thread-card__meta">
+          <span>{displayName}</span>
+          <code>{item.search_query}</code>
+          <span>{item.review_status}</span>
+          {item.permalink ? <a href={item.permalink} target="_blank" rel="noreferrer">Open</a> : null}
+        </div>
+        <p>{item.media_text || "No post text returned for this result."}</p>
+        {item.suggested_reply ? (
+          <div className="social-thread-card__suggestion">
+            <strong>Suggested reply</strong>
+            <p>{item.suggested_reply}</p>
+          </div>
+        ) : null}
+        {item.suggested_post ? (
+          <div className="social-thread-card__suggestion">
+            <strong>Suggested post idea</strong>
+            <p>{item.suggested_post}</p>
+          </div>
+        ) : null}
+        {item.suggestion_reason ? <p className="social-muted">{item.suggestion_reason}</p> : null}
+        <div className="social-table-actions">
+          {item.suggested_post ? (
+            <button
+              type="button"
+              className="social-inline-button"
+              onClick={async () => {
+                await api.createSocialPost("threads", item.suggested_post || "");
+                await api.updateThreadsCampaignResult(item.id, { review_status: "drafted" });
+                await load();
+              }}
+            >
+              Draft post
+            </button>
+          ) : null}
+          {item.review_status !== "reviewed" ? (
+            <button
+              type="button"
+              className="social-inline-button"
+              onClick={async () => {
+                await api.updateThreadsCampaignResult(item.id, { review_status: "reviewed" });
+                await load();
+              }}
+            >
+              Mark reviewed
+            </button>
+          ) : null}
+          {item.review_status !== "dismissed" ? (
+            <button
+              type="button"
+              className="social-inline-button social-inline-button--danger"
+              onClick={async () => {
+                await api.updateThreadsCampaignResult(item.id, { review_status: "dismissed" });
+                await load();
+              }}
+            >
+              Dismiss
+            </button>
+          ) : null}
         </div>
       </article>
     );
@@ -182,6 +256,18 @@ export function ThreadsAgentPage() {
         repliesContent={
           <div className="threads-replies-tab stack">
             <div className="threads-results-list">
+              <div className="panel__title-row">
+                <h3>Campaign review queue</h3>
+              </div>
+              {campaignResults.map(renderCampaignResult)}
+              {campaignResults.length === 0 ? (
+                <p className="social-empty">No Threads campaign review results yet.</p>
+              ) : null}
+            </div>
+            <div className="threads-results-list">
+              <div className="panel__title-row">
+                <h3>Published / account replies</h3>
+              </div>
               {replyLookupError ? <p className="error">{replyLookupError}</p> : null}
               {replyLookupResults.map(renderThreadsResult)}
               {!replyLookupError && replyLookupResults.length === 0 ? (

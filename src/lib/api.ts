@@ -1,4 +1,4 @@
-import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialAccountInput, SocialPost, ThreadsMediaResponse } from "./types";
+import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialAccountInput, SocialPost, ThreadsCampaignResult, ThreadsMediaResponse } from "./types";
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -237,6 +237,18 @@ export const api = {
     request<ThreadsMediaResponse>(
       `/api/social/threads/replies${mediaId ? `?media_id=${encodeURIComponent(mediaId)}` : ""}`,
     ),
+  listThreadsCampaignResults: (campaignId?: number) =>
+    request<ThreadsCampaignResult[]>(
+      `/api/social/threads/campaign-results${campaignId ? `?campaign_id=${encodeURIComponent(String(campaignId))}` : ""}`,
+    ),
+  updateThreadsCampaignResult: (
+    id: number,
+    payload: Partial<Pick<ThreadsCampaignResult, "review_status" | "suggested_reply" | "suggested_post" | "suggestion_reason">>,
+  ) =>
+    request<{ success: boolean; updated_at: string }>(`/api/social/threads/campaign-results/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
   createThreadsReply: (reply_to_id: string, text: string) =>
     request<{ success: boolean; external_id: string; account_id: number }>("/api/social/threads/replies", {
       method: "POST",

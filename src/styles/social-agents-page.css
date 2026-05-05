@@ -735,6 +735,26 @@
   font-weight: 700;
 }
 
+.social-thread-card__suggestion {
+  background: rgba(42, 61, 102, 0.04);
+  border: 1px solid rgba(42, 61, 102, 0.08);
+  border-radius: 12px;
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+}
+
+.social-thread-card__suggestion strong {
+  color: var(--accent);
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.social-thread-card__suggestion p {
+  margin: 0;
+}
+
 @media (max-width: 960px) {
   .social-hero,
   .social-composer__footer {
