@@ -86,13 +86,112 @@ function buildDefaultCanonicalUrl(
 }
 
 async function handleInternalContext(env: Env) {
-  const [sites, categories, articles] = await Promise.all([
+  const [
+    sites,
+    categories,
+    articles,
+    strategiesResult,
+    plannerItemsResult,
+    tradingNotesResult,
+    redditCampaignsResult,
+    twitterAccountsResult,
+    threadsAccountsResult,
+    twitterPostsResult,
+    threadsPostsResult,
+    knowledgeBasesResult,
+  ] = await Promise.all([
     listSites(env),
     listCategories(env),
     listArticles(env),
+    env.DB.prepare(
+      `SELECT id, name, assets, strategy_type, execution_mode, status, updated_at
+       FROM trading_strategies
+       ORDER BY updated_at DESC
+       LIMIT 10`,
+    ).all(),
+    env.DB.prepare(
+      `SELECT id, title, platform, item_type, status, scheduled_for, updated_at
+       FROM planner_items
+       ORDER BY COALESCE(scheduled_for, updated_at) DESC
+       LIMIT 20`,
+    ).all(),
+    env.DB.prepare(
+      `SELECT id, title, note_type, updated_at
+       FROM trading_notes
+       ORDER BY updated_at DESC
+       LIMIT 20`,
+    ).all(),
+    env.DB.prepare(
+      `SELECT id, name, subreddit, status, updated_at
+       FROM reddit_campaigns
+       ORDER BY updated_at DESC
+       LIMIT 20`,
+    ).all(),
+    env.DB.prepare(
+      `SELECT id, username, status, created_at
+       FROM social_accounts
+       WHERE platform = 'twitter'
+       ORDER BY created_at DESC`,
+    ).all(),
+    env.DB.prepare(
+      `SELECT id, username, status, created_at
+       FROM social_accounts
+       WHERE platform = 'threads'
+       ORDER BY created_at DESC`,
+    ).all(),
+    env.DB.prepare(
+      `SELECT id, platform, content, status, scheduled_at, updated_at
+       FROM social_posts
+       WHERE platform = 'twitter'
+       ORDER BY updated_at DESC
+       LIMIT 20`,
+    ).all(),
+    env.DB.prepare(
+      `SELECT id, platform, content, status, scheduled_at, updated_at
+       FROM social_posts
+       WHERE platform = 'threads'
+       ORDER BY updated_at DESC
+       LIMIT 20`,
+    ).all(),
+    env.DB.prepare(
+      `SELECT id, entity_type, entity_id, title, version, updated_at
+       FROM knowledge_bases
+       ORDER BY updated_at DESC
+       LIMIT 20`,
+    ).all(),
   ]);
 
+  const parseStringArray = (value: unknown) => {
+    if (typeof value !== "string") return [];
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.map((entry) => String(entry)) : [];
+    } catch {
+      return [];
+    }
+  };
+
   return json({
+    scope: {
+      allowed: [
+        "sites",
+        "categories",
+        "articles",
+        "strategies",
+        "reddit_campaigns",
+        "planner_items",
+        "trading_notes",
+        "knowledge_bases",
+        "social_accounts",
+        "social_posts",
+        "media_uploads",
+      ],
+      blocked: [
+        "settings",
+        "api_connections",
+        "auth",
+      ],
+    },
     sites: sites.map((site) => ({
       id: site.id,
       name: site.name,
@@ -122,6 +221,27 @@ async function handleInternalContext(env: Env) {
       seo: article.seo,
       content_preview: article.content.slice(0, 1600),
     })),
+    strategies: (strategiesResult.results ?? []).map((strategy) => ({
+      id: strategy.id,
+      name: strategy.name,
+      assets: parseStringArray(strategy.assets),
+      strategy_type: strategy.strategy_type,
+      execution_mode: strategy.execution_mode,
+      status: strategy.status,
+      updated_at: strategy.updated_at,
+    })),
+    reddit_campaigns: redditCampaignsResult.results ?? [],
+    planner_items: plannerItemsResult.results ?? [],
+    trading_notes: tradingNotesResult.results ?? [],
+    knowledge_bases: knowledgeBasesResult.results ?? [],
+    social_accounts: {
+      twitter: twitterAccountsResult.results ?? [],
+      threads: threadsAccountsResult.results ?? [],
+    },
+    social_posts: {
+      twitter: twitterPostsResult.results ?? [],
+      threads: threadsPostsResult.results ?? [],
+    },
   });
 }
 
