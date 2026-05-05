@@ -210,6 +210,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  startThreadsOAuth: (payload: SocialAccountInput) =>
+    request<{ auth_url: string }>("/api/threads/auth/authorize", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   deleteThreadsAccount: (id: number) =>
     request<{ success: boolean }>(`/api/social/threads/accounts/${id}`, {
       method: "DELETE",

@@ -121,13 +121,21 @@ export function ThreadsAgentPage() {
           await api.addThreadsAccount(values);
           await load();
         }}
+        onConnectAccount={async (values) => {
+          const { auth_url } = await api.startThreadsOAuth(values);
+          window.location.href = auth_url;
+        }}
         onDeleteAccount={async (id) => {
           await api.deleteThreadsAccount(id);
           await load();
         }}
         knowledgeBaseContent={<KnowledgeBaseEditor type="social_platform" entityId={THREADS_KB_ID} />}
-        accountInputHint="Add each Threads profile with its Meta app, OAuth, and publishing details. The access token and user ID are used by the current publisher."
+        accountInputHint="Enter the app details from Meta, then connect with Threads. The dashboard will fetch the long-lived token and user ID for you."
         onCreateCampaign={() => setIsCampaignModalOpen(true)}
+        connectAccountLabel="Connect with Threads"
+        connectAccountRequiredFieldKeys={["username", "client_id", "client_secret", "redirect_uri", "scopes"]}
+        addAccountLabel="Save manual token"
+        addAccountRequiredFieldKeys={["username", "client_id", "client_secret", "redirect_uri", "scopes", "access_token", "user_id"]}
         accountFields={[
           {
             key: "username",
@@ -147,7 +155,8 @@ export function ThreadsAgentPage() {
           {
             key: "redirect_uri",
             label: "Redirect URI",
-            placeholder: "https://your-domain.com/api/threads/auth/callback",
+            placeholder: "https://dashboard.adilet-melisov.workers.dev/api/threads/auth/callback",
+            defaultValue: "https://dashboard.adilet-melisov.workers.dev/api/threads/auth/callback",
           },
           {
             key: "scopes",
@@ -159,10 +168,12 @@ export function ThreadsAgentPage() {
             key: "access_token",
             label: "Long-Lived Access Token",
             type: "password",
+            required: false,
           },
           {
             key: "user_id",
             label: "Threads User ID",
+            required: false,
           },
         ]}
         extraActions={<span className="social-hero__caption">Planner campaigns and queued posts stay aligned here.</span>}

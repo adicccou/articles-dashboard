@@ -39,8 +39,13 @@ type SocialPublisherWorkspaceProps = {
   onCreatePost: (scheduledAt: string | null) => Promise<void>;
   onDeletePost: (id: number) => Promise<void>;
   onAddAccount?: (values: SocialAccountPayload) => Promise<void>;
+  onConnectAccount?: (values: SocialAccountPayload) => Promise<void>;
   onDeleteAccount: (id: number) => Promise<void>;
   accountFields: SocialAccountField[];
+  addAccountLabel?: string;
+  addAccountRequiredFieldKeys?: string[];
+  connectAccountLabel?: string;
+  connectAccountRequiredFieldKeys?: string[];
   knowledgeBaseContent?: React.ReactNode;
   accountInputHint?: string;
   onCreateCampaign?: () => void;
@@ -96,8 +101,13 @@ export function SocialPublisherWorkspace({
   onCreatePost,
   onDeletePost,
   onAddAccount,
+  onConnectAccount,
   onDeleteAccount,
   accountFields,
+  addAccountLabel = "Add account",
+  addAccountRequiredFieldKeys,
+  connectAccountLabel,
+  connectAccountRequiredFieldKeys,
   knowledgeBaseContent,
   accountInputHint = "Add another account with the credentials this platform requires.",
   onCreateCampaign,
@@ -121,9 +131,16 @@ export function SocialPublisherWorkspace({
     ...(knowledgeBaseContent ? [{ id: "knowledge" as const, label: "Knowledge Base" }] : []),
     { id: "accounts", label: "Accounts" },
   ];
-  const requiredAccountFields = accountFields.filter((field) => field.required !== false);
   const valueForField = (field: SocialAccountField) => accountInput[field.key] ?? field.defaultValue ?? "";
-  const isAccountFormComplete = requiredAccountFields.every((field) => valueForField(field).trim());
+  const fieldsByKey = new Map(accountFields.map((field) => [field.key, field]));
+  const hasValuesForKeys = (keys: string[]) => keys.every((key) => {
+    const field = fieldsByKey.get(key);
+    return field ? valueForField(field).trim() : accountInput[key]?.trim();
+  });
+  const requiredAccountFieldKeys = addAccountRequiredFieldKeys ?? accountFields.filter((field) => field.required !== false).map((field) => field.key);
+  const requiredConnectFieldKeys = connectAccountRequiredFieldKeys ?? requiredAccountFieldKeys;
+  const isAccountFormComplete = hasValuesForKeys(requiredAccountFieldKeys);
+  const isConnectFormComplete = hasValuesForKeys(requiredConnectFieldKeys);
 
   const minSchedule = toDateTimeLocalValue(new Date());
 
@@ -424,33 +441,63 @@ export function SocialPublisherWorkspace({
                       ))}
                     </div>
                     <div className="social-account-adder__actions">
-                      <button
-                        type="button"
-                        disabled={!isAccountFormComplete || addingAccount}
-                        onClick={async () => {
-                          setAddingAccount(true);
-                          setAccountError(null);
-                          try {
-                            const values = Object.fromEntries(
-                              accountFields.map((field) => {
-                                const value = valueForField(field);
-                                return [
-                                  field.key,
-                                  field.key === "username" ? value.trim().replace(/^@+/, "") : value.trim(),
-                                ];
-                              }),
-                            );
-                            await onAddAccount(values);
-                            setAccountInput({});
-                          } catch (error) {
-                            setAccountError(error instanceof Error ? error.message : "Failed to add account");
-                          } finally {
-                            setAddingAccount(false);
-                          }
-                        }}
-                      >
-                        {addingAccount ? "Adding..." : "Add account"}
-                      </button>
+                      {onConnectAccount && connectAccountLabel ? (
+                        <button
+                          type="button"
+                          disabled={!isConnectFormComplete || addingAccount}
+                          onClick={async () => {
+                            setAddingAccount(true);
+                            setAccountError(null);
+                            try {
+                              const values = Object.fromEntries(
+                                accountFields.map((field) => {
+                                  const value = valueForField(field);
+                                  return [
+                                    field.key,
+                                    field.key === "username" ? value.trim().replace(/^@+/, "") : value.trim(),
+                                  ];
+                                }),
+                              );
+                              await onConnectAccount(values);
+                            } catch (error) {
+                              setAccountError(error instanceof Error ? error.message : "Failed to connect account");
+                              setAddingAccount(false);
+                            }
+                          }}
+                        >
+                          {addingAccount ? "Connecting..." : connectAccountLabel}
+                        </button>
+                      ) : null}
+                      {onAddAccount ? (
+                        <button
+                          className={onConnectAccount ? "button-secondary" : undefined}
+                          type="button"
+                          disabled={!isAccountFormComplete || addingAccount}
+                          onClick={async () => {
+                            setAddingAccount(true);
+                            setAccountError(null);
+                            try {
+                              const values = Object.fromEntries(
+                                accountFields.map((field) => {
+                                  const value = valueForField(field);
+                                  return [
+                                    field.key,
+                                    field.key === "username" ? value.trim().replace(/^@+/, "") : value.trim(),
+                                  ];
+                                }),
+                              );
+                              await onAddAccount(values);
+                              setAccountInput({});
+                            } catch (error) {
+                              setAccountError(error instanceof Error ? error.message : "Failed to add account");
+                            } finally {
+                              setAddingAccount(false);
+                            }
+                          }}
+                        >
+                          {addingAccount ? "Adding..." : addAccountLabel}
+                        </button>
+                      ) : null}
                     </div>
                     {accountError ? <p className="social-account-adder__error">{accountError}</p> : null}
                   </div>

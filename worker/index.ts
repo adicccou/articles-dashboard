@@ -31,6 +31,8 @@ import {
   listThreadsAccounts,
   addThreadsAccount,
   deleteThreadsAccount,
+  authorizeThreadsAccount,
+  handleThreadsOAuthCallback,
 } from "./handlers/threads";
 
 function withCors(response: Response): Response {
@@ -867,6 +869,16 @@ export default {
     }
 
     // Threads accounts
+    if (url.pathname === "/api/threads/auth/authorize" && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await authorizeThreadsAccount(env, request);
+    }
+
+    if (url.pathname === "/api/threads/auth/callback" && request.method === "GET") {
+      return await handleThreadsOAuthCallback(env, url);
+    }
+
     if (url.pathname === "/api/social/threads/accounts" && request.method === "GET") {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
