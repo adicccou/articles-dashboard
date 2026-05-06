@@ -11,8 +11,16 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Request failed with ${response.status}`);
+    const raw = await response.text();
+    if (raw) {
+      let parsedMessage: string | null = null;
+      try {
+        const parsed = JSON.parse(raw) as { error?: string; message?: string };
+        parsedMessage = parsed.error || parsed.message || null;
+      } catch {}
+      throw new Error(parsedMessage || raw || `Request failed with ${response.status}`);
+    }
+    throw new Error(`Request failed with ${response.status}`);
   }
 
   if (response.status === 204) {
@@ -187,7 +195,7 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   deleteSocialPost: (id: number) =>
-    request<{ success: boolean }>(`/api/social/posts/${id}`, {
+    request<{ success: boolean; external_deleted?: boolean; dashboard_only?: boolean; platform?: string }>(`/api/social/posts/${id}`, {
       method: "DELETE",
     }),
   publishSocialPost: (id: number) =>

@@ -5,6 +5,7 @@ import { KnowledgeBaseEditor } from "../components/KnowledgeBaseEditor";
 import { SocialPlannerItemModal } from "../components/SocialPlannerItemModal";
 import { SocialCampaignModal } from "../components/SocialCampaignModal";
 import { asArray } from "../lib/collections";
+import { getPostImageUrls } from "../lib/socialPostMedia";
 
 type ContentMode = "posts" | "campaigns";
 type SetupTab = "overview" | "knowledge" | "accounts";
@@ -56,6 +57,34 @@ export function RedditAgentPage() {
   );
   const redditReplyCount = 0;
   const editingCampaign = editingId ? campaigns.find((campaign) => campaign.id === editingId) : undefined;
+  const confirmDeleteCampaign = (name: string) =>
+    window.confirm(`Delete the Reddit campaign "${name}"? This cannot be undone.`);
+
+  function renderPlannerPostMedia(item: PlannerItem) {
+    const imageUrls = getPostImageUrls(item.image_url);
+    if (imageUrls.length === 0) {
+      return (
+        <div className="social-post-media social-post-media--placeholder" aria-label="No image attached">
+          <span className="social-post-placeholder-icon" aria-hidden="true">🖼</span>
+          <span>No image</span>
+        </div>
+      );
+    }
+
+    return (
+      <div className={`social-post-media-grid ${imageUrls.length === 1 ? "social-post-media-grid--single" : ""}`}>
+        {imageUrls.map((url, index) => (
+          <img
+            key={`${url}-${index}`}
+            className="social-post-image"
+            src={url}
+            alt={imageUrls.length === 1 ? `${item.title || "Reddit post"} image` : `${item.title || "Reddit post"} image ${index + 1}`}
+            loading="lazy"
+          />
+        ))}
+      </div>
+    );
+  }
 
   async function connectRedditAccount() {
     if (!accountName.trim()) {
@@ -178,9 +207,12 @@ export function RedditAgentPage() {
               </div>
               {redditPosts.map((item) => (
                 <div className="table__row" key={item.id}>
-                  <span>
-                    {item.title}
-                    {item.description ? <small>{item.description}</small> : null}
+                  <span className="social-content-preview">
+                    {renderPlannerPostMedia(item)}
+                    <span className="social-content-preview__body">
+                      <span className="social-content-preview__text">{item.title}</span>
+                      {item.description ? <small className="social-content-preview__meta">{item.description}</small> : null}
+                    </span>
                   </span>
                   <span>
                     <span className="social-status-pill social-status-pill--neutral">{item.status}</span>
@@ -244,6 +276,7 @@ export function RedditAgentPage() {
                   </button>
                   <button
                     onClick={async () => {
+                      if (!confirmDeleteCampaign(campaign.name)) return;
                       await api.deleteCampaign(campaign.id);
                       await load();
                     }}

@@ -340,6 +340,7 @@ export type PlannerItem = {
   id: number;
   title: string;
   description?: string | null;
+  image_url?: string | null;
   item_type: "post" | "campaign";
   platform: string;
   status: "planned" | "drafting" | "approved" | "published" | "archived";

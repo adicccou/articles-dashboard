@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { SocialAccount, SocialPost, PlannerItem } from "../lib/types";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
-import { SocialPublisherWorkspace } from "../components/SocialPublisherWorkspace";
+import { SocialPublisherWorkspace, type SocialWorkspaceFeedback } from "../components/SocialPublisherWorkspace";
 import { KnowledgeBaseEditor } from "../components/KnowledgeBaseEditor";
 import { SocialCampaignModal } from "../components/SocialCampaignModal";
 
@@ -18,6 +18,7 @@ export function TwitterAgentPage() {
   const [editingCampaignId, setEditingCampaignId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<SocialWorkspaceFeedback | null>(null);
 
   async function load() {
     try {
@@ -51,6 +52,8 @@ export function TwitterAgentPage() {
     ...posts.map((post) => post.scheduled_at).filter((value): value is string => Boolean(value)),
   ];
   const editingCampaign = editingCampaignId ? campaigns.find((item) => item.id === editingCampaignId) ?? null : null;
+  const confirmDeleteCampaign = (title: string) =>
+    window.confirm(`Delete the X campaign "${title}"? This cannot be undone.`);
 
   return (
     <>
@@ -70,6 +73,7 @@ export function TwitterAgentPage() {
         loading={loading}
         posts={posts}
         accounts={accounts}
+        feedback={feedback}
         campaignContent={
           campaigns.length === 0 ? (
             <div className="social-empty-card">
@@ -125,6 +129,7 @@ export function TwitterAgentPage() {
                       type="button"
                       className="social-inline-button social-inline-button--danger"
                       onClick={async () => {
+                        if (!confirmDeleteCampaign(item.title)) return;
                         await api.deletePlannerItem(item.id);
                         await load();
                       }}
@@ -143,6 +148,7 @@ export function TwitterAgentPage() {
         onReload={load}
         onQueueChange={setNewPost}
         onCreatePost={async (scheduledAt) => {
+          setFeedback(null);
           setAdding(true);
           try {
             const content = newPost.trim();
@@ -166,18 +172,39 @@ export function TwitterAgentPage() {
           }
         }}
         onDeletePost={async (id) => {
-          await api.deleteSocialPost(id);
-          await load();
+          setFeedback(null);
+          try {
+            const result = await api.deleteSocialPost(id);
+            await load();
+            setError(null);
+            setFeedback(
+              result.external_deleted
+                ? {
+                    tone: "success",
+                    title: "Deleted from X and removed from the dashboard.",
+                  }
+                : {
+                    tone: "success",
+                    title: "Deleted from the dashboard.",
+                    detail: "This post was removed locally because it had not been published on X yet.",
+                  },
+            );
+          } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to delete post");
+          }
         }}
         onPublishPost={async (id) => {
+          setFeedback(null);
           await api.publishSocialPost(id);
           await load();
         }}
         onAddAccount={async (values) => {
+          setFeedback(null);
           await api.addTwitterAccount(values);
           await load();
         }}
         onDeleteAccount={async (id) => {
+          setFeedback(null);
           await api.deleteTwitterAccount(id);
           await load();
         }}

@@ -16,6 +16,13 @@ type TwitterCredentials = {
   accessSecret: string;
 };
 
+type SocialPostRow = {
+  id: number;
+  platform: string;
+  status: string;
+  external_id: string | null;
+};
+
 async function upsertSetting(env: Env, key: string, value: string, updatedAt: string): Promise<void> {
   await env.DB.prepare(
     `INSERT INTO app_settings (key, value, updated_at)
@@ -119,6 +126,33 @@ async function getTwitterCredentials(env: Env): Promise<TwitterCredentials | nul
   return Object.values(credentials).every(Boolean) ? credentials : null;
 }
 
+async function deleteTwitterPostExternally(env: Env, externalId: string): Promise<void> {
+  const credentials = await getTwitterCredentials(env);
+  if (!credentials) throw new Error("No active Twitter/X account with API credentials was found.");
+
+  const endpoint = `https://api.twitter.com/2/tweets/${encodeURIComponent(externalId)}`;
+  const response = await fetch(endpoint, {
+    method: "DELETE",
+    headers: {
+      Authorization: await buildTwitterOAuthHeader("DELETE", endpoint, credentials),
+    },
+  });
+  const payload = await response.json() as {
+    data?: { deleted?: boolean };
+    detail?: string;
+    title?: string;
+    errors?: Array<{ message?: string }>;
+  };
+
+  if (!response.ok || payload.data?.deleted !== true) {
+    const message = payload.detail
+      || payload.title
+      || payload.errors?.map((error) => error.message).filter(Boolean).join("; ")
+      || "Twitter/X delete failed";
+    throw new Error(message);
+  }
+}
+
 // ------------------------------------------------------------------ social posts
 
 export async function listSocialPosts(env: Env, platform: string): Promise<Response> {
@@ -199,10 +233,33 @@ export async function deleteSocialPost(env: Env, postId: string): Promise<Respon
   try {
     const id = Number(postId);
     if (isNaN(id)) return errorResponse("Invalid post ID", 400);
+    const post = await env.DB.prepare(
+      "SELECT id, platform, status, external_id FROM social_posts WHERE id = ?",
+    )
+      .bind(id)
+      .first<SocialPostRow>();
+    if (!post) return errorResponse("Post not found", 404);
+
+    const externalId = post.external_id?.trim() || "";
+    const isPublished = post.status === "posted";
+
+    if (isPublished && externalId) {
+      if (post.platform === "twitter") {
+        await deleteTwitterPostExternally(env, externalId);
+      }
+    }
+
+    await env.DB.prepare("DELETE FROM planner_items WHERE social_post_id = ?").bind(id).run();
     await env.DB.prepare("DELETE FROM social_posts WHERE id = ?").bind(id).run();
-    return jsonResponse({ success: true });
-  } catch {
-    return errorResponse("Failed to delete post", 500);
+    const dashboardOnly = isPublished && Boolean(externalId) && post.platform === "threads";
+    return jsonResponse({
+      success: true,
+      external_deleted: isPublished && Boolean(externalId) && post.platform === "twitter",
+      dashboard_only: dashboardOnly,
+      platform: post.platform,
+    });
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Failed to delete post", 500);
   }
 }
 

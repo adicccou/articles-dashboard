@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SocialAccount, SocialPost } from "../lib/types";
+import { getPostImageUrls } from "../lib/socialPostMedia";
 
 type Tab = "posts" | "campaigns" | "replies";
 type SetupTab = "overview" | "knowledge" | "accounts";
@@ -14,6 +15,12 @@ export type SocialAccountField = {
 };
 
 export type SocialAccountPayload = Record<string, string>;
+
+export type SocialWorkspaceFeedback = {
+  tone: "success" | "warning";
+  title: string;
+  detail?: string;
+};
 
 type SocialPublisherWorkspaceProps = {
   icon: string;
@@ -37,6 +44,7 @@ type SocialPublisherWorkspaceProps = {
   newPost: string;
   adding: boolean;
   error: string | null;
+  feedback?: SocialWorkspaceFeedback | null;
   onReload: () => Promise<void>;
   onQueueChange: (value: string) => void;
   onCreatePost: (scheduledAt: string | null) => Promise<void>;
@@ -129,6 +137,32 @@ function chooseAutoSchedule(existingSlots: string[]) {
   fallback.setDate(fallback.getDate() + 1);
   fallback.setHours(AUTO_SCHEDULE_HOURS[0], 0, 0, 0);
   return fallback.toISOString();
+}
+
+function renderPostMedia(imageUrl: string | null | undefined, content: string) {
+  const imageUrls = getPostImageUrls(imageUrl);
+  if (imageUrls.length === 0) {
+    return (
+      <div className="social-post-media social-post-media--placeholder" aria-label="No image attached">
+        <span className="social-post-placeholder-icon" aria-hidden="true">🖼</span>
+        <span>No image</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`social-post-media-grid ${imageUrls.length === 1 ? "social-post-media-grid--single" : ""}`}>
+      {imageUrls.map((url, index) => (
+        <img
+          key={`${url}-${index}`}
+          className="social-post-image"
+          src={url}
+          alt={imageUrls.length === 1 ? `${content || "Social post"} image` : `${content || "Social post"} image ${index + 1}`}
+          loading="lazy"
+        />
+      ))}
+    </div>
+  );
 }
 
 type SocialPostComposerModalProps = {
@@ -280,6 +314,7 @@ export function SocialPublisherWorkspace({
   newPost,
   adding,
   error,
+  feedback,
   onReload,
   onQueueChange,
   onCreatePost,
@@ -342,6 +377,15 @@ export function SocialPublisherWorkspace({
   return (
     <div className="social-workspace stack">
       {error ? <p className="error panel">{error}</p> : null}
+      {feedback ? (
+        <div className={`panel social-status-banner social-status-banner--${feedback.tone === "success" ? "connected" : "warning"}`}>
+          <span className="social-status-banner__dot" aria-hidden="true" />
+          <div>
+            <strong>{feedback.title}</strong>
+            {feedback.detail ? <p>{feedback.detail}</p> : null}
+          </div>
+        </div>
+      ) : null}
 
       <section className="panel social-hero">
         <div className="social-hero__content">
@@ -430,10 +474,8 @@ export function SocialPublisherWorkspace({
                 {posts.map((post) => (
                   <div className="table__row" key={post.id}>
                     <span className="social-content-preview">
-                      {post.image_url ? (
-                        <img className="social-post-image" src={post.image_url} alt="" loading="lazy" />
-                      ) : null}
-                      <span>{post.content}</span>
+                      {renderPostMedia(post.image_url, post.content)}
+                      <span className="social-content-preview__text">{post.content}</span>
                     </span>
                     <span>
                       <span className={`social-status-pill social-status-pill--${statusTone(post.status)}`}>{post.status}</span>

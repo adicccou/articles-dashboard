@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { SocialAccount, SocialPost, PlannerItem, ThreadsCampaignResult, ThreadsMedia } from "../lib/types";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
-import { SocialPublisherWorkspace } from "../components/SocialPublisherWorkspace";
+import { SocialPublisherWorkspace, type SocialWorkspaceFeedback } from "../components/SocialPublisherWorkspace";
 import { KnowledgeBaseEditor } from "../components/KnowledgeBaseEditor";
 import { SocialCampaignModal } from "../components/SocialCampaignModal";
 
@@ -28,6 +28,7 @@ export function ThreadsAgentPage() {
   const [replyLookupError, setReplyLookupError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<SocialWorkspaceFeedback | null>(null);
 
   async function load() {
     try {
@@ -78,6 +79,8 @@ export function ThreadsAgentPage() {
   ];
   const replyCount = campaignResults.filter((item) => item.review_status === "new").length || replyLookupResults.length;
   const editingCampaign = editingCampaignId ? campaigns.find((item) => item.id === editingCampaignId) ?? null : null;
+  const confirmDeleteCampaign = (title: string) =>
+    window.confirm(`Delete the Threads campaign "${title}"? This cannot be undone.`);
 
   function renderThreadsResult(item: ThreadsMedia) {
     const displayName = item.username ? `@${item.username}` : "Threads post";
@@ -185,6 +188,7 @@ export function ThreadsAgentPage() {
         loading={loading}
         posts={posts}
         accounts={accounts}
+        feedback={feedback}
         campaignContent={
           campaigns.length === 0 ? (
             <div className="social-empty-card">
@@ -213,10 +217,7 @@ export function ThreadsAgentPage() {
               </div>
               {campaigns.map((item) => (
                 <div className="table__row" key={item.id}>
-                  <span>
-                    {item.title}
-                    {item.instruction ? <small>{item.instruction}</small> : null}
-                  </span>
+                  <span>{item.title}</span>
                   <span className="social-muted">
                     {accounts.find((account) => account.id === item.account_id)?.username || "—"}
                   </span>
@@ -240,6 +241,7 @@ export function ThreadsAgentPage() {
                       type="button"
                       className="social-inline-button social-inline-button--danger"
                       onClick={async () => {
+                        if (!confirmDeleteCampaign(item.title)) return;
                         await api.deletePlannerItem(item.id);
                         await load();
                       }}
@@ -282,6 +284,7 @@ export function ThreadsAgentPage() {
         onReload={load}
         onQueueChange={setNewPost}
         onCreatePost={async (scheduledAt) => {
+          setFeedback(null);
           setAdding(true);
           try {
             const content = newPost.trim();
@@ -305,22 +308,45 @@ export function ThreadsAgentPage() {
           }
         }}
         onDeletePost={async (id) => {
-          await api.deleteSocialPost(id);
-          await load();
+          setFeedback(null);
+          try {
+            const result = await api.deleteSocialPost(id);
+            await load();
+            setError(null);
+            setFeedback(
+              result.dashboard_only
+                ? {
+                    tone: "success",
+                    title: "Removed from the dashboard.",
+                    detail: "This only cleared the local dashboard record. Use this after deleting the post in Threads, or when you want to remove a stale entry here.",
+                  }
+                : {
+                    tone: "success",
+                    title: "Deleted from the dashboard.",
+                    detail: "This Threads post had not been published yet, so it was fully removed locally.",
+                  },
+            );
+          } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to delete post");
+          }
         }}
         onPublishPost={async (id) => {
+          setFeedback(null);
           await api.publishThreadsPost(id);
           await load();
         }}
         onAddAccount={async (values) => {
+          setFeedback(null);
           await api.addThreadsAccount(values);
           await load();
         }}
         onConnectAccount={async (values) => {
+          setFeedback(null);
           const { auth_url } = await api.startThreadsOAuth(values);
           window.location.href = auth_url;
         }}
         onDeleteAccount={async (id) => {
+          setFeedback(null);
           await api.deleteThreadsAccount(id);
           await load();
         }}
