@@ -689,6 +689,12 @@ export default {
       return await searchThreads(env, url);
     }
 
+    if (url.pathname === "/api/internal/social/threads/accounts" && request.method === "GET") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await listThreadsAccounts(env);
+    }
+
     if (url.pathname === "/api/internal/social/threads/replies" && request.method === "GET") {
       const unauthorized = await requireAgentAuth(request, env);
       if (unauthorized) return unauthorized;

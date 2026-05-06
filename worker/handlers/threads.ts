@@ -80,11 +80,13 @@ async function readSetting(env: Env, key: string): Promise<string> {
 }
 
 async function getThreadsCredentials(env: Env, requestedAccountId?: number): Promise<ThreadsCredentials | null> {
-  const account = requestedAccountId
+  const requestedAccount = requestedAccountId
     ? await env.DB.prepare("SELECT id FROM social_accounts WHERE id = ? AND platform = 'threads' AND status = 'active'")
       .bind(requestedAccountId)
       .first<{ id: number }>()
-    : await env.DB.prepare(
+    : null;
+
+  const account = requestedAccount ?? await env.DB.prepare(
       "SELECT id FROM social_accounts WHERE platform = 'threads' AND status = 'active' ORDER BY updated_at DESC, id DESC LIMIT 1",
     ).first<{ id: number }>();
 
@@ -333,23 +335,57 @@ export async function searchThreads(env: Env, url: URL): Promise<Response> {
   try {
     const q = url.searchParams.get("q")?.trim();
     if (!q) return errorResponse("Search query is required", 400);
-    const credentials = await getThreadsCredentials(env);
+    const requestedAccountId = Number(url.searchParams.get("account_id") || 0) || undefined;
+    const credentials = await getThreadsCredentials(env, requestedAccountId);
     if (!credentials) return errorResponse("No active Threads account with access token was found.", 400);
+    const baseParams = {
+      q,
+      search_type: url.searchParams.get("search_type") || "TOP",
+      search_mode: url.searchParams.get("search_mode") || "KEYWORD",
+      fields: "id,permalink,username,text,timestamp,media_type,has_replies,is_quote_post",
+      limit: url.searchParams.get("limit") || "20",
+    };
 
-    const searchUrl = new URL(`${THREADS_GRAPH_BASE}/keyword_search`);
-    searchUrl.searchParams.set("q", q);
-    searchUrl.searchParams.set("search_type", url.searchParams.get("search_type") || "TOP");
-    searchUrl.searchParams.set("search_mode", url.searchParams.get("search_mode") || "KEYWORD");
-    searchUrl.searchParams.set("fields", THREADS_MEDIA_FIELDS);
-    searchUrl.searchParams.set("limit", url.searchParams.get("limit") || "20");
-    searchUrl.searchParams.set("access_token", credentials.accessToken);
+    const withQueryToken = new URL(`${THREADS_GRAPH_BASE}/keyword_search`);
+    Object.entries(baseParams).forEach(([key, value]) => withQueryToken.searchParams.set(key, value));
+    withQueryToken.searchParams.set("access_token", credentials.accessToken);
 
-    const response = await fetch(searchUrl.toString());
-    const payload = await response.json();
-    if (!response.ok) {
-      return errorResponse(getGraphErrorMessage(payload, "Threads search failed"), response.status);
+    const withBearer = new URL(`${THREADS_GRAPH_BASE}/keyword_search`);
+    Object.entries(baseParams).forEach(([key, value]) => withBearer.searchParams.set(key, value));
+
+    const [bearerResponse, queryTokenResponse] = await Promise.all([
+      fetch(withBearer.toString(), {
+        headers: {
+          Authorization: `Bearer ${credentials.accessToken}`,
+        },
+      }),
+      fetch(withQueryToken.toString()),
+    ]);
+
+    const bearerPayload = await bearerResponse.json();
+    const bearerData = Array.isArray((bearerPayload as { data?: unknown[] }).data)
+      ? (bearerPayload as { data: unknown[] }).data
+      : [];
+    if (bearerResponse.ok && bearerData.length > 0) {
+      return jsonResponse(bearerPayload);
     }
-    return jsonResponse(payload);
+
+    const queryTokenPayload = await queryTokenResponse.json();
+    const queryTokenData = Array.isArray((queryTokenPayload as { data?: unknown[] }).data)
+      ? (queryTokenPayload as { data: unknown[] }).data
+      : [];
+    if (queryTokenResponse.ok && queryTokenData.length > 0) {
+      return jsonResponse(queryTokenPayload);
+    }
+
+    if (!bearerResponse.ok) {
+      return errorResponse(getGraphErrorMessage(bearerPayload, "Threads search failed"), bearerResponse.status);
+    }
+    if (!queryTokenResponse.ok) {
+      return errorResponse(getGraphErrorMessage(queryTokenPayload, "Threads search failed"), queryTokenResponse.status);
+    }
+
+    return jsonResponse({ data: [] });
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Failed to search Threads", 500);
   }
