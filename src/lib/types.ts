@@ -143,7 +143,7 @@ export type RedditReplyDraft = {
 
 export type KnowledgeBase = {
   id?: number | null;
-  entity_type?: "reddit_campaign" | "trading_strategy" | "social_platform";
+  entity_type?: "reddit_campaign" | "trading_strategy" | "social_platform" | "global";
   entity_id?: number;
   title: string;
   content: string;
@@ -344,6 +344,7 @@ export type PlannerItem = {
   platform: string;
   status: "planned" | "drafting" | "approved" | "published" | "archived";
   scheduled_for?: string | null;
+  social_post_id?: number | null;
   account_id?: number | null;
   instruction?: string | null;
   interval_minutes?: number | null;
@@ -375,6 +376,7 @@ export type PlannerItemInput = {
   platform: string;
   status?: "planned" | "drafting" | "approved" | "published" | "archived";
   scheduled_for?: string | null;
+  social_post_id?: number | null;
   account_id?: number | null;
   instruction?: string | null;
   interval_minutes?: number | null;

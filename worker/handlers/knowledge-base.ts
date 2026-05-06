@@ -7,7 +7,7 @@ interface SaveKBPayload {
   change_summary?: string;
 }
 
-const allowedKnowledgeBaseTypes = ["reddit_campaign", "trading_strategy", "social_platform"];
+const allowedKnowledgeBaseTypes = ["reddit_campaign", "trading_strategy", "social_platform", "global"];
 
 export async function getKnowledgeBase(
   env: Env,

@@ -8,6 +8,7 @@ interface PlannerItemPayload {
   platform: string;
   status?: "planned" | "drafting" | "approved" | "published" | "archived";
   scheduled_for?: string | null;
+  social_post_id?: number | null;
   account_id?: number | null;
   instruction?: string | null;
   interval_minutes?: number | null;
@@ -23,8 +24,18 @@ interface TradingNotePayload {
   note_type?: "analysis" | "idea" | "review" | "risk";
 }
 
+export async function plannerHasSocialPostLinks(env: Env): Promise<boolean> {
+  try {
+    const columns = await env.DB.prepare("PRAGMA table_info(planner_items)").all<{ name: string }>();
+    return (columns.results ?? []).some((column) => column.name === "social_post_id");
+  } catch {
+    return false;
+  }
+}
+
 export async function listPlannerItems(env: Env): Promise<Response> {
   try {
+    const hasSocialPostLinks = await plannerHasSocialPostLinks(env);
     const items = await env.DB.prepare(
       `
         SELECT
@@ -35,6 +46,7 @@ export async function listPlannerItems(env: Env): Promise<Response> {
           pi.platform,
           pi.status,
           pi.scheduled_for,
+          ${hasSocialPostLinks ? "pi.social_post_id" : "NULL AS social_post_id"},
           pi.account_id,
           pi.instruction,
           pi.interval_minutes,
@@ -68,8 +80,52 @@ export async function createPlannerItem(env: Env, request: Request): Promise<Res
     }
 
     const now = new Date().toISOString();
-    const item = await env.DB.prepare(
-      `
+    const hasSocialPostLinks = await plannerHasSocialPostLinks(env);
+    const item = hasSocialPostLinks
+      ? await env.DB.prepare(
+        `
+        INSERT INTO planner_items (
+          title,
+          description,
+          item_type,
+          platform,
+          status,
+          scheduled_for,
+          social_post_id,
+          account_id,
+          instruction,
+          interval_minutes,
+          duration_start,
+          duration_end,
+          related_strategy_id,
+          created_by,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?)
+        RETURNING id, title, description, item_type, platform, status, scheduled_for, social_post_id, account_id, instruction, interval_minutes, duration_start, duration_end, related_strategy_id, created_by, created_at, updated_at
+      `,
+      )
+        .bind(
+          payload.title.trim(),
+          payload.description?.trim() || null,
+          payload.item_type ?? "post",
+          payload.platform.trim(),
+          payload.status ?? "planned",
+          payload.scheduled_for ?? null,
+          payload.social_post_id ?? null,
+          payload.account_id ?? null,
+          payload.instruction?.trim() || null,
+          payload.interval_minutes ?? null,
+          payload.duration_start ?? null,
+          payload.duration_end ?? null,
+          payload.related_strategy_id ?? null,
+          now,
+          now,
+        )
+        .first()
+      : await env.DB.prepare(
+        `
         INSERT INTO planner_items (
           title,
           description,
@@ -88,26 +144,26 @@ export async function createPlannerItem(env: Env, request: Request): Promise<Res
           updated_at
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?)
-        RETURNING id, title, description, item_type, platform, status, scheduled_for, account_id, instruction, interval_minutes, duration_start, duration_end, related_strategy_id, created_by, created_at, updated_at
+        RETURNING id, title, description, item_type, platform, status, scheduled_for, NULL AS social_post_id, account_id, instruction, interval_minutes, duration_start, duration_end, related_strategy_id, created_by, created_at, updated_at
       `,
-    )
-      .bind(
-        payload.title.trim(),
-        payload.description?.trim() || null,
-        payload.item_type ?? "post",
-        payload.platform.trim(),
-        payload.status ?? "planned",
-        payload.scheduled_for ?? null,
-        payload.account_id ?? null,
-        payload.instruction?.trim() || null,
-        payload.interval_minutes ?? null,
-        payload.duration_start ?? null,
-        payload.duration_end ?? null,
-        payload.related_strategy_id ?? null,
-        now,
-        now,
       )
-      .first();
+        .bind(
+          payload.title.trim(),
+          payload.description?.trim() || null,
+          payload.item_type ?? "post",
+          payload.platform.trim(),
+          payload.status ?? "planned",
+          payload.scheduled_for ?? null,
+          payload.account_id ?? null,
+          payload.instruction?.trim() || null,
+          payload.interval_minutes ?? null,
+          payload.duration_start ?? null,
+          payload.duration_end ?? null,
+          payload.related_strategy_id ?? null,
+          now,
+          now,
+        )
+        .first();
 
     return jsonResponse(item, { status: 201 });
   } catch {
@@ -129,6 +185,7 @@ export async function updatePlannerItem(
     const payload = await parseJson<Partial<PlannerItemPayload>>(request);
     const updates: string[] = [];
     const values: unknown[] = [];
+    const hasSocialPostLinks = await plannerHasSocialPostLinks(env);
 
     if (payload.title !== undefined) {
       updates.push("title = ?");
@@ -153,6 +210,10 @@ export async function updatePlannerItem(
     if (payload.scheduled_for !== undefined) {
       updates.push("scheduled_for = ?");
       values.push(payload.scheduled_for);
+    }
+    if (payload.social_post_id !== undefined && hasSocialPostLinks) {
+      updates.push("social_post_id = ?");
+      values.push(payload.social_post_id);
     }
     if (payload.account_id !== undefined) {
       updates.push("account_id = ?");

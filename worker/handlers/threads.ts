@@ -300,6 +300,35 @@ export async function publishThreadsPost(env: Env, postId: string): Promise<Resp
   }
 }
 
+export async function fetchThreadsRepliesData(
+  env: Env,
+  options?: {
+    mediaId?: string | null;
+    reverse?: string | null;
+    limit?: string | null;
+  },
+): Promise<Array<Record<string, unknown>>> {
+  const credentials = await getThreadsCredentials(env);
+  if (!credentials) return [];
+
+  const mediaId = options?.mediaId?.trim();
+  const endpoint = mediaId
+    ? `${THREADS_GRAPH_BASE}/${mediaId}/conversation`
+    : `${THREADS_GRAPH_BASE}/me/replies`;
+  const repliesUrl = new URL(endpoint);
+  repliesUrl.searchParams.set("fields", THREADS_MEDIA_FIELDS);
+  repliesUrl.searchParams.set("reverse", options?.reverse || "false");
+  repliesUrl.searchParams.set("limit", options?.limit || "20");
+  repliesUrl.searchParams.set("access_token", credentials.accessToken);
+
+  const response = await fetch(repliesUrl.toString());
+  const payload = await response.json() as { data?: Array<Record<string, unknown>> } & ThreadsGraphError;
+  if (!response.ok) {
+    throw new Error(getGraphErrorMessage(payload, "Threads replies lookup failed"));
+  }
+  return Array.isArray(payload.data) ? payload.data : [];
+}
+
 export async function searchThreads(env: Env, url: URL): Promise<Response> {
   try {
     const q = url.searchParams.get("q")?.trim();
@@ -328,25 +357,12 @@ export async function searchThreads(env: Env, url: URL): Promise<Response> {
 
 export async function listThreadsReplies(env: Env, url: URL): Promise<Response> {
   try {
-    const credentials = await getThreadsCredentials(env);
-    if (!credentials) return errorResponse("No active Threads account with access token was found.", 400);
-
-    const mediaId = url.searchParams.get("media_id")?.trim();
-    const endpoint = mediaId
-      ? `${THREADS_GRAPH_BASE}/${mediaId}/conversation`
-      : `${THREADS_GRAPH_BASE}/me/replies`;
-    const repliesUrl = new URL(endpoint);
-    repliesUrl.searchParams.set("fields", THREADS_MEDIA_FIELDS);
-    repliesUrl.searchParams.set("reverse", url.searchParams.get("reverse") || "false");
-    repliesUrl.searchParams.set("limit", url.searchParams.get("limit") || "20");
-    repliesUrl.searchParams.set("access_token", credentials.accessToken);
-
-    const response = await fetch(repliesUrl.toString());
-    const payload = await response.json();
-    if (!response.ok) {
-      return errorResponse(getGraphErrorMessage(payload, "Threads replies lookup failed"), response.status);
-    }
-    return jsonResponse(payload);
+    const replies = await fetchThreadsRepliesData(env, {
+      mediaId: url.searchParams.get("media_id"),
+      reverse: url.searchParams.get("reverse"),
+      limit: url.searchParams.get("limit"),
+    });
+    return jsonResponse({ data: replies });
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Failed to load Threads replies", 500);
   }

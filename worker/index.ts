@@ -17,6 +17,7 @@ import {
   createTradingNote,
   updateTradingNote,
   deleteTradingNote,
+  plannerHasSocialPostLinks,
 } from "./handlers/planner";
 import {
   listSocialPosts,
@@ -38,6 +39,7 @@ import {
   searchThreads,
   listThreadsReplies,
   createThreadsReply,
+  fetchThreadsRepliesData,
 } from "./handlers/threads";
 import {
   listThreadsCampaignResults,
@@ -98,6 +100,7 @@ function buildDefaultCanonicalUrl(
 }
 
 async function handleInternalContext(env: Env) {
+  const hasSocialPostLinks = await plannerHasSocialPostLinks(env);
   const [
     sites,
     categories,
@@ -112,6 +115,7 @@ async function handleInternalContext(env: Env) {
     redditPostsResult,
     twitterPostsResult,
     threadsPostsResult,
+    threadsRepliesData,
     threadsCampaignResultsResult,
     knowledgeBasesResult,
   ] = await Promise.all([
@@ -125,7 +129,7 @@ async function handleInternalContext(env: Env) {
        LIMIT 10`,
     ).all(),
     env.DB.prepare(
-      `SELECT id, title, platform, item_type, status, scheduled_for, updated_at
+      `SELECT id, title, platform, item_type, status, scheduled_for, ${hasSocialPostLinks ? "social_post_id" : "NULL AS social_post_id"}, updated_at
        FROM planner_items
        ORDER BY COALESCE(scheduled_for, updated_at) DESC
        LIMIT 20`,
@@ -180,6 +184,7 @@ async function handleInternalContext(env: Env) {
        ORDER BY updated_at DESC
        LIMIT 20`,
     ).all(),
+    fetchThreadsRepliesData(env, { limit: "20" }).catch(() => []),
     env.DB.prepare(
       `SELECT id, campaign_id, media_id, review_status, created_at, updated_at
        FROM threads_campaign_results
@@ -218,6 +223,9 @@ async function handleInternalContext(env: Env) {
         return accumulator;
       }, {})
     : {};
+  const globalKnowledgeBase = Array.isArray(knowledgeBases)
+    ? knowledgeBases.find((entry) => entry.entity_type === "global" && Number(entry.entity_id) === 0) ?? null
+    : null;
 
   return json({
     scope: {
@@ -230,8 +238,10 @@ async function handleInternalContext(env: Env) {
         "planner_items",
         "trading_notes",
         "knowledge_bases",
+        "global_knowledge_base",
         "social_accounts",
         "social_posts",
+        "threads_replies",
         "threads_campaign_results",
         "media_uploads",
       ],
@@ -283,6 +293,7 @@ async function handleInternalContext(env: Env) {
     planner_items: plannerItemsResult.results ?? [],
     trading_notes: tradingNotesResult.results ?? [],
     knowledge_bases: knowledgeBases,
+    global_knowledge_base: globalKnowledgeBase,
     social_platform_knowledge_bases: socialPlatformKnowledgeBases,
     social_accounts: {
       reddit: redditAccountsResult.results ?? [],
@@ -294,6 +305,7 @@ async function handleInternalContext(env: Env) {
       twitter: twitterPostsResult.results ?? [],
       threads: threadsPostsResult.results ?? [],
     },
+    threads_replies: threadsRepliesData,
     threads_campaign_results: threadsCampaignResultsResult.results ?? [],
   });
 }
@@ -542,6 +554,20 @@ export default {
       const unauthorized = await requireAgentAuth(request, env);
       if (unauthorized) return unauthorized;
       return handleInternalContext(env);
+    }
+
+    if (url.pathname.startsWith("/api/internal/knowledge-base/") && request.method === "GET" && !url.pathname.includes("/versions")) {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const parts = url.pathname.split("/");
+      return await getKnowledgeBase(env, parts[4], parts[5]);
+    }
+
+    if (url.pathname.startsWith("/api/internal/knowledge-base/") && request.method === "POST") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const parts = url.pathname.split("/");
+      return await saveKnowledgeBase(env, parts[4], parts[5], request);
     }
 
     if (url.pathname === "/api/internal/media" && request.method === "POST") {

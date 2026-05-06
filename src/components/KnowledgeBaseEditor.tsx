@@ -4,7 +4,7 @@ import { api } from "../lib/api";
 import "../styles/knowledge-base-editor.css";
 
 interface KnowledgeBaseEditorProps {
-  type: "reddit_campaign" | "trading_strategy" | "social_platform";
+  type: "reddit_campaign" | "trading_strategy" | "social_platform" | "global";
   entityId: number;
   onSaved?: () => void;
 }
