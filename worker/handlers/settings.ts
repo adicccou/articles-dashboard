@@ -6,6 +6,7 @@ type StoredSettings = {
   claude_model: string;
   global_ai_rules: string;
   social_agent_rules: string;
+  workspace_timezone: string;
   trading_agent_url: string;
   trading_agent_token: string;
   ctrader_client_id: string;
@@ -30,6 +31,7 @@ const DEFAULTS: StoredSettings = {
   claude_model: "claude-sonnet-4-20250514",
   global_ai_rules: "",
   social_agent_rules: "",
+  workspace_timezone: "Asia/Kuala_Lumpur",
   trading_agent_url: "",
   trading_agent_token: "",
   ctrader_client_id: "",
@@ -77,6 +79,7 @@ function publicSettings(settings: StoredSettings) {
     claude_model: settings.claude_model,
     global_ai_rules: settings.global_ai_rules,
     social_agent_rules: settings.social_agent_rules,
+    workspace_timezone: settings.workspace_timezone,
     trading_agent_url: settings.trading_agent_url,
     trading_agent_connected: Boolean(settings.trading_agent_url && settings.trading_agent_token),
     trading_agent_token_saved: Boolean(settings.trading_agent_token),
@@ -139,6 +142,7 @@ async function syncTradingAgent(
     anthropic_api_key: settings.anthropic_api_key,
     claude_model: settings.claude_model,
     strategy_active: Boolean(strategy),
+    timezone: settings.workspace_timezone,
     ctrader_connected: Boolean(
       settings.ctrader_client_id &&
       settings.ctrader_client_secret &&
@@ -231,6 +235,7 @@ export async function updateAppSettings(env: Env, request: Request, dashboardOri
     await upsertSetting(env, "claude_model", next.claude_model, updatedAt);
     await upsertSetting(env, "global_ai_rules", next.global_ai_rules, updatedAt);
     await upsertSetting(env, "social_agent_rules", next.social_agent_rules, updatedAt);
+    await upsertSetting(env, "workspace_timezone", next.workspace_timezone, updatedAt);
     await upsertSetting(env, "trading_agent_url", next.trading_agent_url, updatedAt);
     await upsertSetting(env, "trading_agent_token", next.trading_agent_token, updatedAt);
     await upsertSetting(env, "ctrader_client_id", next.ctrader_client_id, updatedAt);
@@ -248,6 +253,7 @@ export async function updateAppSettings(env: Env, request: Request, dashboardOri
     if (
       payload.anthropic_api_key !== undefined ||
       payload.claude_model !== undefined ||
+      payload.workspace_timezone !== undefined ||
       payload.trading_agent_url !== undefined ||
       payload.trading_agent_token !== undefined ||
       payload.ctrader_client_id !== undefined ||

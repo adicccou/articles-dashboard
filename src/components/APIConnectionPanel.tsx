@@ -9,6 +9,7 @@ interface APIConnectionPanelProps {
   claudeModel?: string;
   globalAiRules?: string;
   socialAgentRules?: string;
+  workspaceTimezone?: string;
   tradingAgentUrl?: string;
   tradingAgentConnected?: boolean;
   tradingAgentTokenSaved?: boolean;
@@ -23,6 +24,7 @@ interface APIConnectionPanelProps {
     claude_model?: string;
     global_ai_rules?: string;
     social_agent_rules?: string;
+    workspace_timezone?: string;
     trading_agent_url?: string;
     trading_agent_token?: string;
     ctrader_client_id?: string;
@@ -41,6 +43,7 @@ export function APIConnectionPanel({
   claudeModel = "claude-sonnet-4-20250514",
   globalAiRules = "",
   socialAgentRules = "",
+  workspaceTimezone = "Asia/Kuala_Lumpur",
   tradingAgentUrl = "",
   tradingAgentConnected,
   tradingAgentTokenSaved,
@@ -59,6 +62,7 @@ export function APIConnectionPanel({
   const [model, setModel] = useState(claudeModel);
   const [globalRules, setGlobalRules] = useState(globalAiRules);
   const [socialRules, setSocialRules] = useState(socialAgentRules);
+  const [timezoneValue, setTimezoneValue] = useState(workspaceTimezone);
   const [agentUrl, setAgentUrl] = useState(tradingAgentUrl);
   const [agentToken, setAgentToken] = useState("");
   const [ctraderClientIdValue, setCtraderClientIdValue] = useState(ctraderClientId);
@@ -87,6 +91,10 @@ export function APIConnectionPanel({
   }, [socialAgentRules]);
 
   useEffect(() => {
+    setTimezoneValue(workspaceTimezone);
+  }, [workspaceTimezone]);
+
+  useEffect(() => {
     setCtraderClientIdValue(ctraderClientId);
   }, [ctraderClientId]);
 
@@ -105,6 +113,7 @@ export function APIConnectionPanel({
     claude_model: model,
     global_ai_rules: globalRules,
     social_agent_rules: socialRules,
+    workspace_timezone: timezoneValue.trim() || "Asia/Kuala_Lumpur",
     trading_agent_url: agentUrl,
     trading_agent_token: agentToken || undefined,
     ctrader_client_id: ctraderClientIdValue,
@@ -119,6 +128,7 @@ export function APIConnectionPanel({
     model !== claudeModel ||
     globalRules !== globalAiRules ||
     socialRules !== socialAgentRules ||
+    timezoneValue !== workspaceTimezone ||
     claudeKey.trim().length > 0;
 
   const tabMeta: Record<SettingsTabId, { title: string; description: string }> = {
@@ -211,6 +221,19 @@ export function APIConnectionPanel({
               rows={6}
             />
           </label>
+          <label className="api-panel__field">
+            <span className="api-panel__field-label">Workspace Timezone</span>
+            <input
+              type="text"
+              placeholder="Asia/Kuala_Lumpur"
+              value={timezoneValue}
+              onChange={(e) => setTimezoneValue(e.target.value)}
+              className="api-panel__input"
+            />
+          </label>
+          <p className="api-panel__helper">
+            Use an IANA timezone like `Asia/Kuala_Lumpur`, `Europe/London`, or `America/New_York`. Telegram AI scheduling and relative times will follow this setting.
+          </p>
           <p className="api-panel__helper">
             These rules are stored at the workspace level so the dashboard assistant can follow them whenever it writes, plans, or reviews AI-driven work.
           </p>
@@ -222,6 +245,7 @@ export function APIConnectionPanel({
                   await onSave?.({
                     global_ai_rules: globalRules,
                     social_agent_rules: socialRules,
+                    workspace_timezone: timezoneValue,
                   });
                 } finally {
                   setSavingRules(false);

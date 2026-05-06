@@ -8,6 +8,7 @@ type SettingsModalProps = {
     claude_model: string;
     global_ai_rules: string;
     social_agent_rules: string;
+    workspace_timezone: string;
     trading_agent_url: string;
     trading_agent_connected: boolean;
     trading_agent_token_saved?: boolean;
@@ -108,6 +109,7 @@ export function SettingsModal({
           claudeModel={settings.claude_model}
           globalAiRules={settings.global_ai_rules}
           socialAgentRules={settings.social_agent_rules}
+          workspaceTimezone={settings.workspace_timezone}
           tradingAgentUrl={settings.trading_agent_url}
           tradingAgentConnected={settings.trading_agent_connected}
           tradingAgentTokenSaved={settings.trading_agent_token_saved}

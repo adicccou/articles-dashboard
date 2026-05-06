@@ -290,6 +290,7 @@ export type AppSettings = {
   claude_model: string;
   global_ai_rules: string;
   social_agent_rules: string;
+  workspace_timezone: string;
   trading_agent_url: string;
   trading_agent_connected: boolean;
   trading_agent_token_saved?: boolean;
@@ -320,6 +321,7 @@ export type AppSettingsInput = {
   claude_model?: string;
   global_ai_rules?: string;
   social_agent_rules?: string;
+  workspace_timezone?: string;
   trading_agent_url?: string;
   trading_agent_token?: string;
   ctrader_client_id?: string;
