@@ -132,9 +132,19 @@ async function syncTradingAgent(
   dashboardOrigin?: string,
 ): Promise<{ ok: boolean; message: string }> {
   if (!settings.trading_agent_url || !settings.trading_agent_token) {
+    console.warn("trading.agent_sync.skipped", {
+      reason: "bridge_missing",
+      has_url: Boolean(settings.trading_agent_url),
+      has_token: Boolean(settings.trading_agent_token),
+      active_strategy: strategy?.name ?? null,
+    });
     return { ok: false, message: "Trading agent URL and token are not configured yet." };
   }
   if (!settings.anthropic_api_key) {
+    console.warn("trading.agent_sync.skipped", {
+      reason: "ai_key_missing",
+      active_strategy: strategy?.name ?? null,
+    });
     return { ok: false, message: "AI API key is missing, so there is nothing to sync." };
   }
 
@@ -178,6 +188,16 @@ async function syncTradingAgent(
     payload.trading_hours = strategy.trading_hours ?? "[]";
   }
 
+  console.info("trading.agent_sync.request", {
+    active: Boolean(strategy),
+    strategy_name: strategy?.name ?? null,
+    mode: strategy?.execution_mode ?? null,
+    symbols: strategy ? (() => {
+      try { return JSON.parse(strategy.assets) as string[]; } catch { return []; }
+    })() : [],
+    daily_max_trade_signals: strategy?.daily_max_trade_signals ?? null,
+  });
+
   const response = await fetch(`${settings.trading_agent_url.replace(/\/$/, "")}/config`, {
     method: "POST",
     headers: {
@@ -189,10 +209,19 @@ async function syncTradingAgent(
 
   if (!response.ok) {
     const message = await response.text();
+    console.error("trading.agent_sync.failed", {
+      status: response.status,
+      active: Boolean(strategy),
+      strategy_name: strategy?.name ?? null,
+    });
     throw new Error(message || `Agent sync failed with ${response.status}`);
   }
 
   const strategyNote = strategy ? " + active strategy settings" : "";
+  console.info("trading.agent_sync.success", {
+    active: Boolean(strategy),
+    strategy_name: strategy?.name ?? null,
+  });
   return { ok: true, message: `Synced AI API${strategyNote} to the trading agent.` };
 }
 

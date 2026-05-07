@@ -63,7 +63,6 @@ export function TradingPage() {
       if (selectedStrategy) {
         setSelectedStrategy((prev) => (prev ? (prev.id === activated.id ? activated : { ...prev, status: "inactive" }) : prev));
       }
-      await api.syncTradingAgentSettings();
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to activate strategy");
@@ -79,7 +78,6 @@ export function TradingPage() {
         ),
       );
       setSelectedStrategy((prev) => (prev && prev.id === deactivated.id ? deactivated : prev));
-      await api.syncTradingAgentSettings();
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to deactivate strategy");

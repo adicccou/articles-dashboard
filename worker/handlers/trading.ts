@@ -66,6 +66,20 @@ function normalizeAssets(input: unknown): string[] {
   return [];
 }
 
+function logStrategyEvent(event: string, strategy: TradingStrategyRow | null, extra: Record<string, unknown> = {}) {
+  const assets = normalizeAssets(strategy?.assets ?? "[]");
+  console.info("trading.strategy", {
+    event,
+    id: strategy?.id ?? null,
+    name: strategy?.name ?? null,
+    status: strategy?.status ?? null,
+    mode: strategy?.execution_mode ?? null,
+    assets,
+    daily_max_trade_signals: strategy?.daily_max_trade_signals ?? null,
+    ...extra,
+  });
+}
+
 function normalizeTradingStrategy(row: TradingStrategyRow | null) {
   if (!row) {
     return null;
@@ -394,6 +408,7 @@ export async function activateStrategy(env: Env, strategyId: string): Promise<Re
       .run();
 
     const strategy = await env.DB.prepare("SELECT * FROM trading_strategies WHERE id = ?").bind(id).first<TradingStrategyRow>();
+    logStrategyEvent("activated", strategy);
     return jsonResponse(normalizeTradingStrategy(strategy));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -419,6 +434,7 @@ export async function deactivateStrategy(env: Env, strategyId: string): Promise<
       .run();
 
     const updated = await env.DB.prepare("SELECT * FROM trading_strategies WHERE id = ?").bind(id).first<TradingStrategyRow>();
+    logStrategyEvent("deactivated", updated);
     return jsonResponse(normalizeTradingStrategy(updated));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -431,6 +447,7 @@ export async function getActiveStrategyInternal(env: Env): Promise<Response> {
     const strategy = await env.DB.prepare(
       "SELECT * FROM trading_strategies WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1",
     ).first<TradingStrategyRow>();
+    logStrategyEvent("internal_active_strategy_read", strategy);
     return jsonResponse(normalizeTradingStrategyForInternal(strategy));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
