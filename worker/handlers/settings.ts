@@ -13,6 +13,8 @@ type StoredSettings = {
   ctrader_client_secret: string;
   ctrader_access_token: string;
   ctrader_account_id: string;
+  ctrader_demo_account_id: string;
+  ctrader_live_account_id: string;
   // Twitter/X
   twitter_api_key: string;
   twitter_api_secret: string;
@@ -38,6 +40,8 @@ const DEFAULTS: StoredSettings = {
   ctrader_client_secret: "",
   ctrader_access_token: "",
   ctrader_account_id: "",
+  ctrader_demo_account_id: "",
+  ctrader_live_account_id: "",
   twitter_api_key: "",
   twitter_api_secret: "",
   twitter_access_token: "",
@@ -85,11 +89,13 @@ function publicSettings(settings: StoredSettings) {
     trading_agent_token_saved: Boolean(settings.trading_agent_token),
     ctrader_client_id: settings.ctrader_client_id,
     ctrader_account_id: settings.ctrader_account_id,
+    ctrader_demo_account_id: settings.ctrader_demo_account_id,
+    ctrader_live_account_id: settings.ctrader_live_account_id,
     ctrader_connected: Boolean(
       settings.ctrader_client_id &&
       settings.ctrader_client_secret &&
       settings.ctrader_access_token &&
-      settings.ctrader_account_id,
+      (settings.ctrader_demo_account_id || settings.ctrader_live_account_id || settings.ctrader_account_id),
     ),
     ctrader_client_secret_saved: Boolean(settings.ctrader_client_secret),
     ctrader_access_token_saved: Boolean(settings.ctrader_access_token),
@@ -110,6 +116,17 @@ function publicSettings(settings: StoredSettings) {
     threads_connected: Boolean(settings.threads_access_token && settings.threads_user_id),
     updated_at: settings.updated_at ?? null,
   };
+}
+
+function resolveCtraderAccountId(
+  settings: Pick<StoredSettings, "ctrader_account_id" | "ctrader_demo_account_id" | "ctrader_live_account_id">,
+  executionMode?: string,
+): string {
+  const mode = (executionMode || "demo").toLowerCase();
+  if (mode === "live") {
+    return settings.ctrader_live_account_id || settings.ctrader_account_id || settings.ctrader_demo_account_id || "";
+  }
+  return settings.ctrader_demo_account_id || settings.ctrader_account_id || settings.ctrader_live_account_id || "";
 }
 
 type ActiveStrategy = {
@@ -159,12 +176,14 @@ async function syncTradingAgent(
       settings.ctrader_client_id &&
       settings.ctrader_client_secret &&
       settings.ctrader_access_token &&
-      settings.ctrader_account_id,
+      (settings.ctrader_demo_account_id || settings.ctrader_live_account_id || settings.ctrader_account_id),
     ),
     ctrader_client_id: settings.ctrader_client_id,
     ctrader_client_secret: settings.ctrader_client_secret,
     ctrader_access_token: settings.ctrader_access_token,
-    ctrader_account_id: settings.ctrader_account_id,
+    ctrader_account_id: resolveCtraderAccountId(settings, strategy?.execution_mode),
+    ctrader_demo_account_id: settings.ctrader_demo_account_id,
+    ctrader_live_account_id: settings.ctrader_live_account_id,
     twitter_api_key: settings.twitter_api_key,
     twitter_api_secret: settings.twitter_api_secret,
     twitter_access_token: settings.twitter_access_token,
@@ -253,6 +272,7 @@ export async function updateAppSettings(env: Env, request: Request, dashboardOri
   try {
     const payload = await parseJson<SettingsPayload>(request);
     const current = await readSettings(env);
+    const savedActiveStrategy = await getActiveStrategy(env);
     const next: StoredSettings = {
       ...current,
       ...Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined)),
@@ -269,6 +289,9 @@ export async function updateAppSettings(env: Env, request: Request, dashboardOri
     await upsertSetting(env, "ctrader_client_id", next.ctrader_client_id, updatedAt);
     await upsertSetting(env, "ctrader_client_secret", next.ctrader_client_secret, updatedAt);
     await upsertSetting(env, "ctrader_access_token", next.ctrader_access_token, updatedAt);
+    await upsertSetting(env, "ctrader_demo_account_id", next.ctrader_demo_account_id, updatedAt);
+    await upsertSetting(env, "ctrader_live_account_id", next.ctrader_live_account_id, updatedAt);
+    next.ctrader_account_id = resolveCtraderAccountId(next, savedActiveStrategy?.execution_mode);
     await upsertSetting(env, "ctrader_account_id", next.ctrader_account_id, updatedAt);
     await upsertSetting(env, "twitter_api_key", next.twitter_api_key, updatedAt);
     await upsertSetting(env, "twitter_api_secret", next.twitter_api_secret, updatedAt);
@@ -287,6 +310,8 @@ export async function updateAppSettings(env: Env, request: Request, dashboardOri
       payload.ctrader_client_id !== undefined ||
       payload.ctrader_client_secret !== undefined ||
       payload.ctrader_access_token !== undefined ||
+      payload.ctrader_demo_account_id !== undefined ||
+      payload.ctrader_live_account_id !== undefined ||
       payload.ctrader_account_id !== undefined ||
       payload.twitter_api_key !== undefined ||
       payload.twitter_api_secret !== undefined ||
@@ -296,8 +321,7 @@ export async function updateAppSettings(env: Env, request: Request, dashboardOri
       payload.threads_user_id !== undefined
     ) {
       try {
-        const activeStrategy = await getActiveStrategy(env);
-        syncResult = await syncTradingAgent(next, activeStrategy, dashboardOrigin);
+        syncResult = await syncTradingAgent(next, savedActiveStrategy, dashboardOrigin);
       } catch (error) {
         syncResult = {
           ok: false,
@@ -337,28 +361,49 @@ export async function completeCtraderConnectionFromAgent(
       ctrader_client_secret?: string;
       ctrader_access_token?: string;
       ctrader_account_id?: string;
+      ctrader_demo_account_id?: string;
+      ctrader_live_account_id?: string;
     }>(request);
 
     if (!payload.ctrader_access_token?.trim()) {
       return errorResponse("Missing cTrader access token", 400);
     }
-    if (!payload.ctrader_account_id?.trim()) {
+    if (
+      !payload.ctrader_account_id?.trim() &&
+      !payload.ctrader_demo_account_id?.trim() &&
+      !payload.ctrader_live_account_id?.trim()
+    ) {
       return errorResponse("Missing cTrader account ID", 400);
     }
 
     const current = await readSettings(env);
+    const nextDemoAccountId = payload.ctrader_demo_account_id?.trim() || current.ctrader_demo_account_id;
+    const nextLiveAccountId = payload.ctrader_live_account_id?.trim() || current.ctrader_live_account_id;
     const next: StoredSettings = {
       ...current,
       ctrader_client_id: payload.ctrader_client_id?.trim() || current.ctrader_client_id,
       ctrader_client_secret: payload.ctrader_client_secret?.trim() || current.ctrader_client_secret,
       ctrader_access_token: payload.ctrader_access_token.trim(),
-      ctrader_account_id: payload.ctrader_account_id.trim(),
+      ctrader_demo_account_id: nextDemoAccountId,
+      ctrader_live_account_id: nextLiveAccountId,
+      ctrader_account_id:
+        payload.ctrader_account_id?.trim() ||
+        resolveCtraderAccountId(
+          {
+            ctrader_account_id: current.ctrader_account_id,
+            ctrader_demo_account_id: nextDemoAccountId,
+            ctrader_live_account_id: nextLiveAccountId,
+          },
+          (await getActiveStrategy(env))?.execution_mode,
+        ),
     };
     const updatedAt = new Date().toISOString();
 
     await upsertSetting(env, "ctrader_client_id", next.ctrader_client_id, updatedAt);
     await upsertSetting(env, "ctrader_client_secret", next.ctrader_client_secret, updatedAt);
     await upsertSetting(env, "ctrader_access_token", next.ctrader_access_token, updatedAt);
+    await upsertSetting(env, "ctrader_demo_account_id", next.ctrader_demo_account_id, updatedAt);
+    await upsertSetting(env, "ctrader_live_account_id", next.ctrader_live_account_id, updatedAt);
     await upsertSetting(env, "ctrader_account_id", next.ctrader_account_id, updatedAt);
 
     let syncResult: { ok: boolean; message: string } | null = null;

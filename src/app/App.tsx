@@ -41,6 +41,8 @@ export function App() {
     trading_agent_token_saved: false,
     ctrader_client_id: "",
     ctrader_account_id: "",
+    ctrader_demo_account_id: "",
+    ctrader_live_account_id: "",
     ctrader_connected: false,
     ctrader_client_secret_saved: false,
     ctrader_access_token_saved: false,

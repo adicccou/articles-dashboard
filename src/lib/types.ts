@@ -296,6 +296,8 @@ export type AppSettings = {
   trading_agent_token_saved?: boolean;
   ctrader_client_id: string;
   ctrader_account_id: string;
+  ctrader_demo_account_id: string;
+  ctrader_live_account_id: string;
   ctrader_connected: boolean;
   ctrader_client_secret_saved?: boolean;
   ctrader_access_token_saved?: boolean;
@@ -328,6 +330,8 @@ export type AppSettingsInput = {
   ctrader_client_secret?: string;
   ctrader_access_token?: string;
   ctrader_account_id?: string;
+  ctrader_demo_account_id?: string;
+  ctrader_live_account_id?: string;
   // Twitter/X
   twitter_api_key?: string;
   twitter_api_secret?: string;

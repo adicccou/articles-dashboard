@@ -14,6 +14,8 @@ type SettingsModalProps = {
     trading_agent_token_saved?: boolean;
     ctrader_client_id: string;
     ctrader_account_id: string;
+    ctrader_demo_account_id: string;
+    ctrader_live_account_id: string;
     ctrader_connected: boolean;
     ctrader_client_secret_saved?: boolean;
     ctrader_access_token_saved?: boolean;
@@ -115,6 +117,8 @@ export function SettingsModal({
           tradingAgentTokenSaved={settings.trading_agent_token_saved}
           ctraderClientId={settings.ctrader_client_id}
           ctraderAccountId={settings.ctrader_account_id}
+          ctraderDemoAccountId={settings.ctrader_demo_account_id}
+          ctraderLiveAccountId={settings.ctrader_live_account_id}
           ctraderConnected={settings.ctrader_connected}
           ctraderClientSecretSaved={settings.ctrader_client_secret_saved}
           ctraderAccessTokenSaved={settings.ctrader_access_token_saved}

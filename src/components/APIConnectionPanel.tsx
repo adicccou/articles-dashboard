@@ -15,6 +15,8 @@ interface APIConnectionPanelProps {
   tradingAgentTokenSaved?: boolean;
   ctraderClientId?: string;
   ctraderAccountId?: string;
+  ctraderDemoAccountId?: string;
+  ctraderLiveAccountId?: string;
   ctraderConnected?: boolean;
   ctraderClientSecretSaved?: boolean;
   ctraderAccessTokenSaved?: boolean;
@@ -31,6 +33,8 @@ interface APIConnectionPanelProps {
     ctrader_client_secret?: string;
     ctrader_access_token?: string;
     ctrader_account_id?: string;
+    ctrader_demo_account_id?: string;
+    ctrader_live_account_id?: string;
   }) => Promise<unknown>;
   onSyncAgent?: () => Promise<unknown>;
   title?: string;
@@ -49,6 +53,8 @@ export function APIConnectionPanel({
   tradingAgentTokenSaved,
   ctraderClientId = "",
   ctraderAccountId = "",
+  ctraderDemoAccountId = "",
+  ctraderLiveAccountId = "",
   ctraderConnected,
   ctraderClientSecretSaved,
   ctraderAccessTokenSaved,
@@ -69,6 +75,8 @@ export function APIConnectionPanel({
   const [ctraderClientSecret, setCtraderClientSecret] = useState("");
   const [ctraderAccessToken, setCtraderAccessToken] = useState("");
   const [ctraderAccountIdValue, setCtraderAccountIdValue] = useState(ctraderAccountId);
+  const [ctraderDemoAccountIdValue, setCtraderDemoAccountIdValue] = useState(ctraderDemoAccountId);
+  const [ctraderLiveAccountIdValue, setCtraderLiveAccountIdValue] = useState(ctraderLiveAccountId);
   const [testingConnection, setTestingConnection] = useState<string | null>(null);
   const [savingAgent, setSavingAgent] = useState(false);
   const [savingCtrader, setSavingCtrader] = useState(false);
@@ -102,6 +110,14 @@ export function APIConnectionPanel({
     setCtraderAccountIdValue(ctraderAccountId);
   }, [ctraderAccountId]);
 
+  useEffect(() => {
+    setCtraderDemoAccountIdValue(ctraderDemoAccountId);
+  }, [ctraderDemoAccountId]);
+
+  useEffect(() => {
+    setCtraderLiveAccountIdValue(ctraderLiveAccountId);
+  }, [ctraderLiveAccountId]);
+
   const handleTestConnection = async (service: string) => {
     setTestingConnection(service);
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -120,6 +136,8 @@ export function APIConnectionPanel({
     ctrader_client_secret: ctraderClientSecret || undefined,
     ctrader_access_token: ctraderAccessToken || undefined,
     ctrader_account_id: ctraderAccountIdValue,
+    ctrader_demo_account_id: ctraderDemoAccountIdValue,
+    ctrader_live_account_id: ctraderLiveAccountIdValue,
   });
 
   const hasUnsavedAgentChanges =
@@ -300,9 +318,23 @@ export function APIConnectionPanel({
           />
           <input
             type="text"
-            placeholder="cTrader Account ID"
+            placeholder="Current cTrader Account ID"
             value={ctraderAccountIdValue}
             onChange={(e) => setCtraderAccountIdValue(e.target.value)}
+            className="api-panel__input"
+          />
+          <input
+            type="text"
+            placeholder="cTrader Demo Account ID"
+            value={ctraderDemoAccountIdValue}
+            onChange={(e) => setCtraderDemoAccountIdValue(e.target.value)}
+            className="api-panel__input"
+          />
+          <input
+            type="text"
+            placeholder="cTrader Live Account ID"
+            value={ctraderLiveAccountIdValue}
+            onChange={(e) => setCtraderLiveAccountIdValue(e.target.value)}
             className="api-panel__input"
           />
           {ctraderClientSecretSaved || ctraderAccessTokenSaved ? (
@@ -310,6 +342,9 @@ export function APIConnectionPanel({
               Saved cTrader secrets stay hidden. Enter new values only when you want to replace them.
             </p>
           ) : null}
+          <p className="api-panel__helper">
+            The trading agent will use the demo account when a strategy runs in demo mode, and the live account when a strategy runs in live mode.
+          </p>
           <button
             onClick={async () => {
               setSavingCtrader(true);
