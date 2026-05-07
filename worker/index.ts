@@ -5,7 +5,7 @@ import type { Env } from "./lib/types";
 import { listCampaigns, createCampaign, updateCampaign, deleteCampaign, getCampaignStats } from "./handlers/reddit";
 import { handleAuthorizeRequest, handleOAuthCallback, listRedditAccounts, deleteRedditAccount } from "./handlers/reddit-auth";
 import { getKnowledgeBase, saveKnowledgeBase, getVersions, getVersion } from "./handlers/knowledge-base";
-import { listStrategies, getStrategy, createStrategy, updateStrategy, deleteStrategy, getStrategyStats, getStrategyExecutions } from "./handlers/trading";
+import { listStrategies, getStrategy, createStrategy, updateStrategy, activateStrategy, deleteStrategy, getStrategyStats, getStrategyExecutions } from "./handlers/trading";
 import { chatWithAssistant } from "./handlers/assistant";
 import { getAppSettings, syncAgentFromSettings, updateAppSettings } from "./handlers/settings";
 import {
@@ -929,7 +929,7 @@ export default {
     if (url.pathname === "/api/trading/strategies" && request.method === "GET") {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
-      return json(await listStrategies(env));
+      return await listStrategies(env);
     }
 
     if (url.pathname === "/api/trading/strategies" && request.method === "POST") {
@@ -950,6 +950,13 @@ export default {
       if (unauthorized) return unauthorized;
       const id = url.pathname.split("/")[4];
       return await updateStrategy(env, id, request);
+    }
+
+    if (url.pathname.startsWith("/api/trading/strategies/") && url.pathname.endsWith("/activate") && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      return await activateStrategy(env, id);
     }
 
     if (url.pathname.startsWith("/api/trading/strategies/") && request.method === "DELETE") {

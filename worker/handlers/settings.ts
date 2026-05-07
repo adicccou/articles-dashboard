@@ -113,15 +113,15 @@ function publicSettings(settings: StoredSettings) {
 }
 
 type ActiveStrategy = {
+  strategy_text: string;
   assets: string;
+  daily_max_trade_signals: number;
   rr_min: number;
   rr_max: number;
   risk_usd_min: number;
   risk_usd_max: number;
   max_open_positions: number;
   execution_mode: string;
-  telegram_bot_token: string;
-  telegram_chat_id: string | null;
   trading_hours: string;
 };
 
@@ -166,18 +166,13 @@ async function syncTradingAgent(
     let assets: string[] = [];
     try { assets = JSON.parse(strategy.assets) as string[]; } catch { assets = []; }
 
+    payload.strategy_text = strategy.strategy_text ?? "";
     payload.symbols = assets;
     payload.default_rr_ratio = strategy.rr_max;
     payload.max_open_trades = strategy.max_open_positions;
+    payload.max_daily_signals = strategy.daily_max_trade_signals;
     payload.demo_mode = strategy.execution_mode !== "live";
     payload.trading_hours = strategy.trading_hours ?? "[]";
-
-    if (strategy.telegram_bot_token) {
-      payload.telegram_bot_token = strategy.telegram_bot_token;
-    }
-    if (strategy.telegram_chat_id) {
-      payload.telegram_chat_id = strategy.telegram_chat_id;
-    }
   }
 
   const response = await fetch(`${settings.trading_agent_url.replace(/\/$/, "")}/config`, {
@@ -201,9 +196,8 @@ async function syncTradingAgent(
 async function getActiveStrategy(env: Env): Promise<ActiveStrategy | undefined> {
   try {
     const row = await env.DB.prepare(
-      `SELECT assets, rr_min, rr_max, risk_usd_min, risk_usd_max,
-              max_open_positions, execution_mode, telegram_bot_token,
-              telegram_chat_id, trading_hours
+      `SELECT strategy_text, assets, daily_max_trade_signals, rr_min, rr_max, risk_usd_min, risk_usd_max,
+              max_open_positions, execution_mode, trading_hours
        FROM trading_strategies WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1`,
     ).first<ActiveStrategy>();
     return row ?? undefined;

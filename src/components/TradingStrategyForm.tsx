@@ -14,7 +14,9 @@ function buildInitialForm(strategy?: TradingStrategy): Partial<TradingStrategy> 
   return (
     strategy || {
       name: "",
+      strategy_text: "",
       assets: ["EURUSD"],
+      daily_max_trade_signals: 7,
       strategy_type: "daytrading",
       risk_usd_min: 50,
       risk_usd_max: 50,
@@ -23,8 +25,6 @@ function buildInitialForm(strategy?: TradingStrategy): Partial<TradingStrategy> 
       breakeven_rr: 1.5,
       max_open_positions: 1,
       execution_mode: "demo",
-      telegram_bot_token: "",
-      telegram_chat_id: "",
       trading_hours: [],
     }
   );
@@ -67,6 +67,10 @@ export function TradingStrategyForm({
       .filter(Boolean);
   }
 
+  function invalidAssets(values: string[]): string[] {
+    return values.filter((asset) => !/^[A-Z0-9._/-]{2,20}$/.test(asset));
+  }
+
   function addWindow() {
     setTradingHours((prev) => [...prev, defaultWindow()]);
   }
@@ -102,9 +106,18 @@ export function TradingStrategyForm({
     const breakevenRr = Number(form.breakeven_rr ?? 1.5);
     const riskUsdMin = Number(form.risk_usd_min ?? 50);
     const riskUsdMax = Number(form.risk_usd_max ?? 50);
+    const dailyMaxTradeSignals = Number(form.daily_max_trade_signals ?? 7);
 
-    if (!form.name || assets.length === 0) {
-      setError("Please add a strategy name and at least one trading asset.");
+    if (!form.name || !String(form.strategy_text || "").trim() || assets.length === 0) {
+      setError("Please add a strategy name, strategy instructions, and at least one trading asset.");
+      return;
+    }
+
+    const invalid = invalidAssets(assets);
+    if (invalid.length > 0) {
+      setError(
+        "Trading Assets should only contain symbols like XAUUSD, US500, or EURUSD. Add strategy rules in the knowledge base after creating the strategy.",
+      );
       return;
     }
 
@@ -125,6 +138,11 @@ export function TradingStrategyForm({
 
     if (riskUsdMax < riskUsdMin) {
       setError("Maximum risk cannot be less than minimum risk.");
+      return;
+    }
+
+    if (!Number.isFinite(dailyMaxTradeSignals) || dailyMaxTradeSignals < 1) {
+      setError("Daily max trade signals must be at least 1.");
       return;
     }
 
@@ -150,6 +168,7 @@ export function TradingStrategyForm({
         breakeven_rr: breakevenRr,
         risk_usd_min: riskUsdMin,
         risk_usd_max: riskUsdMax,
+        daily_max_trade_signals: dailyMaxTradeSignals,
         max_open_positions: Number(form.max_open_positions ?? 1),
         trading_hours: tradingHours,
       });
@@ -180,6 +199,21 @@ export function TradingStrategyForm({
         </div>
 
         <div className="trading-form__group">
+          <label htmlFor="strategy_text">Strategy Instructions *</label>
+          <textarea
+            id="strategy_text"
+            value={form.strategy_text || ""}
+            onChange={(e) => handleChange("strategy_text", e.target.value)}
+            placeholder="Add the exact strategy rules the AI trading agent must follow. This is the most important guidance for trade analysis."
+            className="trading-form__textarea"
+            rows={8}
+          />
+          <p className="trading-form__helper">
+            This text is sent to the AI trading agent as the main strategy brief. Include entry rules, invalidation, market structure, confirmations, and anything the agent must never ignore.
+          </p>
+        </div>
+
+        <div className="trading-form__group">
           <label htmlFor="assets">Trading Assets *</label>
           <textarea
             id="assets"
@@ -191,6 +225,9 @@ export function TradingStrategyForm({
           />
           <p className="trading-form__helper">
             One strategy can track several assets. Separate them with commas or new lines.
+          </p>
+          <p className="trading-form__helper">
+            Use asset symbols only, like `XAUUSD`, `US500`, or `EURUSD`. Add your strategy rules in the knowledge base after saving.
           </p>
         </div>
 
@@ -221,6 +258,20 @@ export function TradingStrategyForm({
               <option value="demo">Demo</option>
               <option value="live">Live</option>
             </select>
+          </div>
+
+          <div className="trading-form__group">
+            <label htmlFor="daily_max_trade_signals">Daily Max Trade Signals</label>
+            <input
+              id="daily_max_trade_signals"
+              type="number"
+              min="1"
+              step="1"
+              value={form.daily_max_trade_signals ?? 7}
+              onChange={(e) => handleChange("daily_max_trade_signals", Number(e.target.value))}
+              className="trading-form__input"
+            />
+            <p className="trading-form__helper">Maximum number of trade alerts this strategy can send per day.</p>
           </div>
         </div>
       </section>
@@ -312,34 +363,6 @@ export function TradingStrategyForm({
           <p className="trading-form__helper">
             Example: `1.5` means when profit reaches 1.5R, stop loss moves to breakeven.
           </p>
-        </div>
-      </section>
-
-      <section className="trading-form__section">
-        <h3>Notifications</h3>
-
-        <div className="trading-form__group">
-          <label htmlFor="telegram_bot_token">Telegram Bot API Token</label>
-          <input
-            id="telegram_bot_token"
-            type="password"
-            value={form.telegram_bot_token || ""}
-            onChange={(e) => handleChange("telegram_bot_token", e.target.value)}
-            placeholder="Your Telegram bot token for this strategy"
-            className="trading-form__input"
-          />
-        </div>
-
-        <div className="trading-form__group">
-          <label htmlFor="telegram_chat_id">Telegram Chat ID</label>
-          <input
-            id="telegram_chat_id"
-            type="text"
-            value={form.telegram_chat_id || ""}
-            onChange={(e) => handleChange("telegram_chat_id", e.target.value)}
-            placeholder="Your Telegram chat ID for notifications"
-            className="trading-form__input"
-          />
         </div>
       </section>
 

@@ -171,7 +171,9 @@ export type TradingStrategy = {
   id: number;
   name: string;
   knowledge_base_id?: number | null;
+  strategy_text: string;
   assets: string[];
+  daily_max_trade_signals: number;
   strategy_type: "scalping" | "daytrading" | "swing" | "position";
   risk_usd_min: number;
   risk_usd_max: number;
@@ -180,8 +182,6 @@ export type TradingStrategy = {
   breakeven_rr: number;
   max_open_positions: number;
   execution_mode: "demo" | "live";
-  telegram_bot_token?: string;
-  telegram_chat_id?: string;
   trading_hours: TradingHoursWindow[];   // [] = send anytime
   status: "active" | "inactive" | "paused" | "testing";
   created_at: string;

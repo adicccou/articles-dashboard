@@ -5,6 +5,37 @@
   margin-bottom: 24px;
 }
 
+.trading-table__row {
+  grid-template-columns: minmax(180px, 1.5fr) minmax(110px, 0.9fr) minmax(90px, 0.7fr) minmax(90px, 0.7fr) minmax(100px, 0.7fr) minmax(170px, 1.1fr) minmax(220px, 1.2fr);
+}
+
+.trading-table__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-start;
+}
+
+.trading-table__button,
+.trading-table__delete {
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
+.trading-table__delete {
+  background: transparent;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.trading-table__delete:hover {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
 .stat-card {
   background: #f9fafb;
   border: 1px solid #e5e7eb;
@@ -24,4 +55,10 @@
   font-size: 24px;
   font-weight: 600;
   color: #1f2937;
+}
+
+@media (max-width: 1080px) {
+  .trading-table__row {
+    grid-template-columns: minmax(160px, 1.4fr) minmax(100px, 0.9fr) minmax(80px, 0.7fr) minmax(90px, 0.7fr) minmax(90px, 0.7fr) minmax(150px, 1fr) minmax(210px, 1.1fr);
+  }
 }

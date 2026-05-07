@@ -33,6 +33,13 @@ export function TradingPage() {
     void load();
   }, []);
 
+  function upsertStrategy(next: TradingStrategy) {
+    setStrategies((prev) => {
+      const remaining = prev.filter((strategy) => strategy.id !== next.id);
+      return [next, ...remaining];
+    });
+  }
+
   async function handleSelectStrategy(strategy: TradingStrategy) {
     setSelectedStrategy(strategy);
     try {
@@ -41,6 +48,21 @@ export function TradingPage() {
     } catch {
       setStats(null);
     }
+  }
+
+  async function handleActivateStrategy(strategy: TradingStrategy) {
+    const activated = await api.activateTradingStrategy(strategy.id);
+    setStrategies((prev) =>
+      prev.map((item) =>
+        item.id === activated.id
+          ? activated
+          : { ...item, status: "inactive" as TradingStrategy["status"] },
+      ),
+    );
+    if (selectedStrategy) {
+      setSelectedStrategy((prev) => (prev ? (prev.id === activated.id ? activated : { ...prev, status: "inactive" }) : prev));
+    }
+    await api.syncTradingAgentSettings();
   }
 
   if (loading) {
@@ -59,13 +81,24 @@ export function TradingPage() {
             strategy={asArray<TradingStrategy>(strategies).find((s) => s.id === editingId)}
             onSubmit={async (data) => {
               if (editingId) {
+                const existing = asArray<TradingStrategy>(strategies).find((strategy) => strategy.id === editingId);
                 await api.updateTradingStrategy(editingId, data);
+                if (existing) {
+                  const updated = { ...existing, ...data, id: editingId } as TradingStrategy;
+                  upsertStrategy(updated);
+                  if (selectedStrategy?.id === editingId) {
+                    setSelectedStrategy(updated);
+                  }
+                  if (existing.status === "active") {
+                    await api.syncTradingAgentSettings();
+                  }
+                }
               } else {
-                await api.createTradingStrategy(
+                const created = await api.createTradingStrategy(
                   data as Omit<TradingStrategy, "id" | "status" | "created_at" | "updated_at">
                 );
+                upsertStrategy(created);
               }
-              await load();
               setTab("strategies");
               setEditingId(null);
             }}
@@ -100,17 +133,18 @@ export function TradingPage() {
             </p>
           </div>
         ) : (
-          <div className="table">
-            <div className="table__row table__row--header">
+          <div className="table trading-table">
+            <div className="table__row table__row--header trading-table__row">
               <span>Name</span>
               <span>Assets</span>
               <span>Mode</span>
               <span>Status</span>
+              <span>Daily Signals</span>
               <span>Risk</span>
               <span>Actions</span>
             </div>
             {asArray<TradingStrategy>(strategies).map((strategy) => (
-              <div className="table__row" key={strategy.id}>
+              <div className="table__row trading-table__row" key={strategy.id}>
                 <span className="truncate">{strategy.name}</span>
                 <span>{strategy.assets.join(", ")}</span>
                 <span>{strategy.execution_mode}</span>
@@ -127,19 +161,12 @@ export function TradingPage() {
                   {strategy.status}
                 </span>
                 </span>
+                <span>{strategy.daily_max_trade_signals}/day</span>
                 <span>${strategy.risk_usd_min}-${strategy.risk_usd_max} • {strategy.rr_min}R-{strategy.rr_max}R</span>
-                <span>
+                <span className="trading-table__actions">
                   <button
                     onClick={() => handleSelectStrategy(strategy)}
-                    style={{
-                      fontSize: "12px",
-                      padding: "4px 8px",
-                      marginRight: "4px",
-                      background: "none",
-                      border: "1px solid #e5e7eb",
-                      borderRadius: "4px",
-                      cursor: "pointer",
-                    }}
+                    className="button-secondary trading-table__button"
                   >
                     View
                   </button>
@@ -148,36 +175,31 @@ export function TradingPage() {
                       setEditingId(strategy.id);
                       setTab("form");
                     }}
-                    style={{
-                      fontSize: "12px",
-                      padding: "4px 8px",
-                      marginRight: "4px",
-                      background: "none",
-                      border: "1px solid #e5e7eb",
-                      borderRadius: "4px",
-                      cursor: "pointer",
-                    }}
+                    className="button-secondary trading-table__button"
                   >
                     Edit
                   </button>
                   <button
+                    onClick={() => handleActivateStrategy(strategy)}
+                    className="button-secondary trading-table__button"
+                    disabled={strategy.status === "active"}
+                  >
+                    {strategy.status === "active" ? "Active" : "Activate"}
+                  </button>
+                  <button
                     onClick={async () => {
+                      const wasActive = strategy.status === "active";
                       await api.deleteTradingStrategy(strategy.id);
                       if (selectedStrategy?.id === strategy.id) {
                         setSelectedStrategy(null);
                         setStats(null);
                       }
+                      if (wasActive) {
+                        await api.syncTradingAgentSettings();
+                      }
                       await load();
                     }}
-                    style={{
-                      fontSize: "12px",
-                      padding: "4px 8px",
-                      background: "none",
-                      border: "1px solid #fecaca",
-                      color: "#dc2626",
-                      borderRadius: "4px",
-                      cursor: "pointer",
-                    }}
+                    className="trading-table__delete"
                   >
                     Delete
                   </button>
@@ -192,12 +214,30 @@ export function TradingPage() {
         <section className="panel">
           <div className="panel__title-row">
             <h2>{selectedStrategy.name} — Statistics</h2>
-            <button
-              onClick={() => { setSelectedStrategy(null); setStats(null); }}
-              className="button-secondary"
-            >
-              Close
-            </button>
+            <div className="actions">
+              <button
+                onClick={() => {
+                  setEditingId(selectedStrategy.id);
+                  setTab("form");
+                }}
+                className="button-secondary"
+              >
+                Edit Strategy
+              </button>
+              <button
+                onClick={() => handleActivateStrategy(selectedStrategy)}
+                className="button-secondary"
+                disabled={selectedStrategy.status === "active"}
+              >
+                {selectedStrategy.status === "active" ? "Strategy Active" : "Activate Strategy"}
+              </button>
+              <button
+                onClick={() => { setSelectedStrategy(null); setStats(null); }}
+                className="button-secondary"
+              >
+                Close
+              </button>
+            </div>
           </div>
 
           {stats ? (

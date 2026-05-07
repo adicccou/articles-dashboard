@@ -3,7 +3,9 @@ import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 
 interface CreateStrategyPayload {
   name: string;
+  strategy_text?: string;
   assets: string[];
+  daily_max_trade_signals?: number;
   strategy_type: "scalping" | "daytrading" | "swing" | "position";
   risk_usd_min?: number;
   risk_usd_max?: number;
@@ -12,8 +14,6 @@ interface CreateStrategyPayload {
   breakeven_rr?: number;
   max_open_positions?: number;
   execution_mode?: "demo" | "live";
-  telegram_bot_token?: string;
-  telegram_chat_id?: string;
   trading_hours?: unknown;
 }
 
@@ -21,7 +21,9 @@ type TradingStrategyRow = {
   id: number;
   name: string;
   knowledge_base_id: number | null;
+  strategy_text: string;
   assets: string;
+  daily_max_trade_signals: number;
   strategy_type: "scalping" | "daytrading" | "swing" | "position";
   risk_usd_min: number;
   risk_usd_max: number;
@@ -30,8 +32,6 @@ type TradingStrategyRow = {
   breakeven_rr: number;
   max_open_positions: number;
   execution_mode: "demo" | "live";
-  telegram_bot_token: string;
-  telegram_chat_id: string | null;
   trading_hours: string;
   status: "active" | "inactive" | "paused" | "testing";
   created_at: string;
@@ -77,8 +77,8 @@ function normalizeTradingStrategy(row: TradingStrategyRow | null) {
 
   return {
     ...row,
+    strategy_text: row.strategy_text || "",
     assets: normalizeAssets(row.assets),
-    telegram_chat_id: row.telegram_chat_id ?? "",
     trading_hours,
   };
 }
@@ -87,6 +87,7 @@ function validateRiskFields(payload: Partial<CreateStrategyPayload>): string | n
   const rrMin = payload.rr_min ?? 1.5;
   const rrMax = payload.rr_max ?? 2.5;
   const breakevenRr = payload.breakeven_rr ?? rrMin;
+  const dailyMaxTradeSignals = payload.daily_max_trade_signals ?? 7;
 
   if (payload.risk_usd_min !== undefined && payload.risk_usd_max !== undefined) {
     if (payload.risk_usd_max < payload.risk_usd_min) {
@@ -110,6 +111,21 @@ function validateRiskFields(payload: Partial<CreateStrategyPayload>): string | n
     return "Breakeven RR cannot be negative.";
   }
 
+  if (!Number.isFinite(dailyMaxTradeSignals) || dailyMaxTradeSignals < 1) {
+    return "Daily max trade signals must be at least 1.";
+  }
+
+  return null;
+}
+
+function validateAssets(assets: string[]): string | null {
+  if (assets.length === 0) {
+    return "Name and at least one trading asset are required.";
+  }
+  const invalid = assets.filter((asset) => !/^[A-Z0-9._/-]{2,20}$/.test(asset));
+  if (invalid.length > 0) {
+    return "Trading assets must be symbols like XAUUSD, US500, or EURUSD.";
+  }
   return null;
 }
 
@@ -152,10 +168,14 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
   try {
     const payload = await parseJson<CreateStrategyPayload>(request);
     const assets = normalizeAssets(payload.assets);
+    const assetsError = validateAssets(assets);
     const validationError = validateRiskFields(payload);
 
-    if (!payload.name || assets.length === 0) {
-      return errorResponse("Name and at least one trading asset are required.", 400);
+    if (!payload.name || !String(payload.strategy_text || "").trim() || assets.length === 0) {
+      return errorResponse("Name, strategy instructions, and at least one trading asset are required.", 400);
+    }
+    if (assetsError) {
+      return errorResponse(assetsError, 400);
     }
 
     if (validationError) {
@@ -171,7 +191,9 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
       `INSERT INTO trading_strategies (
         name,
         knowledge_base_id,
+        strategy_text,
         assets,
+        daily_max_trade_signals,
         strategy_type,
         risk_usd_min,
         risk_usd_max,
@@ -180,8 +202,6 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
         breakeven_rr,
         max_open_positions,
         execution_mode,
-        telegram_bot_token,
-        telegram_chat_id,
         trading_hours,
         status,
         created_at,
@@ -191,7 +211,9 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
       .bind(
         payload.name,
         null,
+        String(payload.strategy_text || "").trim(),
         JSON.stringify(assets),
+        payload.daily_max_trade_signals ?? 7,
         payload.strategy_type,
         payload.risk_usd_min ?? 50,
         payload.risk_usd_max ?? 50,
@@ -200,8 +222,6 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
         payload.breakeven_rr ?? 1.5,
         payload.max_open_positions ?? 1,
         payload.execution_mode ?? "demo",
-        payload.telegram_bot_token || "",
-        payload.telegram_chat_id || "",
         tradingHours,
         now,
         now,
@@ -219,7 +239,9 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
         id: result.meta.last_row_id,
         name: payload.name,
         knowledge_base_id: null,
+        strategy_text: String(payload.strategy_text || "").trim(),
         assets,
+        daily_max_trade_signals: payload.daily_max_trade_signals ?? 7,
         strategy_type: payload.strategy_type,
         risk_usd_min: payload.risk_usd_min ?? 50,
         risk_usd_max: payload.risk_usd_max ?? 50,
@@ -228,8 +250,6 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
         breakeven_rr: payload.breakeven_rr ?? 1.5,
         max_open_positions: payload.max_open_positions ?? 1,
         execution_mode: payload.execution_mode ?? "demo",
-        telegram_bot_token: payload.telegram_bot_token || "",
-        telegram_chat_id: payload.telegram_chat_id || "",
         trading_hours: Array.isArray(payload.trading_hours) ? payload.trading_hours : [],
         status: "inactive",
         created_at: now,
@@ -237,8 +257,10 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
       },
       { status: 201 },
     );
-  } catch {
-    return errorResponse("Failed to create strategy", 500);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("Failed to create strategy", error);
+    return errorResponse(`Failed to create strategy: ${message}`, 500);
   }
 }
 
@@ -268,13 +290,28 @@ export async function updateStrategy(
       updates.push("name = ?");
       values.push(payload.name);
     }
+    if (payload.strategy_text !== undefined) {
+      if (!String(payload.strategy_text || "").trim()) {
+        return errorResponse("Strategy instructions cannot be empty.", 400);
+      }
+      updates.push("strategy_text = ?");
+      values.push(String(payload.strategy_text || "").trim());
+    }
     if (payload.assets !== undefined) {
       const assets = normalizeAssets(payload.assets);
-      if (assets.length === 0) {
-        return errorResponse("At least one trading asset is required.", 400);
+      const assetsError = validateAssets(assets);
+      if (assetsError) {
+        return errorResponse(assetsError, 400);
       }
       updates.push("assets = ?");
       values.push(JSON.stringify(assets));
+    }
+    if (payload.daily_max_trade_signals !== undefined) {
+      if (!Number.isFinite(payload.daily_max_trade_signals) || payload.daily_max_trade_signals < 1) {
+        return errorResponse("Daily max trade signals must be at least 1.", 400);
+      }
+      updates.push("daily_max_trade_signals = ?");
+      values.push(payload.daily_max_trade_signals);
     }
     if (payload.strategy_type !== undefined) {
       updates.push("strategy_type = ?");
@@ -308,14 +345,6 @@ export async function updateStrategy(
       updates.push("execution_mode = ?");
       values.push(payload.execution_mode);
     }
-    if (payload.telegram_bot_token !== undefined) {
-      updates.push("telegram_bot_token = ?");
-      values.push(payload.telegram_bot_token);
-    }
-    if (payload.telegram_chat_id !== undefined) {
-      updates.push("telegram_chat_id = ?");
-      values.push(payload.telegram_chat_id);
-    }
     if (payload.trading_hours !== undefined) {
       updates.push("trading_hours = ?");
       values.push(Array.isArray(payload.trading_hours) ? JSON.stringify(payload.trading_hours) : "[]");
@@ -333,8 +362,38 @@ export async function updateStrategy(
     await env.DB.prepare(query).bind(...values).run();
 
     return jsonResponse({ success: true, updated_at: now });
-  } catch {
-    return errorResponse("Failed to update strategy", 500);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("Failed to update strategy", error);
+    return errorResponse(`Failed to update strategy: ${message}`, 500);
+  }
+}
+
+export async function activateStrategy(env: Env, strategyId: string): Promise<Response> {
+  try {
+    const id = Number(strategyId);
+    if (isNaN(id)) {
+      return errorResponse("Invalid strategy ID", 400);
+    }
+
+    const existing = await env.DB.prepare("SELECT id FROM trading_strategies WHERE id = ?").bind(id).first<{ id: number }>();
+    if (!existing) {
+      return errorResponse("Strategy not found", 404);
+    }
+
+    const now = new Date().toISOString();
+    await env.DB.prepare("UPDATE trading_strategies SET status = 'inactive', updated_at = ? WHERE status = 'active'")
+      .bind(now)
+      .run();
+    await env.DB.prepare("UPDATE trading_strategies SET status = 'active', updated_at = ? WHERE id = ?")
+      .bind(now, id)
+      .run();
+
+    const strategy = await env.DB.prepare("SELECT * FROM trading_strategies WHERE id = ?").bind(id).first<TradingStrategyRow>();
+    return jsonResponse(normalizeTradingStrategy(strategy));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return errorResponse(`Failed to activate strategy: ${message}`, 500);
   }
 }
 

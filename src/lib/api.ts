@@ -105,6 +105,11 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(payload),
     }),
+  activateTradingStrategy: (id: number) =>
+    request<TradingStrategy>(`/api/trading/strategies/${id}/activate`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
   deleteTradingStrategy: (id: number) =>
     request<{ success: boolean }>(`/api/trading/strategies/${id}`, {
       method: "DELETE",
