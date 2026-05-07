@@ -956,7 +956,12 @@ export default {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
       const id = url.pathname.split("/")[4];
-      return await activateStrategy(env, id);
+      const response = await activateStrategy(env, id);
+      if (!response.ok) {
+        return response;
+      }
+      await syncAgentFromSettings(env, url.origin);
+      return response;
     }
 
     if (url.pathname.startsWith("/api/trading/strategies/") && request.method === "DELETE") {
