@@ -110,6 +110,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({}),
     }),
+  deactivateTradingStrategy: (id: number) =>
+    request<TradingStrategy>(`/api/trading/strategies/${id}/deactivate`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
   deleteTradingStrategy: (id: number) =>
     request<{ success: boolean }>(`/api/trading/strategies/${id}`, {
       method: "DELETE",

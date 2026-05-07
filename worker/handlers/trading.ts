@@ -38,6 +38,10 @@ type TradingStrategyRow = {
   updated_at: string;
 };
 
+export function normalizeTradingStrategyForInternal(row: TradingStrategyRow | null) {
+  return normalizeTradingStrategy(row);
+}
+
 function normalizeAssets(input: unknown): string[] {
   if (Array.isArray(input)) {
     return input
@@ -394,6 +398,43 @@ export async function activateStrategy(env: Env, strategyId: string): Promise<Re
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return errorResponse(`Failed to activate strategy: ${message}`, 500);
+  }
+}
+
+export async function deactivateStrategy(env: Env, strategyId: string): Promise<Response> {
+  try {
+    const id = Number(strategyId);
+    if (isNaN(id)) {
+      return errorResponse("Invalid strategy ID", 400);
+    }
+
+    const strategy = await env.DB.prepare("SELECT * FROM trading_strategies WHERE id = ?").bind(id).first<TradingStrategyRow>();
+    if (!strategy) {
+      return errorResponse("Strategy not found", 404);
+    }
+
+    const now = new Date().toISOString();
+    await env.DB.prepare("UPDATE trading_strategies SET status = 'inactive', updated_at = ? WHERE id = ?")
+      .bind(now, id)
+      .run();
+
+    const updated = await env.DB.prepare("SELECT * FROM trading_strategies WHERE id = ?").bind(id).first<TradingStrategyRow>();
+    return jsonResponse(normalizeTradingStrategy(updated));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return errorResponse(`Failed to deactivate strategy: ${message}`, 500);
+  }
+}
+
+export async function getActiveStrategyInternal(env: Env): Promise<Response> {
+  try {
+    const strategy = await env.DB.prepare(
+      "SELECT * FROM trading_strategies WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1",
+    ).first<TradingStrategyRow>();
+    return jsonResponse(normalizeTradingStrategyForInternal(strategy));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return errorResponse(`Failed to fetch active strategy: ${message}`, 500);
   }
 }
 

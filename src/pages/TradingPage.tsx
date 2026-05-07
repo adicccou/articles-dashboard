@@ -51,18 +51,39 @@ export function TradingPage() {
   }
 
   async function handleActivateStrategy(strategy: TradingStrategy) {
-    const activated = await api.activateTradingStrategy(strategy.id);
-    setStrategies((prev) =>
-      prev.map((item) =>
-        item.id === activated.id
-          ? activated
-          : { ...item, status: "inactive" as TradingStrategy["status"] },
-      ),
-    );
-    if (selectedStrategy) {
-      setSelectedStrategy((prev) => (prev ? (prev.id === activated.id ? activated : { ...prev, status: "inactive" }) : prev));
+    try {
+      const activated = await api.activateTradingStrategy(strategy.id);
+      setStrategies((prev) =>
+        prev.map((item) =>
+          item.id === activated.id
+            ? activated
+            : { ...item, status: "inactive" as TradingStrategy["status"] },
+        ),
+      );
+      if (selectedStrategy) {
+        setSelectedStrategy((prev) => (prev ? (prev.id === activated.id ? activated : { ...prev, status: "inactive" }) : prev));
+      }
+      await api.syncTradingAgentSettings();
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to activate strategy");
     }
-    await api.syncTradingAgentSettings();
+  }
+
+  async function handleDeactivateStrategy(strategy: TradingStrategy) {
+    try {
+      const deactivated = await api.deactivateTradingStrategy(strategy.id);
+      setStrategies((prev) =>
+        prev.map((item) =>
+          item.id === deactivated.id ? deactivated : item,
+        ),
+      );
+      setSelectedStrategy((prev) => (prev && prev.id === deactivated.id ? deactivated : prev));
+      await api.syncTradingAgentSettings();
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to deactivate strategy");
+    }
   }
 
   if (loading) {
@@ -180,11 +201,14 @@ export function TradingPage() {
                     Edit
                   </button>
                   <button
-                    onClick={() => handleActivateStrategy(strategy)}
+                    onClick={() => {
+                      void (strategy.status === "active"
+                        ? handleDeactivateStrategy(strategy)
+                        : handleActivateStrategy(strategy));
+                    }}
                     className="button-secondary trading-table__button"
-                    disabled={strategy.status === "active"}
                   >
-                    {strategy.status === "active" ? "Active" : "Activate"}
+                    {strategy.status === "active" ? "Deactivate" : "Activate"}
                   </button>
                   <button
                     onClick={async () => {
@@ -225,11 +249,14 @@ export function TradingPage() {
                 Edit Strategy
               </button>
               <button
-                onClick={() => handleActivateStrategy(selectedStrategy)}
+                onClick={() => {
+                  void (selectedStrategy.status === "active"
+                    ? handleDeactivateStrategy(selectedStrategy)
+                    : handleActivateStrategy(selectedStrategy));
+                }}
                 className="button-secondary"
-                disabled={selectedStrategy.status === "active"}
               >
-                {selectedStrategy.status === "active" ? "Strategy Active" : "Activate Strategy"}
+                {selectedStrategy.status === "active" ? "Deactivate Strategy" : "Activate Strategy"}
               </button>
               <button
                 onClick={() => { setSelectedStrategy(null); setStats(null); }}

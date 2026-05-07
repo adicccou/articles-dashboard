@@ -5,7 +5,7 @@ import type { Env } from "./lib/types";
 import { listCampaigns, createCampaign, updateCampaign, deleteCampaign, getCampaignStats } from "./handlers/reddit";
 import { handleAuthorizeRequest, handleOAuthCallback, listRedditAccounts, deleteRedditAccount } from "./handlers/reddit-auth";
 import { getKnowledgeBase, saveKnowledgeBase, getVersions, getVersion } from "./handlers/knowledge-base";
-import { listStrategies, getStrategy, createStrategy, updateStrategy, activateStrategy, deleteStrategy, getStrategyStats, getStrategyExecutions } from "./handlers/trading";
+import { listStrategies, getStrategy, createStrategy, updateStrategy, activateStrategy, deactivateStrategy, deleteStrategy, getStrategyStats, getStrategyExecutions, getActiveStrategyInternal } from "./handlers/trading";
 import { chatWithAssistant } from "./handlers/assistant";
 import { getAppSettings, syncAgentFromSettings, updateAppSettings } from "./handlers/settings";
 import {
@@ -556,6 +556,12 @@ export default {
       return handleInternalContext(env);
     }
 
+    if (url.pathname === "/api/internal/trading/active-strategy" && request.method === "GET") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return getActiveStrategyInternal(env);
+    }
+
     if (url.pathname.startsWith("/api/internal/knowledge-base/") && request.method === "GET" && !url.pathname.includes("/versions")) {
       const unauthorized = await requireAgentAuth(request, env);
       if (unauthorized) return unauthorized;
@@ -957,6 +963,18 @@ export default {
       if (unauthorized) return unauthorized;
       const id = url.pathname.split("/")[4];
       const response = await activateStrategy(env, id);
+      if (!response.ok) {
+        return response;
+      }
+      await syncAgentFromSettings(env, url.origin);
+      return response;
+    }
+
+    if (url.pathname.startsWith("/api/trading/strategies/") && url.pathname.endsWith("/deactivate") && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      const response = await deactivateStrategy(env, id);
       if (!response.ok) {
         return response;
       }

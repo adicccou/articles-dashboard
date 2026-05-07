@@ -143,6 +143,7 @@ async function syncTradingAgent(
     anthropic_api_key: settings.anthropic_api_key,
     claude_model: settings.claude_model,
     strategy_active: Boolean(strategy),
+    strategy_name: "",
     timezone: settings.workspace_timezone,
     ctrader_connected: Boolean(
       settings.ctrader_client_id &&
