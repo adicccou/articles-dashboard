@@ -323,3 +323,58 @@ export async function syncAgentFromSettings(env: Env, dashboardOrigin?: string):
     return errorResponse(error instanceof Error ? error.message : "Failed to sync trading agent", 500);
   }
 }
+
+export async function completeCtraderConnectionFromAgent(
+  env: Env,
+  request: Request,
+  dashboardOrigin?: string,
+): Promise<Response> {
+  try {
+    const payload = await parseJson<{
+      ctrader_client_id?: string;
+      ctrader_client_secret?: string;
+      ctrader_access_token?: string;
+      ctrader_account_id?: string;
+    }>(request);
+
+    if (!payload.ctrader_access_token?.trim()) {
+      return errorResponse("Missing cTrader access token", 400);
+    }
+    if (!payload.ctrader_account_id?.trim()) {
+      return errorResponse("Missing cTrader account ID", 400);
+    }
+
+    const current = await readSettings(env);
+    const next: StoredSettings = {
+      ...current,
+      ctrader_client_id: payload.ctrader_client_id?.trim() || current.ctrader_client_id,
+      ctrader_client_secret: payload.ctrader_client_secret?.trim() || current.ctrader_client_secret,
+      ctrader_access_token: payload.ctrader_access_token.trim(),
+      ctrader_account_id: payload.ctrader_account_id.trim(),
+    };
+    const updatedAt = new Date().toISOString();
+
+    await upsertSetting(env, "ctrader_client_id", next.ctrader_client_id, updatedAt);
+    await upsertSetting(env, "ctrader_client_secret", next.ctrader_client_secret, updatedAt);
+    await upsertSetting(env, "ctrader_access_token", next.ctrader_access_token, updatedAt);
+    await upsertSetting(env, "ctrader_account_id", next.ctrader_account_id, updatedAt);
+
+    let syncResult: { ok: boolean; message: string } | null = null;
+    try {
+      const activeStrategy = await getActiveStrategy(env);
+      syncResult = await syncTradingAgent(next, activeStrategy, dashboardOrigin);
+    } catch (error) {
+      syncResult = {
+        ok: false,
+        message: error instanceof Error ? error.message : "Trading agent sync failed.",
+      };
+    }
+
+    return jsonResponse({
+      ...publicSettings({ ...next, updated_at: updatedAt }),
+      sync_result: syncResult,
+    });
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Failed to complete cTrader connection", 500);
+  }
+}

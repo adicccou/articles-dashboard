@@ -7,7 +7,7 @@ import { handleAuthorizeRequest, handleOAuthCallback, listRedditAccounts, delete
 import { getKnowledgeBase, saveKnowledgeBase, getVersions, getVersion } from "./handlers/knowledge-base";
 import { listStrategies, getStrategy, createStrategy, updateStrategy, activateStrategy, deactivateStrategy, deleteStrategy, getStrategyStats, getStrategyExecutions, getActiveStrategyInternal } from "./handlers/trading";
 import { chatWithAssistant } from "./handlers/assistant";
-import { getAppSettings, syncAgentFromSettings, updateAppSettings } from "./handlers/settings";
+import { completeCtraderConnectionFromAgent, getAppSettings, syncAgentFromSettings, updateAppSettings } from "./handlers/settings";
 import {
   listPlannerItems,
   createPlannerItem,
@@ -723,6 +723,12 @@ export default {
       const unauthorized = await requireAgentAuth(request, env);
       if (unauthorized) return unauthorized;
       return await upsertThreadsCampaignResults(env, request);
+    }
+
+    if (url.pathname === "/api/internal/settings/ctrader/complete" && request.method === "POST") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await completeCtraderConnectionFromAgent(env, request, url.origin);
     }
 
     if (url.pathname.startsWith("/api/internal/social/threads/campaign-results/") && request.method === "PUT") {
