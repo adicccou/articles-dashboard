@@ -181,6 +181,8 @@ async function syncTradingAgent(
     payload.strategy_text = strategy.strategy_text ?? "";
     payload.strategy_name = strategy.name ?? "";
     payload.symbols = assets;
+    payload.risk_usd_min = strategy.risk_usd_min;
+    payload.risk_usd_max = strategy.risk_usd_max;
     payload.default_rr_ratio = strategy.rr_max;
     payload.max_open_trades = strategy.max_open_positions;
     payload.max_daily_signals = strategy.daily_max_trade_signals;
