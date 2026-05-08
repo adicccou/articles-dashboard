@@ -99,16 +99,20 @@ interface AssistantRuntimeSettings {
 
 async function readAssistantRuntimeSettings(env: Env): Promise<AssistantRuntimeSettings> {
   const rows = await env.DB.prepare(
-    "SELECT key, value FROM app_settings WHERE key IN ('gemini_api_key', 'gemini_pro_model', 'global_ai_rules', 'social_agent_rules')",
+    "SELECT key, value FROM app_settings WHERE key IN ('gemini_api_key', 'anthropic_api_key', 'gemini_pro_model', 'global_ai_rules', 'social_agent_rules')",
   ).all<{ key: string; value: string }>();
 
-  let geminiApiKey = env.GEMINI_API_KEY ?? "";
-  let geminiProModel = env.GEMINI_PRO_MODEL ?? "gemini-3.1-pro-preview";
+  let geminiApiKey = "";
+  let geminiProModel = "gemini-3.1-pro-preview";
   let globalAiRules = "";
   let socialAgentRules = "";
 
   for (const row of rows.results ?? []) {
     if (row.key === "gemini_api_key" && row.value) {
+      geminiApiKey = row.value;
+    }
+
+    if (row.key === "anthropic_api_key" && row.value && !geminiApiKey) {
       geminiApiKey = row.value;
     }
 

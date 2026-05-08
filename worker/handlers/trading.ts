@@ -68,6 +68,23 @@ function normalizeAssets(input: unknown): string[] {
   return [];
 }
 
+async function readDashboardGeminiKey(env: Env): Promise<string> {
+  const rows = await env.DB.prepare(
+    "SELECT key, value FROM app_settings WHERE key IN ('gemini_api_key', 'anthropic_api_key')",
+  ).all<{ key: string; value: string }>();
+
+  let legacyKey = "";
+  for (const row of rows.results ?? []) {
+    if (row.key === "gemini_api_key" && row.value) {
+      return row.value;
+    }
+    if (row.key === "anthropic_api_key" && row.value) {
+      legacyKey = row.value;
+    }
+  }
+  return legacyKey;
+}
+
 function logStrategyEvent(event: string, strategy: TradingStrategyRow | null, extra: Record<string, unknown> = {}) {
   const assets = normalizeAssets(strategy?.assets ?? "[]");
   console.info("trading.strategy", {
@@ -219,9 +236,9 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
     let parsedStrategyStr: string | null = null;
     if (String(payload.strategy_text || "").trim()) {
       try {
-        const geminiKeyRow = await env.DB.prepare("SELECT value FROM app_settings WHERE key = 'gemini_api_key'").first<{value: string}>();
-        if (geminiKeyRow?.value) {
-          const parsed = await parseTradingStrategyToJSON(payload.strategy_text!, geminiKeyRow.value);
+        const geminiKey = await readDashboardGeminiKey(env);
+        if (geminiKey) {
+          const parsed = await parseTradingStrategyToJSON(payload.strategy_text!, geminiKey);
           parsedStrategyStr = JSON.stringify(parsed);
         }
       } catch (err) {
@@ -347,9 +364,9 @@ export async function updateStrategy(
 
       let parsedStrategyStr: string | null = null;
       try {
-        const geminiKeyRow = await env.DB.prepare("SELECT value FROM app_settings WHERE key = 'gemini_api_key'").first<{value: string}>();
-        if (geminiKeyRow?.value) {
-          const parsed = await parseTradingStrategyToJSON(text, geminiKeyRow.value);
+        const geminiKey = await readDashboardGeminiKey(env);
+        if (geminiKey) {
+          const parsed = await parseTradingStrategyToJSON(text, geminiKey);
           parsedStrategyStr = JSON.stringify(parsed);
         }
       } catch (err) {

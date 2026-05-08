@@ -27,7 +27,10 @@ type StoredSettings = {
   updated_at?: string;
 };
 
-type SettingsPayload = Partial<StoredSettings>;
+type SettingsPayload = Partial<StoredSettings> & {
+  anthropic_api_key?: string;
+  claude_model?: string;
+};
 
 const DEFAULTS: StoredSettings = {
   gemini_api_key: "",
@@ -64,6 +67,8 @@ async function readSettings(env: Env): Promise<StoredSettings> {
     if (row.key in merged) {
       (merged as Record<string, string>)[row.key] = row.value;
       merged.updated_at = row.updated_at;
+    } else if (row.key === "anthropic_api_key" && !merged.gemini_api_key) {
+      merged.gemini_api_key = row.value;
     }
   }
   return merged;
@@ -83,6 +88,7 @@ function publicSettings(settings: StoredSettings) {
   return {
     ai_api_connected: Boolean(settings.gemini_api_key),
     gemini_api_connected: Boolean(settings.gemini_api_key),
+    claude_model: settings.gemini_pro_model,
     gemini_flash_model: settings.gemini_flash_model,
     gemini_pro_model: settings.gemini_pro_model,
     global_ai_rules: settings.global_ai_rules,
@@ -284,9 +290,17 @@ export async function updateAppSettings(env: Env, request: Request, dashboardOri
     const payload = await parseJson<SettingsPayload>(request);
     const current = await readSettings(env);
     const savedActiveStrategy = await getActiveStrategy(env);
+    const normalizedPayload = Object.fromEntries(
+      Object.entries(payload).filter(([, value]) => value !== undefined && value !== null),
+    ) as Record<string, unknown>;
+    delete normalizedPayload.anthropic_api_key;
+    delete normalizedPayload.claude_model;
+    if (payload.anthropic_api_key !== undefined && normalizedPayload.gemini_api_key === undefined) {
+      normalizedPayload.gemini_api_key = payload.anthropic_api_key;
+    }
     const next: StoredSettings = {
       ...current,
-      ...Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined)),
+      ...(normalizedPayload as Partial<StoredSettings>),
     };
     const updatedAt = new Date().toISOString();
 
@@ -315,8 +329,10 @@ export async function updateAppSettings(env: Env, request: Request, dashboardOri
     let syncResult: { ok: boolean; message: string } | null = null;
     if (
       payload.gemini_api_key !== undefined ||
+      payload.anthropic_api_key !== undefined ||
       payload.gemini_flash_model !== undefined ||
       payload.gemini_pro_model !== undefined ||
+      payload.claude_model !== undefined ||
       payload.workspace_timezone !== undefined ||
       payload.trading_agent_url !== undefined ||
       payload.trading_agent_token !== undefined ||
