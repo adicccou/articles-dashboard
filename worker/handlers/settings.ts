@@ -69,6 +69,9 @@ async function readSettings(env: Env): Promise<StoredSettings> {
       merged.updated_at = row.updated_at;
     } else if (row.key === "anthropic_api_key" && !merged.gemini_api_key) {
       merged.gemini_api_key = row.value;
+      if (!merged.updated_at) {
+        merged.updated_at = row.updated_at;
+      }
     }
   }
   return merged;
@@ -124,6 +127,34 @@ function publicSettings(settings: StoredSettings) {
     threads_access_token_saved: Boolean(settings.threads_access_token),
     threads_user_id: settings.threads_user_id,
     threads_connected: Boolean(settings.threads_access_token && settings.threads_user_id),
+    updated_at: settings.updated_at ?? null,
+  };
+}
+
+function internalAgentSettings(
+  settings: StoredSettings,
+  strategy?: Pick<ActiveStrategy, "execution_mode">,
+) {
+  return {
+    gemini_api_key: settings.gemini_api_key,
+    gemini_flash_model: settings.gemini_flash_model,
+    gemini_pro_model: settings.gemini_pro_model,
+    global_ai_rules: settings.global_ai_rules,
+    social_agent_rules: settings.social_agent_rules,
+    timezone: settings.workspace_timezone,
+    ctrader_connected: Boolean(
+      settings.ctrader_client_id &&
+      settings.ctrader_client_secret &&
+      settings.ctrader_access_token &&
+      (settings.ctrader_demo_account_id || settings.ctrader_live_account_id || settings.ctrader_account_id),
+    ),
+    ctrader_client_id: settings.ctrader_client_id,
+    ctrader_client_secret: settings.ctrader_client_secret,
+    ctrader_access_token: settings.ctrader_access_token,
+    ctrader_account_id: resolveCtraderAccountId(settings, strategy?.execution_mode),
+    ctrader_demo_account_id: settings.ctrader_demo_account_id,
+    ctrader_live_account_id: settings.ctrader_live_account_id,
+    trading_agent_url: settings.trading_agent_url,
     updated_at: settings.updated_at ?? null,
   };
 }
@@ -285,6 +316,16 @@ export async function getAppSettings(env: Env): Promise<Response> {
   }
 }
 
+export async function getInternalAgentSettings(env: Env): Promise<Response> {
+  try {
+    const settings = await readSettings(env);
+    const activeStrategy = await getActiveStrategy(env);
+    return jsonResponse(internalAgentSettings(settings, activeStrategy));
+  } catch {
+    return errorResponse("Failed to load internal agent settings", 500);
+  }
+}
+
 export async function updateAppSettings(env: Env, request: Request, dashboardOrigin?: string): Promise<Response> {
   try {
     const payload = await parseJson<SettingsPayload>(request);
@@ -294,9 +335,11 @@ export async function updateAppSettings(env: Env, request: Request, dashboardOri
       Object.entries(payload).filter(([, value]) => value !== undefined && value !== null),
     ) as Record<string, unknown>;
     delete normalizedPayload.anthropic_api_key;
-    delete normalizedPayload.claude_model;
     if (payload.anthropic_api_key !== undefined && normalizedPayload.gemini_api_key === undefined) {
       normalizedPayload.gemini_api_key = payload.anthropic_api_key;
+    }
+    if (payload.claude_model !== undefined && normalizedPayload.gemini_pro_model === undefined) {
+      normalizedPayload.gemini_pro_model = payload.claude_model;
     }
     const next: StoredSettings = {
       ...current,
