@@ -5,7 +5,9 @@ import type { AppSettingsInput } from "../lib/types";
 type SettingsModalProps = {
   settings: {
     ai_api_connected: boolean;
-    claude_model: string;
+    gemini_api_connected?: boolean;
+    gemini_flash_model?: string;
+    gemini_pro_model?: string;
     global_ai_rules: string;
     social_agent_rules: string;
     workspace_timezone: string;
@@ -40,7 +42,7 @@ export function SettingsModal({
       {
         id: "ai" as const,
         label: "AI",
-        eyebrow: "Claude connection",
+        eyebrow: "AI API",
         status: settings.ai_api_connected ? "Connected" : "Needs setup",
         tone: settings.ai_api_connected ? "connected" : "disconnected",
       },
@@ -108,7 +110,9 @@ export function SettingsModal({
         <APIConnectionPanel
           activeTab={activeTab}
           aiApiConnected={settings.ai_api_connected}
-          claudeModel={settings.claude_model}
+          geminiApiConnected={settings.gemini_api_connected}
+          geminiFlashModel={settings.gemini_flash_model}
+          geminiProModel={settings.gemini_pro_model}
           globalAiRules={settings.global_ai_rules}
           socialAgentRules={settings.social_agent_rules}
           workspaceTimezone={settings.workspace_timezone}
@@ -126,7 +130,7 @@ export function SettingsModal({
           onSave={onSave}
           onSyncAgent={onSyncAgent}
           title="AI API Connection"
-          description="One shared AI connection for the dashboard and the Python trading agent. Save it here once, then sync it to the agent."
+          description="One shared AI API configuration for the dashboard and the Python trading agent. Save it here once, then sync it to the agent."
         />
       </div>
     </div>

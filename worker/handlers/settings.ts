@@ -2,8 +2,9 @@ import { errorResponse, jsonResponse, parseJson } from "../lib/http";
 import type { Env } from "../lib/types";
 
 type StoredSettings = {
-  anthropic_api_key: string;
-  claude_model: string;
+  gemini_api_key: string;
+  gemini_flash_model: string;
+  gemini_pro_model: string;
   global_ai_rules: string;
   social_agent_rules: string;
   workspace_timezone: string;
@@ -29,8 +30,9 @@ type StoredSettings = {
 type SettingsPayload = Partial<StoredSettings>;
 
 const DEFAULTS: StoredSettings = {
-  anthropic_api_key: "",
-  claude_model: "claude-sonnet-4-20250514",
+  gemini_api_key: "",
+  gemini_flash_model: "gemini-3.1-flash-lite",
+  gemini_pro_model: "gemini-3.1-pro-preview",
   global_ai_rules: "",
   social_agent_rules: "",
   workspace_timezone: "Asia/Kuala_Lumpur",
@@ -79,8 +81,10 @@ async function upsertSetting(env: Env, key: keyof StoredSettings, value: string,
 
 function publicSettings(settings: StoredSettings) {
   return {
-    ai_api_connected: Boolean(settings.anthropic_api_key),
-    claude_model: settings.claude_model,
+    ai_api_connected: Boolean(settings.gemini_api_key),
+    gemini_api_connected: Boolean(settings.gemini_api_key),
+    gemini_flash_model: settings.gemini_flash_model,
+    gemini_pro_model: settings.gemini_pro_model,
     global_ai_rules: settings.global_ai_rules,
     social_agent_rules: settings.social_agent_rules,
     workspace_timezone: settings.workspace_timezone,
@@ -141,6 +145,7 @@ type ActiveStrategy = {
   max_open_positions: number;
   execution_mode: string;
   trading_hours: string;
+  parsed_strategy: string | null;
 };
 
 async function syncTradingAgent(
@@ -157,7 +162,7 @@ async function syncTradingAgent(
     });
     return { ok: false, message: "Trading agent URL and token are not configured yet." };
   }
-  if (!settings.anthropic_api_key) {
+  if (!settings.gemini_api_key) {
     console.warn("trading.agent_sync.skipped", {
       reason: "ai_key_missing",
       active_strategy: strategy?.name ?? null,
@@ -167,8 +172,9 @@ async function syncTradingAgent(
 
   const payload: Record<string, unknown> = {
     dashboard_api_url: dashboardOrigin ?? "",
-    anthropic_api_key: settings.anthropic_api_key,
-    claude_model: settings.claude_model,
+    gemini_api_key: settings.gemini_api_key,
+    gemini_flash_model: settings.gemini_flash_model,
+    gemini_pro_model: settings.gemini_pro_model,
     strategy_active: Boolean(strategy),
     strategy_name: "",
     timezone: settings.workspace_timezone,
@@ -207,6 +213,11 @@ async function syncTradingAgent(
     payload.max_daily_signals = strategy.daily_max_trade_signals;
     payload.demo_mode = strategy.execution_mode !== "live";
     payload.trading_hours = strategy.trading_hours ?? "[]";
+    try {
+      payload.parsed_strategy = strategy.parsed_strategy ? JSON.parse(strategy.parsed_strategy) : null;
+    } catch {
+      payload.parsed_strategy = null;
+    }
   }
 
   console.info("trading.agent_sync.request", {
@@ -250,7 +261,7 @@ async function getActiveStrategy(env: Env): Promise<ActiveStrategy | undefined> 
   try {
     const row = await env.DB.prepare(
       `SELECT name, strategy_text, assets, daily_max_trade_signals, rr_min, rr_max, risk_usd_min, risk_usd_max,
-              max_open_positions, execution_mode, trading_hours
+              max_open_positions, execution_mode, trading_hours, parsed_strategy
        FROM trading_strategies WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1`,
     ).first<ActiveStrategy>();
     return row ?? undefined;
@@ -279,8 +290,9 @@ export async function updateAppSettings(env: Env, request: Request, dashboardOri
     };
     const updatedAt = new Date().toISOString();
 
-    await upsertSetting(env, "anthropic_api_key", next.anthropic_api_key, updatedAt);
-    await upsertSetting(env, "claude_model", next.claude_model, updatedAt);
+    await upsertSetting(env, "gemini_api_key", next.gemini_api_key, updatedAt);
+    await upsertSetting(env, "gemini_flash_model", next.gemini_flash_model, updatedAt);
+    await upsertSetting(env, "gemini_pro_model", next.gemini_pro_model, updatedAt);
     await upsertSetting(env, "global_ai_rules", next.global_ai_rules, updatedAt);
     await upsertSetting(env, "social_agent_rules", next.social_agent_rules, updatedAt);
     await upsertSetting(env, "workspace_timezone", next.workspace_timezone, updatedAt);
@@ -302,8 +314,9 @@ export async function updateAppSettings(env: Env, request: Request, dashboardOri
 
     let syncResult: { ok: boolean; message: string } | null = null;
     if (
-      payload.anthropic_api_key !== undefined ||
-      payload.claude_model !== undefined ||
+      payload.gemini_api_key !== undefined ||
+      payload.gemini_flash_model !== undefined ||
+      payload.gemini_pro_model !== undefined ||
       payload.workspace_timezone !== undefined ||
       payload.trading_agent_url !== undefined ||
       payload.trading_agent_token !== undefined ||

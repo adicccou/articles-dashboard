@@ -9,8 +9,8 @@ export type Env = {
   REDDIT_CLIENT_ID?: string;
   REDDIT_CLIENT_SECRET?: string;
   REDDIT_REDIRECT_URI?: string;
-  CLAUDE_API_KEY?: string;
-  CLAUDE_MODEL?: string;
+  GEMINI_API_KEY?: string;
+  GEMINI_PRO_MODEL?: string;
   TRADING_AGENT_SYNC_SECRET?: string;
   JOURNL_SERVICE_ROLE_KEY?: string;
 };

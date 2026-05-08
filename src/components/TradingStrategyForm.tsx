@@ -276,6 +276,35 @@ export function TradingStrategyForm({
         </div>
       </section>
 
+      {strategy?.parsed_strategy && (
+        <section className="trading-form__section trading-form__parsed-strategy">
+          <h3>What I Understood (AI Summary)</h3>
+          <p className="trading-form__understanding-summary">
+            {strategy.parsed_strategy.understanding_summary}
+          </p>
+          
+          <div className="trading-form__parsed-rules">
+            <div className="trading-form__rule-group">
+              <h4>Hard Rules</h4>
+              <ul>
+                <li><strong>Bias TF:</strong> {strategy.parsed_strategy.hard_rules.bias_timeframe}</li>
+                <li><strong>Entry TF:</strong> {strategy.parsed_strategy.hard_rules.entry_timeframe}</li>
+                <li><strong>Sessions:</strong> {strategy.parsed_strategy.hard_rules.required_sessions?.join(", ") || "None"}</li>
+                <li><strong>Confirmations:</strong> {strategy.parsed_strategy.hard_rules.must_have_confirmations?.join(", ") || "None"}</li>
+                <li><strong>Invalidations:</strong> {strategy.parsed_strategy.hard_rules.invalidations?.join(", ") || "None"}</li>
+              </ul>
+            </div>
+            <div className="trading-form__rule-group">
+              <h4>Soft Preferences</h4>
+              <ul>
+                <li><strong>Favored Assets:</strong> {strategy.parsed_strategy.soft_preferences.favored_assets?.join(", ") || "None"}</li>
+                <li><strong>Minimum RR:</strong> {strategy.parsed_strategy.soft_preferences.minimum_rr}</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+      )}
+
       <section className="trading-form__section">
         <h3>Risk Management</h3>
 

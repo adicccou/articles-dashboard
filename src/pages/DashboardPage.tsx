@@ -8,6 +8,7 @@ import { TradingPage } from "./TradingPage";
 import { PlannerPage } from "./PlannerPage";
 import { ViewErrorBoundary } from "../components/ViewErrorBoundary";
 import { StatisticsPage } from "./StatisticsPage";
+import { formatDisplayDateTime } from "../lib/datetime";
 import "../styles/trading-page.css";
 
 type DashboardPageProps = {
@@ -158,7 +159,7 @@ export function DashboardPage({
               <span>{article.category?.name || "—"}</span>
               <span>{article.status}</span>
               <span>{article.site_ids.length}</span>
-              <span>{new Date(article.updated_at).toLocaleString()}</span>
+              <span>{formatDisplayDateTime(article.updated_at)}</span>
               <button
                 className="article-row__delete"
                 onClick={async (e) => {

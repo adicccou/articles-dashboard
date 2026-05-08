@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
+import { formatDisplayDateTime, formatDisplayTime, formatMonthDay, formatMonthYear, formatWeekRange, formatWeekdayShort } from "../lib/datetime";
 import type { PlannerItem, PlannerItemInput, TradingStrategy } from "../lib/types";
 import "../styles/planner-page.css";
 
@@ -208,15 +209,7 @@ export function PlannerPage() {
     const first = currentWeekDays[0];
     const last = currentWeekDays[currentWeekDays.length - 1];
     if (!first || !last) return "";
-    const sameMonth = first.getMonth() === last.getMonth() && first.getFullYear() === last.getFullYear();
-    const firstLabel = first.toLocaleString("en-US", { month: "short", day: "numeric" });
-    const lastLabel = last.toLocaleString(
-      "en-US",
-      sameMonth
-        ? { day: "numeric", year: "numeric" }
-        : { month: "short", day: "numeric", year: "numeric" },
-    );
-    return `${firstLabel} - ${lastLabel}`;
+    return formatWeekRange(first, last);
   }, [currentWeekDays]);
 
   function openCreateModal() {
@@ -436,7 +429,7 @@ export function PlannerPage() {
                       ))}
                     </select>
                   </span>
-                  <span>{item.scheduled_for ? new Date(item.scheduled_for).toLocaleString() : "—"}</span>
+                  <span>{item.scheduled_for ? formatDisplayDateTime(item.scheduled_for) : "—"}</span>
                   <span>{item.related_strategy_name || "—"}</span>
                   <span className="scheduler-row-actions">
                     <button className="button-secondary" onClick={() => openEditModal(item)}>
@@ -454,7 +447,7 @@ export function PlannerPage() {
       ) : view === "calendar" ? (
         <section className="panel scheduler-calendar">
           <div className="panel__title-row">
-            <h2>{calendarDate.toLocaleString("en-US", { month: "long", year: "numeric" })}</h2>
+            <h2>{formatMonthYear(calendarDate)}</h2>
             <div className="scheduler-calendar__nav">
               <button
                 className="button-secondary"
@@ -533,9 +526,9 @@ export function PlannerPage() {
                 <div className="scheduler-week__day-header">
                   <div>
                     <p className="scheduler-week__day-label">
-                      {day.toLocaleString("en-US", { weekday: "short" })}
+                      {formatWeekdayShort(day)}
                     </p>
-                    <strong>{day.toLocaleString("en-US", { month: "short", day: "numeric" })}</strong>
+                    <strong>{formatMonthDay(day)}</strong>
                   </div>
                   <span className="scheduler-week__count">{dayItems.length}</span>
                 </div>
@@ -552,7 +545,7 @@ export function PlannerPage() {
                         <span className={`scheduler-pill scheduler-pill--${item.item_type}`}>{item.item_type}</span>
                         <strong>{item.title}</strong>
                         <span className="scheduler-week__meta">
-                          {item.scheduled_for ? new Date(item.scheduled_for).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "Unscheduled"}
+                          {item.scheduled_for ? formatDisplayTime(item.scheduled_for) : "Unscheduled"}
                           {" • "}
                           {item.platform}
                         </span>
@@ -597,7 +590,7 @@ export function PlannerPage() {
             </div>
             <div>
               <p className="scheduler-eyebrow">Scheduled For</p>
-              <p>{selectedItem.scheduled_for ? new Date(selectedItem.scheduled_for).toLocaleString() : "Not scheduled"}</p>
+              <p>{selectedItem.scheduled_for ? formatDisplayDateTime(selectedItem.scheduled_for) : "Not scheduled"}</p>
             </div>
             <div>
               <p className="scheduler-eyebrow">Related Strategy</p>

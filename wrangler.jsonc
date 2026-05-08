@@ -26,7 +26,6 @@
     "ADMIN_USERNAME": "admin",
     "REDDIT_CLIENT_ID": "",
     "REDDIT_CLIENT_SECRET": "",
-    "REDDIT_REDIRECT_URI": "http://localhost:5174/api/reddit/auth/callback",
-    "CLAUDE_API_KEY": ""
+    "REDDIT_REDIRECT_URI": "http://localhost:5174/api/reddit/auth/callback"
   }
 }

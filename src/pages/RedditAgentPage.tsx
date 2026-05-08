@@ -5,6 +5,7 @@ import { KnowledgeBaseEditor } from "../components/KnowledgeBaseEditor";
 import { SocialPlannerItemModal } from "../components/SocialPlannerItemModal";
 import { SocialCampaignModal } from "../components/SocialCampaignModal";
 import { asArray } from "../lib/collections";
+import { formatDisplayDate, formatDisplayDateTime } from "../lib/datetime";
 import { getPostImageUrls } from "../lib/socialPostMedia";
 
 type ContentMode = "posts" | "campaigns";
@@ -217,7 +218,7 @@ export function RedditAgentPage() {
                   <span>
                     <span className="social-status-pill social-status-pill--neutral">{item.status}</span>
                   </span>
-                  <span className="social-muted">{item.scheduled_for ? new Date(item.scheduled_for).toLocaleString() : "—"}</span>
+                  <span className="social-muted">{item.scheduled_for ? formatDisplayDateTime(item.scheduled_for) : "—"}</span>
                   <span className="social-muted">{item.related_strategy_name || "—"}</span>
                 </div>
               ))}
@@ -261,8 +262,8 @@ export function RedditAgentPage() {
                 </span>
                 <span className="social-muted">{campaign.throttle_interval_minutes ? `${campaign.throttle_interval_minutes} min` : "—"}</span>
                 <span className="social-muted">
-                  {campaign.start_at ? new Date(campaign.start_at).toLocaleString() : "Started immediately"}
-                  {campaign.end_at ? ` → ${new Date(campaign.end_at).toLocaleString()}` : ""}
+                  {campaign.start_at ? formatDisplayDateTime(campaign.start_at) : "Started immediately"}
+                  {campaign.end_at ? ` → ${formatDisplayDateTime(campaign.end_at)}` : ""}
                 </span>
                 <span className="social-table-actions">
                   <button
@@ -406,7 +407,7 @@ export function RedditAgentPage() {
                             {account.status}
                           </span>
                         </span>
-                        <span className="social-muted">{new Date(account.created_at).toLocaleDateString()}</span>
+                        <span className="social-muted">{formatDisplayDate(account.created_at)}</span>
                         <span className="social-table-actions">
                           <button
                             onClick={async () => {

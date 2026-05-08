@@ -183,6 +183,20 @@ export type TradingStrategy = {
   max_open_positions: number;
   execution_mode: "demo" | "live";
   trading_hours: TradingHoursWindow[];   // [] = send anytime
+  parsed_strategy?: {
+    hard_rules: {
+      bias_timeframe: string;
+      entry_timeframe: string;
+      required_sessions: string[];
+      must_have_confirmations: string[];
+      invalidations: string[];
+    };
+    soft_preferences: {
+      favored_assets: string[];
+      minimum_rr: number;
+    };
+    understanding_summary: string;
+  } | null;
   status: "active" | "inactive" | "paused" | "testing";
   created_at: string;
   updated_at: string;
@@ -287,7 +301,9 @@ export type AssistantChatResponse = {
 
 export type AppSettings = {
   ai_api_connected: boolean;
-  claude_model: string;
+  gemini_api_connected?: boolean;
+  gemini_flash_model?: string;
+  gemini_pro_model?: string;
   global_ai_rules: string;
   social_agent_rules: string;
   workspace_timezone: string;
@@ -319,8 +335,9 @@ export type AppSettings = {
 };
 
 export type AppSettingsInput = {
-  anthropic_api_key?: string;
-  claude_model?: string;
+  gemini_api_key?: string;
+  gemini_flash_model?: string;
+  gemini_pro_model?: string;
   global_ai_rules?: string;
   social_agent_rules?: string;
   workspace_timezone?: string;

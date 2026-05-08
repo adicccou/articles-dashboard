@@ -155,7 +155,7 @@ export const RedditCampaignForm: React.FC<RedditCampaignFormProps> = ({
         </div>
 
         <label>
-          Agent Instructions (Claude System Prompt) *
+          Agent Instructions (AI System Prompt) *
           <textarea
             value={form.agent_instructions}
             onChange={(e) =>

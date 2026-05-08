@@ -1,9 +1,10 @@
-import { callClaudeText, type ClaudeMessage } from "../lib/claude";
+import { type GeminiMessage } from "../lib/gemini";
+import { callAiText } from "../lib/ai";
 import { errorResponse, jsonResponse, parseJson } from "../lib/http";
 import type { Env } from "../lib/types";
 
 interface AssistantChatPayload {
-  messages: ClaudeMessage[];
+  messages: GeminiMessage[];
 }
 
 interface AssistantContext {
@@ -90,29 +91,29 @@ interface AssistantActionResult {
 }
 
 interface AssistantRuntimeSettings {
-  anthropicApiKey: string;
-  claudeModel: string;
+  geminiApiKey: string;
+  geminiProModel: string;
   globalAiRules: string;
   socialAgentRules: string;
 }
 
 async function readAssistantRuntimeSettings(env: Env): Promise<AssistantRuntimeSettings> {
   const rows = await env.DB.prepare(
-    "SELECT key, value FROM app_settings WHERE key IN ('anthropic_api_key', 'claude_model', 'global_ai_rules', 'social_agent_rules')",
+    "SELECT key, value FROM app_settings WHERE key IN ('gemini_api_key', 'gemini_pro_model', 'global_ai_rules', 'social_agent_rules')",
   ).all<{ key: string; value: string }>();
 
-  let anthropicApiKey = env.CLAUDE_API_KEY ?? "";
-  let claudeModel = env.CLAUDE_MODEL ?? "claude-sonnet-4-20250514";
+  let geminiApiKey = env.GEMINI_API_KEY ?? "";
+  let geminiProModel = env.GEMINI_PRO_MODEL ?? "gemini-3.1-pro-preview";
   let globalAiRules = "";
   let socialAgentRules = "";
 
   for (const row of rows.results ?? []) {
-    if (row.key === "anthropic_api_key" && row.value) {
-      anthropicApiKey = row.value;
+    if (row.key === "gemini_api_key" && row.value) {
+      geminiApiKey = row.value;
     }
 
-    if (row.key === "claude_model" && row.value) {
-      claudeModel = row.value;
+    if (row.key === "gemini_pro_model" && row.value) {
+      geminiProModel = row.value;
     }
 
     if (row.key === "global_ai_rules") {
@@ -124,7 +125,12 @@ async function readAssistantRuntimeSettings(env: Env): Promise<AssistantRuntimeS
     }
   }
 
-  return { anthropicApiKey, claudeModel, globalAiRules, socialAgentRules };
+  return {
+    geminiApiKey,
+    geminiProModel,
+    globalAiRules,
+    socialAgentRules,
+  };
 }
 
 async function buildAssistantContext(env: Env): Promise<AssistantContext> {
@@ -427,8 +433,8 @@ export async function chatWithAssistant(env: Env, request: Request): Promise<Res
   try {
     const runtimeSettings = await readAssistantRuntimeSettings(env);
 
-    if (!runtimeSettings.anthropicApiKey) {
-      return errorResponse("CLAUDE_API_KEY is not configured", 500);
+    if (!runtimeSettings.geminiApiKey) {
+      return errorResponse("No Gemini API key is configured", 500);
     }
 
     const payload = await parseJson<AssistantChatPayload>(request);
@@ -444,9 +450,9 @@ export async function chatWithAssistant(env: Env, request: Request): Promise<Res
     }
 
     const context = await buildAssistantContext(env);
-    const rawReply = await callClaudeText({
-      apiKey: runtimeSettings.anthropicApiKey,
-      model: runtimeSettings.claudeModel,
+    const rawReply = await callAiText({
+      apiKey: runtimeSettings.geminiApiKey,
+      model: runtimeSettings.geminiProModel,
       maxTokens: 1400,
       system: buildSystemPrompt(context, runtimeSettings),
       messages,

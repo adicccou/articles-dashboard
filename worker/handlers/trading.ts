@@ -1,5 +1,6 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
+import { parseTradingStrategyToJSON, type ParsedStrategy } from "../lib/gemini";
 
 interface CreateStrategyPayload {
   name: string;
@@ -22,6 +23,7 @@ type TradingStrategyRow = {
   name: string;
   knowledge_base_id: number | null;
   strategy_text: string;
+  parsed_strategy: string | null;
   assets: string;
   daily_max_trade_signals: number;
   strategy_type: "scalping" | "daytrading" | "swing" | "position";
@@ -93,9 +95,19 @@ function normalizeTradingStrategy(row: TradingStrategyRow | null) {
     trading_hours = [];
   }
 
+  let parsed_strategy: ParsedStrategy | null = null;
+  try {
+    if (row.parsed_strategy) {
+      parsed_strategy = JSON.parse(row.parsed_strategy);
+    }
+  } catch {
+    parsed_strategy = null;
+  }
+
   return {
     ...row,
     strategy_text: row.strategy_text || "",
+    parsed_strategy,
     assets: normalizeAssets(row.assets),
     trading_hours,
   };
@@ -204,6 +216,20 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
       ? JSON.stringify(payload.trading_hours)
       : "[]";
 
+    let parsedStrategyStr: string | null = null;
+    if (String(payload.strategy_text || "").trim()) {
+      try {
+        const geminiKeyRow = await env.DB.prepare("SELECT value FROM app_settings WHERE key = 'gemini_api_key'").first<{value: string}>();
+        if (geminiKeyRow?.value) {
+          const parsed = await parseTradingStrategyToJSON(payload.strategy_text!, geminiKeyRow.value);
+          parsedStrategyStr = JSON.stringify(parsed);
+        }
+      } catch (err) {
+        console.error("Failed to parse strategy", err);
+        parsedStrategyStr = null;
+      }
+    }
+
     const now = new Date().toISOString();
     const result = await env.DB.prepare(
       `INSERT INTO trading_strategies (
@@ -222,9 +248,10 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
         execution_mode,
         trading_hours,
         status,
+        parsed_strategy,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'inactive', ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'inactive', ?, ?, ?)`,
     )
       .bind(
         payload.name,
@@ -241,6 +268,7 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
         payload.max_open_positions ?? 1,
         payload.execution_mode ?? "demo",
         tradingHours,
+        parsedStrategyStr,
         now,
         now,
       )
@@ -270,6 +298,7 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
         execution_mode: payload.execution_mode ?? "demo",
         trading_hours: Array.isArray(payload.trading_hours) ? payload.trading_hours : [],
         status: "inactive",
+        parsed_strategy: parsedStrategyStr ? JSON.parse(parsedStrategyStr) : null,
         created_at: now,
         updated_at: now,
       },
@@ -309,11 +338,26 @@ export async function updateStrategy(
       values.push(payload.name);
     }
     if (payload.strategy_text !== undefined) {
-      if (!String(payload.strategy_text || "").trim()) {
+      const text = String(payload.strategy_text || "").trim();
+      if (!text) {
         return errorResponse("Strategy instructions cannot be empty.", 400);
       }
       updates.push("strategy_text = ?");
-      values.push(String(payload.strategy_text || "").trim());
+      values.push(text);
+
+      let parsedStrategyStr: string | null = null;
+      try {
+        const geminiKeyRow = await env.DB.prepare("SELECT value FROM app_settings WHERE key = 'gemini_api_key'").first<{value: string}>();
+        if (geminiKeyRow?.value) {
+          const parsed = await parseTradingStrategyToJSON(text, geminiKeyRow.value);
+          parsedStrategyStr = JSON.stringify(parsed);
+        }
+      } catch (err) {
+        console.error("Failed to parse strategy", err);
+        parsedStrategyStr = null;
+      }
+      updates.push("parsed_strategy = ?");
+      values.push(parsedStrategyStr);
     }
     if (payload.assets !== undefined) {
       const assets = normalizeAssets(payload.assets);

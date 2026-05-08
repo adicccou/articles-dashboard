@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { api } from "../lib/api";
+import { formatDisplayDateTime } from "../lib/datetime";
 import type { AssistantContext, AssistantMessage } from "../lib/types";
 import "../styles/assistant-page.css";
 
@@ -222,7 +223,7 @@ export function AssistantConsole({
                   <div key={`${article.title}-${article.updated_at}`} className="assistant-list__item">
                     <strong>{article.title}</strong>
                     <span>
-                      {article.status} • {new Date(article.updated_at).toLocaleString()}
+                      {article.status} • {formatDisplayDateTime(article.updated_at)}
                     </span>
                   </div>
                 ))}
@@ -243,7 +244,7 @@ export function AssistantConsole({
                     <strong>{item.title}</strong>
                     <span>
                       {item.platform} • {item.status}
-                      {item.scheduled_for ? ` • ${new Date(item.scheduled_for).toLocaleString()}` : ""}
+                      {item.scheduled_for ? ` • ${formatDisplayDateTime(item.scheduled_for)}` : ""}
                     </span>
                   </div>
                 ))}

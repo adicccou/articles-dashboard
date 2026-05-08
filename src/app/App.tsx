@@ -32,7 +32,9 @@ export function App() {
   const [assistantModalOpen, setAssistantModalOpen] = useState(false);
   const [appSettings, setAppSettings] = useState<AppSettings>({
     ai_api_connected: false,
-    claude_model: "claude-sonnet-4-20250514",
+    gemini_api_connected: false,
+    gemini_flash_model: "gemini-3.1-flash-lite",
+    gemini_pro_model: "gemini-3.1-pro-preview",
     global_ai_rules: "",
     social_agent_rules: "",
     workspace_timezone: "Asia/Kuala_Lumpur",

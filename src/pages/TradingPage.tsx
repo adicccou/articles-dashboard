@@ -265,6 +265,15 @@ export function TradingPage() {
             </div>
           </div>
 
+          {selectedStrategy.parsed_strategy && (
+            <div style={{ backgroundColor: "#fdf8f6", border: "1px solid #fecdd3", padding: "16px", borderRadius: "8px", marginBottom: "24px" }}>
+              <h4 style={{ color: "#9f1239", marginBottom: "8px", fontSize: "14px", fontWeight: 600 }}>🤖 AI Understanding Summary</h4>
+              <p style={{ color: "#4c0519", fontSize: "14px", lineHeight: 1.5 }}>
+                {selectedStrategy.parsed_strategy.understanding_summary}
+              </p>
+            </div>
+          )}
+
           {stats ? (
             <div className="trading-stats">
               <div className="stat-card">

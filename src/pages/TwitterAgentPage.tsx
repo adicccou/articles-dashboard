@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { SocialAccount, SocialPost, PlannerItem } from "../lib/types";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
+import { formatDisplayDateTime } from "../lib/datetime";
 import { SocialPublisherWorkspace, type SocialWorkspaceFeedback } from "../components/SocialPublisherWorkspace";
 import { KnowledgeBaseEditor } from "../components/KnowledgeBaseEditor";
 import { SocialCampaignModal } from "../components/SocialCampaignModal";
@@ -111,8 +112,8 @@ export function TwitterAgentPage() {
                   </span>
                   <span className="social-muted">{item.interval_minutes ? `${item.interval_minutes} min` : "—"}</span>
                   <span className="social-muted">
-                    {item.duration_start ? new Date(item.duration_start).toLocaleString() : "Started immediately"}
-                    {item.duration_end ? ` → ${new Date(item.duration_end).toLocaleString()}` : ""}
+                    {item.duration_start ? formatDisplayDateTime(item.duration_start) : "Started immediately"}
+                    {item.duration_end ? ` → ${formatDisplayDateTime(item.duration_end)}` : ""}
                   </span>
                   <span className="social-table-actions">
                     <button

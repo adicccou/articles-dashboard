@@ -6,7 +6,9 @@ export type SettingsTabId = "ai" | "rules" | "trading" | "agent";
 interface APIConnectionPanelProps {
   activeTab?: SettingsTabId;
   aiApiConnected?: boolean;
-  claudeModel?: string;
+  geminiApiConnected?: boolean;
+  geminiFlashModel?: string;
+  geminiProModel?: string;
   globalAiRules?: string;
   socialAgentRules?: string;
   workspaceTimezone?: string;
@@ -22,8 +24,9 @@ interface APIConnectionPanelProps {
   ctraderAccessTokenSaved?: boolean;
   syncMessage?: string | null;
   onSave?: (payload: {
-    anthropic_api_key?: string;
-    claude_model?: string;
+    gemini_api_key?: string;
+    gemini_flash_model?: string;
+    gemini_pro_model?: string;
     global_ai_rules?: string;
     social_agent_rules?: string;
     workspace_timezone?: string;
@@ -44,7 +47,9 @@ interface APIConnectionPanelProps {
 export function APIConnectionPanel({
   activeTab = "ai",
   aiApiConnected,
-  claudeModel = "claude-sonnet-4-20250514",
+  geminiApiConnected,
+  geminiFlashModel = "gemini-3.1-flash-lite",
+  geminiProModel = "gemini-3.1-pro-preview",
   globalAiRules = "",
   socialAgentRules = "",
   workspaceTimezone = "Asia/Kuala_Lumpur",
@@ -62,10 +67,11 @@ export function APIConnectionPanel({
   onSave,
   onSyncAgent,
   title = "AI API Connection",
-  description = "Shared settings used across all tools. Keep one AI API connection here instead of repeating it in each section.",
+  description = "Shared settings used across all tools. Keep one AI API configuration here instead of repeating it in each section.",
 }: APIConnectionPanelProps) {
-  const [claudeKey, setClaudeKey] = useState("");
-  const [model, setModel] = useState(claudeModel);
+  const [geminiKey, setGeminiKey] = useState("");
+  const [geminiFlash, setGeminiFlash] = useState(geminiFlashModel);
+  const [geminiPro, setGeminiPro] = useState(geminiProModel);
   const [globalRules, setGlobalRules] = useState(globalAiRules);
   const [socialRules, setSocialRules] = useState(socialAgentRules);
   const [timezoneValue, setTimezoneValue] = useState(workspaceTimezone);
@@ -83,8 +89,12 @@ export function APIConnectionPanel({
   const [savingRules, setSavingRules] = useState(false);
 
   useEffect(() => {
-    setModel(claudeModel);
-  }, [claudeModel]);
+    setGeminiFlash(geminiFlashModel);
+  }, [geminiFlashModel]);
+
+  useEffect(() => {
+    setGeminiPro(geminiProModel);
+  }, [geminiProModel]);
 
   useEffect(() => {
     setAgentUrl(tradingAgentUrl);
@@ -125,8 +135,9 @@ export function APIConnectionPanel({
   };
 
   const buildPayload = () => ({
-    anthropic_api_key: claudeKey || undefined,
-    claude_model: model,
+    gemini_api_key: geminiKey || undefined,
+    gemini_flash_model: geminiFlash,
+    gemini_pro_model: geminiPro,
     global_ai_rules: globalRules,
     social_agent_rules: socialRules,
     workspace_timezone: timezoneValue.trim() || "Asia/Kuala_Lumpur",
@@ -143,16 +154,17 @@ export function APIConnectionPanel({
   const hasUnsavedAgentChanges =
     agentUrl !== tradingAgentUrl ||
     agentToken.trim().length > 0 ||
-    model !== claudeModel ||
+    geminiFlash !== geminiFlashModel ||
+    geminiPro !== geminiProModel ||
     globalRules !== globalAiRules ||
     socialRules !== socialAgentRules ||
     timezoneValue !== workspaceTimezone ||
-    claudeKey.trim().length > 0;
+    geminiKey.trim().length > 0;
 
   const tabMeta: Record<SettingsTabId, { title: string; description: string }> = {
     ai: {
       title: "AI API Connection",
-      description: "Connect the shared Claude model that powers the dashboard and the trading agent.",
+      description: "Connect the shared Gemini models used for trading and social reasoning.",
     },
     rules: {
       title: "AI Operating Rules",
@@ -177,7 +189,7 @@ export function APIConnectionPanel({
 
       <div className={`api-panel__section ${activeTab === "ai" ? "" : "api-panel__section--hidden"}`}>
         <div className="api-panel__header">
-          <h4>Anthropic / Claude API</h4>
+          <h4>Shared AI API Settings</h4>
           <span className={`api-panel__status ${aiApiConnected ? "connected" : "disconnected"}`}>
             {aiApiConnected ? "✓ Connected" : "○ Not Connected"}
           </span>
@@ -185,33 +197,46 @@ export function APIConnectionPanel({
         <div className="api-panel__inputs">
           <input
             type="password"
-            placeholder="Claude API Key"
-            value={claudeKey}
-            onChange={(e) => setClaudeKey(e.target.value)}
+            placeholder="Primary AI API Key"
+            value={geminiKey}
+            onChange={(e) => setGeminiKey(e.target.value)}
             className="api-panel__input"
           />
           <input
             type="text"
-            placeholder="Claude model"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
+            placeholder="Primary scan model"
+            value={geminiFlash}
+            onChange={(e) => setGeminiFlash(e.target.value)}
+            className="api-panel__input"
+          />
+          <input
+            type="text"
+            placeholder="Primary reasoning model"
+            value={geminiPro}
+            onChange={(e) => setGeminiPro(e.target.value)}
             className="api-panel__input"
           />
           <button
             onClick={async () => {
               await onSave?.(buildPayload());
-              setClaudeKey("");
+              setGeminiKey("");
               setAgentToken("");
               setCtraderClientSecret("");
               setCtraderAccessToken("");
-              handleTestConnection("claude");
+              handleTestConnection("ai");
             }}
-            disabled={testingConnection === "claude"}
+            disabled={testingConnection === "ai"}
             className="api-panel__button"
           >
-            {testingConnection === "claude" ? "Testing..." : "Connect"}
+            {testingConnection === "ai" ? "Testing..." : "Save AI Settings"}
           </button>
         </div>
+        <p className="api-panel__helper">
+          Gemini Flash-Lite handles low-cost scan triage, while Gemini Pro handles deeper reasoning for trading and social tasks.
+        </p>
+        <p className="api-panel__helper">
+          Current status: Gemini {geminiApiConnected ? "connected" : "not connected"}.
+        </p>
       </div>
 
       <div className={`api-panel__section ${activeTab === "rules" ? "" : "api-panel__section--hidden"}`}>
@@ -399,7 +424,6 @@ export function APIConnectionPanel({
                 setSavingAgent(true);
                 try {
                   await onSave?.(buildPayload());
-                  setClaudeKey("");
                   setAgentToken("");
                   setCtraderClientSecret("");
                   setCtraderAccessToken("");
@@ -418,7 +442,6 @@ export function APIConnectionPanel({
                 try {
                   if (hasUnsavedAgentChanges) {
                     await onSave?.(buildPayload());
-                    setClaudeKey("");
                     setAgentToken("");
                     setCtraderClientSecret("");
                     setCtraderAccessToken("");

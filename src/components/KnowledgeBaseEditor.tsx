@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { KnowledgeBase, KnowledgeBaseVersion } from "../lib/types";
 import { api } from "../lib/api";
+import { formatDisplayDateTime } from "../lib/datetime";
 import "../styles/knowledge-base-editor.css";
 
 interface KnowledgeBaseEditorProps {
@@ -218,11 +219,5 @@ export function KnowledgeBaseEditor({ type, entityId, onSaved }: KnowledgeBaseEd
 
 function formatDate(date: string): string {
   if (!date) return "";
-  return new Date(date).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDisplayDateTime(date);
 }

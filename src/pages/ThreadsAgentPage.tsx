@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { SocialAccount, SocialPost, PlannerItem, ThreadsCampaignResult, ThreadsMedia } from "../lib/types";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
+import { formatDisplayDateTime } from "../lib/datetime";
 import { SocialPublisherWorkspace, type SocialWorkspaceFeedback } from "../components/SocialPublisherWorkspace";
 import { KnowledgeBaseEditor } from "../components/KnowledgeBaseEditor";
 import { SocialCampaignModal } from "../components/SocialCampaignModal";
@@ -88,7 +89,7 @@ export function ThreadsAgentPage() {
       <article className="social-thread-card" key={item.id}>
         <div className="social-thread-card__header">
           <strong>{displayName}</strong>
-          <span>{item.timestamp ? new Date(item.timestamp).toLocaleString() : item.media_type || "THREADS"}</span>
+          <span>{item.timestamp ? formatDisplayDateTime(item.timestamp) : item.media_type || "THREADS"}</span>
         </div>
         <p>{item.text || "No text returned for this media."}</p>
         <div className="social-thread-card__meta">
@@ -105,7 +106,7 @@ export function ThreadsAgentPage() {
       <article className="social-thread-card" key={`campaign-${item.id}`}>
         <div className="social-thread-card__header">
           <strong>{item.campaign_title || "Threads campaign"}</strong>
-          <span>{new Date(item.created_at).toLocaleString()}</span>
+          <span>{formatDisplayDateTime(item.created_at)}</span>
         </div>
         <div className="social-thread-card__meta">
           <span>{displayName}</span>
@@ -223,8 +224,8 @@ export function ThreadsAgentPage() {
                   </span>
                   <span className="social-muted">{item.interval_minutes ? `${item.interval_minutes} min` : "—"}</span>
                   <span className="social-muted">
-                    {item.duration_start ? new Date(item.duration_start).toLocaleString() : "Started immediately"}
-                    {item.duration_end ? ` → ${new Date(item.duration_end).toLocaleString()}` : ""}
+                    {item.duration_start ? formatDisplayDateTime(item.duration_start) : "Started immediately"}
+                    {item.duration_end ? ` → ${formatDisplayDateTime(item.duration_end)}` : ""}
                   </span>
                   <span className="social-table-actions">
                     <button

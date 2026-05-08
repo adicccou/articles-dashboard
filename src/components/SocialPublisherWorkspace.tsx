@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SocialAccount, SocialPost } from "../lib/types";
+import { formatDisplayDate, formatDisplayDateTime } from "../lib/datetime";
 import { getPostImageUrls } from "../lib/socialPostMedia";
 
 type Tab = "posts" | "campaigns" | "replies";
@@ -481,7 +482,7 @@ export function SocialPublisherWorkspace({
                       <span className={`social-status-pill social-status-pill--${statusTone(post.status)}`}>{post.status}</span>
                     </span>
                     <span className="social-muted">
-                      {post.scheduled_at ? new Date(post.scheduled_at).toLocaleString() : "—"}
+                      {post.scheduled_at ? formatDisplayDateTime(post.scheduled_at) : "—"}
                     </span>
                     <span className="social-table-actions">
                       {onPublishPost && post.status !== "posted" ? (
@@ -688,7 +689,7 @@ export function SocialPublisherWorkspace({
                         <span>
                           <span className={`social-status-pill social-status-pill--${statusTone(account.status)}`}>{account.status}</span>
                         </span>
-                        <span className="social-muted">{new Date(account.created_at).toLocaleDateString()}</span>
+                        <span className="social-muted">{formatDisplayDate(account.created_at)}</span>
                         <span className="social-table-actions">
                           <button className="social-inline-button social-inline-button--danger" type="button" onClick={() => void onDeleteAccount(account.id)}>
                             Remove
