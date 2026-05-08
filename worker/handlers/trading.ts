@@ -70,19 +70,15 @@ function normalizeAssets(input: unknown): string[] {
 
 async function readDashboardGeminiKey(env: Env): Promise<string> {
   const rows = await env.DB.prepare(
-    "SELECT key, value FROM app_settings WHERE key IN ('gemini_api_key', 'anthropic_api_key')",
+    "SELECT key, value FROM app_settings WHERE key = 'gemini_api_key'",
   ).all<{ key: string; value: string }>();
 
-  let legacyKey = "";
   for (const row of rows.results ?? []) {
     if (row.key === "gemini_api_key" && row.value) {
       return row.value;
     }
-    if (row.key === "anthropic_api_key" && row.value) {
-      legacyKey = row.value;
-    }
   }
-  return legacyKey;
+  return "";
 }
 
 function logStrategyEvent(event: string, strategy: TradingStrategyRow | null, extra: Record<string, unknown> = {}) {

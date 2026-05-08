@@ -3,6 +3,23 @@ export interface GeminiMessage {
   content: string;
 }
 
+export class GeminiApiError extends Error {
+  statusCode?: number;
+
+  constructor(message: string, statusCode?: number) {
+    super(message);
+    this.name = "GeminiApiError";
+    this.statusCode = statusCode;
+  }
+}
+
+export class GeminiRateLimitError extends GeminiApiError {
+  constructor(message: string, statusCode = 429) {
+    super(message, statusCode);
+    this.name = "GeminiRateLimitError";
+  }
+}
+
 interface GeminiTextRequest {
   apiKey: string;
   model: string;
@@ -42,47 +59,76 @@ export async function callGeminiText({
   system,
   messages,
 }: GeminiTextRequest): Promise<string> {
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "x-goog-api-key": apiKey,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        systemInstruction: system
-          ? {
-              role: "system",
-              parts: [{ text: system }],
-            }
-          : undefined,
-        contents: messages.map((message) => ({
-          role: message.role === "assistant" ? "model" : "user",
-          parts: [{ text: message.content }],
-        })),
-        generationConfig: {
-          maxOutputTokens: maxTokens,
-          temperature: 0.3,
-        },
-      }),
+  const body = JSON.stringify({
+    systemInstruction: system
+      ? {
+          role: "system",
+          parts: [{ text: system }],
+        }
+      : undefined,
+    contents: messages.map((message) => ({
+      role: message.role === "assistant" ? "model" : "user",
+      parts: [{ text: message.content }],
+    })),
+    generationConfig: {
+      maxOutputTokens: maxTokens,
+      temperature: 0.3,
     },
-  );
+  });
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Gemini API error: ${response.status} ${error}`);
-  }
-
-  const data = (await response.json()) as GeminiResponse;
-  const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text || "").filter(Boolean).join("\n").trim();
-  if (!text) {
-    throw new Error(
-      `Unexpected Gemini API response format${data.promptFeedback ? `: ${JSON.stringify(data.promptFeedback)}` : ""}`,
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "x-goog-api-key": apiKey,
+          "content-type": "application/json",
+        },
+        body,
+      },
     );
+
+    if (!response.ok) {
+      if ([429, 500, 502, 503, 504].includes(response.status) && attempt < 2) {
+        const retryAfter = response.headers.get("retry-after");
+        const retryMs = retryAfter ? Number.parseFloat(retryAfter) * 1000 : (attempt + 1) * 1000;
+        await new Promise((resolve) => setTimeout(resolve, Math.min(Number.isFinite(retryMs) ? retryMs : 1000, 5000)));
+        continue;
+      }
+
+      if (response.status === 429) {
+        throw new GeminiRateLimitError(`Gemini rate limit reached for model ${model}.`);
+      }
+
+      throw new GeminiApiError(`Gemini API request failed for model ${model}.`, response.status);
+    }
+
+    const data = (await response.json()) as GeminiResponse;
+    const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text || "").filter(Boolean).join("\n").trim();
+    if (!text) {
+      throw new GeminiApiError(
+        `Unexpected Gemini API response format${data.promptFeedback ? `: ${JSON.stringify(data.promptFeedback)}` : ""}`,
+      );
+    }
+
+    return text;
   }
 
-  return text;
+  throw new GeminiApiError(`Gemini request failed after retries for model ${model}.`);
+}
+
+export function formatGeminiUserError(error: unknown): string {
+  if (error instanceof GeminiRateLimitError) {
+    return "AI is busy right now because the Gemini request limit was hit. Please wait a minute and try again.";
+  }
+  if (error instanceof GeminiApiError) {
+    if (error.statusCode === 401 || error.statusCode === 403) {
+      return "AI is not available right now because the Gemini API key or project access is invalid.";
+    }
+    return "AI is temporarily unavailable right now. Please try again shortly.";
+  }
+  return "AI could not answer right now. Please try again shortly.";
 }
 
 export async function parseTradingStrategyToJSON(

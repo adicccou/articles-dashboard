@@ -1,4 +1,4 @@
-import { type GeminiMessage } from "../lib/gemini";
+import { formatGeminiUserError, type GeminiMessage } from "../lib/gemini";
 import { callAiText } from "../lib/ai";
 import { errorResponse, jsonResponse, parseJson } from "../lib/http";
 import type { Env } from "../lib/types";
@@ -92,6 +92,7 @@ interface AssistantActionResult {
 
 interface AssistantRuntimeSettings {
   geminiApiKey: string;
+  geminiFlashModel: string;
   geminiProModel: string;
   globalAiRules: string;
   socialAgentRules: string;
@@ -99,10 +100,11 @@ interface AssistantRuntimeSettings {
 
 async function readAssistantRuntimeSettings(env: Env): Promise<AssistantRuntimeSettings> {
   const rows = await env.DB.prepare(
-    "SELECT key, value FROM app_settings WHERE key IN ('gemini_api_key', 'anthropic_api_key', 'gemini_pro_model', 'global_ai_rules', 'social_agent_rules')",
+    "SELECT key, value FROM app_settings WHERE key IN ('gemini_api_key', 'gemini_flash_model', 'gemini_pro_model', 'global_ai_rules', 'social_agent_rules')",
   ).all<{ key: string; value: string }>();
 
   let geminiApiKey = "";
+  let geminiFlashModel = "gemini-3.1-flash-lite";
   let geminiProModel = "gemini-3.1-pro-preview";
   let globalAiRules = "";
   let socialAgentRules = "";
@@ -112,8 +114,8 @@ async function readAssistantRuntimeSettings(env: Env): Promise<AssistantRuntimeS
       geminiApiKey = row.value;
     }
 
-    if (row.key === "anthropic_api_key" && row.value && !geminiApiKey) {
-      geminiApiKey = row.value;
+    if (row.key === "gemini_flash_model" && row.value) {
+      geminiFlashModel = row.value;
     }
 
     if (row.key === "gemini_pro_model" && row.value) {
@@ -131,6 +133,7 @@ async function readAssistantRuntimeSettings(env: Env): Promise<AssistantRuntimeS
 
   return {
     geminiApiKey,
+    geminiFlashModel,
     geminiProModel,
     globalAiRules,
     socialAgentRules,
@@ -457,6 +460,7 @@ export async function chatWithAssistant(env: Env, request: Request): Promise<Res
     const rawReply = await callAiText({
       apiKey: runtimeSettings.geminiApiKey,
       model: runtimeSettings.geminiProModel,
+      fallbackModel: runtimeSettings.geminiFlashModel,
       maxTokens: 1400,
       system: buildSystemPrompt(context, runtimeSettings),
       messages,
@@ -472,7 +476,7 @@ export async function chatWithAssistant(env: Env, request: Request): Promise<Res
       action_results: actionResults,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Assistant request failed";
+    const message = formatGeminiUserError(error);
     return errorResponse(message, 500);
   }
 }
