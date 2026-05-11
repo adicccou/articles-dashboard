@@ -62,3 +62,175 @@
     grid-template-columns: minmax(160px, 1.4fr) minmax(100px, 0.9fr) minmax(80px, 0.7fr) minmax(90px, 0.7fr) minmax(90px, 0.7fr) minmax(150px, 1fr) minmax(210px, 1.1fr);
   }
 }
+
+/* ── LEAN Status Card ────────────────────────────────────────── */
+.lean-status-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lean-status-card--loading {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.lean-status-card__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.lean-status-card__label {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.lean-status-card__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.lean-status-card__dot--live {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25);
+  animation: lean-pulse 2s infinite;
+}
+
+.lean-status-card__dot--backtest {
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.25);
+  animation: lean-pulse 1s infinite;
+}
+
+.lean-status-card__dot--idle {
+  background: #d1d5db;
+}
+
+.lean-status-card__dot--offline {
+  background: #ef4444;
+}
+
+@keyframes lean-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.lean-status-card__badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.lean-status-card__badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 99px;
+  letter-spacing: 0.02em;
+}
+
+.lean-status-card__badge--live {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.lean-status-card__badge--backtest {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.lean-status-card__badge--demo {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.lean-status-card__badge--offline {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.lean-status-card__refresh {
+  background: none;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  color: #9ca3af;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+  margin-left: auto;
+}
+
+.lean-status-card__refresh:hover {
+  color: #374151;
+  background: #f3f4f6;
+}
+
+.lean-status-card__metrics {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.lean-status-card__metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 80px;
+}
+
+.lean-status-card__metric-label {
+  font-size: 11px;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+
+.lean-status-card__metric-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: #111827;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lean-status-card__metric-value--muted {
+  color: #9ca3af;
+  font-weight: 400;
+}
+
+.lean-status-card__metric-cap {
+  color: #9ca3af;
+  font-weight: 400;
+}
+
+.lean-status-card__direction--long {
+  color: #166534;
+}
+
+.lean-status-card__direction--short {
+  color: #dc2626;
+}
+
+.lean-status-card__timeframe {
+  font-size: 11px;
+  background: #f3f4f6;
+  color: #6b7280;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+.lean-status-card__error {
+  font-size: 12px;
+  color: #9ca3af;
+  margin: 0;
+}

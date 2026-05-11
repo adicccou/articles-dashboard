@@ -479,3 +479,29 @@ export async function completeCtraderConnectionFromAgent(
     return errorResponse(error instanceof Error ? error.message : "Failed to complete cTrader connection", 500);
   }
 }
+
+export async function getLeanStatus(env: Env): Promise<Response> {
+  const settings = await readSettings(env);
+  if (!settings.trading_agent_url || !settings.trading_agent_token) {
+    return jsonResponse({ connected: false, error: "Trading agent not configured" });
+  }
+  try {
+    const response = await fetch(
+      `${settings.trading_agent_url.replace(/\/$/, "")}/lean-status`,
+      {
+        headers: { Authorization: `Bearer ${settings.trading_agent_token}` },
+        signal: AbortSignal.timeout(5000),
+      },
+    );
+    if (!response.ok) {
+      return jsonResponse({ connected: false, error: `Agent returned ${response.status}` });
+    }
+    const data = await response.json() as Record<string, unknown>;
+    return jsonResponse({ connected: true, ...data });
+  } catch (error) {
+    return jsonResponse({
+      connected: false,
+      error: error instanceof Error ? error.message : "Could not reach trading agent",
+    });
+  }
+}

@@ -189,6 +189,18 @@ export const api = {
       method: "POST",
       body: JSON.stringify({}),
     }),
+  getLeanStatus: () =>
+    request<{
+      connected: boolean;
+      scanner_running?: boolean;
+      backtest_running?: boolean;
+      last_signal?: { symbol: string; direction: string; confidence: number | null; timeframe: string; detected_at: string } | null;
+      signals_today?: number;
+      signals_cap?: number;
+      strategy_active?: boolean;
+      demo_mode?: boolean;
+      error?: string;
+    }>("/api/trading/lean-status"),
   getJournlStats: () => request<JournlStats>("/api/stats/journl"),
 
   // Social posts (shared across Twitter and Threads)
