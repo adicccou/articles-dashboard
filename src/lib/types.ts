@@ -436,6 +436,10 @@ export type SocialAccountInput = {
 export type SocialPost = {
   id: number;
   platform: "twitter" | "threads" | "reddit";
+  title?: string | null;
+  subreddit?: string | null;
+  account_id?: number | null;
+  reply_to_id?: string | null;
   content: string;
   image_url?: string | null;
   status: "draft" | "approved" | "scheduled" | "posted" | "failed";

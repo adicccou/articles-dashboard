@@ -23,6 +23,18 @@ type SocialPostRow = {
   external_id: string | null;
 };
 
+type TwitterPublishError = {
+  message: string;
+  status: number;
+};
+
+type SocialPostSchemaCapabilities = {
+  hasTitle: boolean;
+  hasSubreddit: boolean;
+  hasAccountId: boolean;
+  hasReplyToId: boolean;
+};
+
 async function upsertSetting(env: Env, key: string, value: string, updatedAt: string): Promise<void> {
   await env.DB.prepare(
     `INSERT INTO app_settings (key, value, updated_at)
@@ -38,6 +50,17 @@ async function readSetting(env: Env, key: string): Promise<string | null> {
     .bind(key)
     .first<{ value: string }>();
   return row?.value?.trim() || null;
+}
+
+export async function getSocialPostSchemaCapabilities(env: Env): Promise<SocialPostSchemaCapabilities> {
+  const columns = await env.DB.prepare("PRAGMA table_info(social_posts)").all<{ name: string }>();
+  const names = new Set((columns.results ?? []).map((column) => String(column.name || "").trim().toLowerCase()));
+  return {
+    hasTitle: names.has("title"),
+    hasSubreddit: names.has("subreddit"),
+    hasAccountId: names.has("account_id"),
+    hasReplyToId: names.has("reply_to_id"),
+  };
 }
 
 function oauthEncode(value: string): string {
@@ -68,6 +91,7 @@ async function buildTwitterOAuthHeader(
   method: string,
   endpoint: string,
   credentials: TwitterCredentials,
+  queryParams?: Record<string, string>,
 ): Promise<string> {
   const oauthParams: Record<string, string> = {
     oauth_consumer_key: credentials.apiKey,
@@ -78,7 +102,12 @@ async function buildTwitterOAuthHeader(
     oauth_version: "1.0",
   };
 
-  const parameterString = Object.entries(oauthParams)
+  const signatureParams = {
+    ...oauthParams,
+    ...(queryParams ?? {}),
+  };
+
+  const parameterString = Object.entries(signatureParams)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => `${oauthEncode(key)}=${oauthEncode(value)}`)
     .join("&");
@@ -153,6 +182,32 @@ async function deleteTwitterPostExternally(env: Env, externalId: string): Promis
   }
 }
 
+function extractTwitterErrorMessage(
+  payload: { detail?: string; title?: string; errors?: Array<{ message?: string }> },
+  fallback: string,
+): string {
+  return (
+    payload.detail
+    || payload.title
+    || payload.errors?.map((error) => error.message).filter(Boolean).join("; ")
+    || fallback
+  );
+}
+
+function classifyTwitterPublishError(message: string): TwitterPublishError {
+  const normalized = message.trim();
+  if (/does not have any credits/i.test(normalized)) {
+    return {
+      status: 402,
+      message: "The connected Twitter/X account has no posting credits left. Add credits or switch to an account/project with posting access, then try again.",
+    };
+  }
+  return {
+    status: 500,
+    message: normalized || "Failed to publish Twitter/X post",
+  };
+}
+
 // ------------------------------------------------------------------ social posts
 
 export async function listSocialPosts(env: Env, platform: string): Promise<Response> {
@@ -170,24 +225,62 @@ export async function listSocialPosts(env: Env, platform: string): Promise<Respo
 
 export async function createSocialPost(env: Env, platform: string, request: Request): Promise<Response> {
   try {
-    const payload = await parseJson<{ content?: string; scheduled_at?: string; image_url?: string }>(request);
+    const payload = await parseJson<{
+      content?: string;
+      scheduled_at?: string;
+      image_url?: string;
+      title?: string;
+      subreddit?: string;
+      account_id?: number | null;
+      reply_to_id?: string | null;
+    }>(request);
     const content = payload.content?.trim() ?? "";
     const imageUrl = payload.image_url?.trim() ?? "";
-    if (!content && !imageUrl) {
+    const title = payload.title?.trim() ?? "";
+    const subreddit = payload.subreddit?.trim().replace(/^r\//i, "") ?? "";
+    const capabilities = await getSocialPostSchemaCapabilities(env);
+    const requiresRedditMetadata = platform === "reddit";
+    if (requiresRedditMetadata && !capabilities.hasTitle && !capabilities.hasSubreddit) {
+      return errorResponse("Apply the latest social_posts migration before creating Reddit posts.", 400);
+    }
+    if (!content && !imageUrl && !title) {
       return errorResponse("content or image_url is required", 400);
     }
     const now = new Date().toISOString();
     const status = payload.scheduled_at ? "scheduled" : "draft";
+    const columns = ["platform", "content", "image_url", "status", "scheduled_at", "created_by", "created_at", "updated_at"];
+    const values: Array<string | number | null> = [platform, content, imageUrl || null, status, payload.scheduled_at ?? null, "dashboard", now, now];
+    if (capabilities.hasTitle) {
+      columns.push("title");
+      values.push(title || null);
+    }
+    if (capabilities.hasSubreddit) {
+      columns.push("subreddit");
+      values.push(subreddit || null);
+    }
+    if (capabilities.hasAccountId) {
+      columns.push("account_id");
+      values.push(payload.account_id ?? null);
+    }
+    if (capabilities.hasReplyToId) {
+      columns.push("reply_to_id");
+      values.push(payload.reply_to_id?.trim() || null);
+    }
+    const placeholders = columns.map(() => "?").join(", ");
     const result = await env.DB.prepare(
-      `INSERT INTO social_posts (platform, content, image_url, status, scheduled_at, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'dashboard', ?, ?)`,
+      `INSERT INTO social_posts (${columns.join(", ")})
+       VALUES (${placeholders})`,
     )
-      .bind(platform, content, imageUrl || null, status, payload.scheduled_at ?? null, now, now)
+      .bind(...values)
       .run() as { meta: { last_row_id: number } };
 
     return jsonResponse({
       id: result.meta.last_row_id,
       platform,
+      title: title || null,
+      subreddit: subreddit || null,
+      account_id: payload.account_id ?? null,
+      reply_to_id: payload.reply_to_id?.trim() || null,
       content,
       image_url: imageUrl || null,
       status,
@@ -207,8 +300,18 @@ export async function updateSocialPost(env: Env, postId: string, request: Reques
   try {
     const id = Number(postId);
     if (isNaN(id)) return errorResponse("Invalid post ID", 400);
-    const payload = await parseJson<{ content?: string; image_url?: string | null; status?: string; scheduled_at?: string }>(request);
+    const payload = await parseJson<{
+      content?: string;
+      image_url?: string | null;
+      status?: string;
+      scheduled_at?: string;
+      title?: string | null;
+      subreddit?: string | null;
+      account_id?: number | null;
+      reply_to_id?: string | null;
+    }>(request);
     const now = new Date().toISOString();
+    const capabilities = await getSocialPostSchemaCapabilities(env);
 
     const updates: string[] = [];
     const values: unknown[] = [];
@@ -217,6 +320,10 @@ export async function updateSocialPost(env: Env, postId: string, request: Reques
     if (payload.image_url !== undefined) { updates.push("image_url = ?"); values.push(payload.image_url); }
     if (payload.status !== undefined) { updates.push("status = ?"); values.push(payload.status); }
     if (payload.scheduled_at !== undefined) { updates.push("scheduled_at = ?"); values.push(payload.scheduled_at); }
+    if (capabilities.hasTitle && payload.title !== undefined) { updates.push("title = ?"); values.push(payload.title?.trim() || null); }
+    if (capabilities.hasSubreddit && payload.subreddit !== undefined) { updates.push("subreddit = ?"); values.push(payload.subreddit?.trim().replace(/^r\//i, "") || null); }
+    if (capabilities.hasAccountId && payload.account_id !== undefined) { updates.push("account_id = ?"); values.push(payload.account_id); }
+    if (capabilities.hasReplyToId && payload.reply_to_id !== undefined) { updates.push("reply_to_id = ?"); values.push(payload.reply_to_id?.trim() || null); }
 
     if (updates.length === 0) return errorResponse("No fields to update", 400);
     updates.push("updated_at = ?");
@@ -263,14 +370,202 @@ export async function deleteSocialPost(env: Env, postId: string): Promise<Respon
   }
 }
 
+type TwitterMeResponse = {
+  data?: {
+    id?: string;
+    username?: string;
+    name?: string;
+  };
+};
+
+type TwitterMentionsResponse = {
+  data?: Array<{
+    id?: string;
+    author_id?: string;
+    conversation_id?: string;
+    text?: string;
+    created_at?: string;
+  }>;
+  includes?: {
+    users?: Array<{
+      id?: string;
+      username?: string;
+      name?: string;
+    }>;
+  };
+};
+
+async function fetchTwitterMe(env: Env): Promise<{ id: string; username: string; name?: string }> {
+  const credentials = await getTwitterCredentials(env);
+  if (!credentials) throw new Error("No active Twitter/X account with API credentials was found.");
+
+  const endpoint = "https://api.twitter.com/2/users/me?user.fields=username,name";
+  const meQueryParams = { "user.fields": "username,name" };
+  const response = await fetch(endpoint, {
+    headers: {
+      Authorization: await buildTwitterOAuthHeader("GET", "https://api.twitter.com/2/users/me", credentials, meQueryParams),
+    },
+  });
+  const payload = await response.json() as TwitterMeResponse & { detail?: string; title?: string; errors?: Array<{ message?: string }> };
+  if (!response.ok || !payload.data?.id || !payload.data.username) {
+    throw new Error(extractTwitterErrorMessage(payload, "Failed to load the connected Twitter/X account."));
+  }
+  return {
+    id: payload.data.id,
+    username: payload.data.username,
+    name: payload.data.name,
+  };
+}
+
+export async function listTwitterComments(env: Env, postId?: string | null, limit?: string | null): Promise<Response> {
+  try {
+    const me = await fetchTwitterMe(env);
+    const requestedLimit = Math.max(1, Math.min(Number(limit || 20) || 20, 100));
+    const targets = postId
+      ? await env.DB.prepare(
+        "SELECT id, external_id, content FROM social_posts WHERE id = ? AND platform = 'twitter' AND status = 'posted'",
+      ).bind(Number(postId)).all<{ id: number; external_id: string | null; content: string }>()
+      : await env.DB.prepare(
+        "SELECT id, external_id, content FROM social_posts WHERE platform = 'twitter' AND status = 'posted' ORDER BY posted_at DESC, updated_at DESC LIMIT 10",
+      ).all<{ id: number; external_id: string | null; content: string }>();
+    const targetRows = (targets.results ?? []).filter((row) => row.external_id?.trim());
+    const targetMap = new Map(targetRows.map((row) => [String(row.external_id).trim(), row]));
+    if (!targetMap.size) return jsonResponse({ data: [] });
+
+    const endpoint = new URL(`https://api.twitter.com/2/users/${encodeURIComponent(me.id)}/mentions`);
+    endpoint.searchParams.set("max_results", String(requestedLimit));
+    endpoint.searchParams.set("tweet.fields", "author_id,conversation_id,created_at,text");
+    endpoint.searchParams.set("expansions", "author_id");
+    endpoint.searchParams.set("user.fields", "username,name");
+    const baseEndpoint = `https://api.twitter.com/2/users/${encodeURIComponent(me.id)}/mentions`;
+    const mentionsQueryParams = {
+      max_results: String(requestedLimit),
+      "tweet.fields": "author_id,conversation_id,created_at,text",
+      expansions: "author_id",
+      "user.fields": "username,name",
+    };
+    const credentials = await getTwitterCredentials(env);
+    if (!credentials) throw new Error("No active Twitter/X account with API credentials was found.");
+    const response = await fetch(endpoint.toString(), {
+      headers: {
+        Authorization: await buildTwitterOAuthHeader("GET", baseEndpoint, credentials, mentionsQueryParams),
+      },
+    });
+    const payload = await response.json() as TwitterMentionsResponse & { detail?: string; title?: string; errors?: Array<{ message?: string }> };
+    if (!response.ok) {
+      throw new Error(extractTwitterErrorMessage(payload, "Failed to load Twitter/X comments."));
+    }
+
+    const users = new Map(
+      (payload.includes?.users ?? [])
+        .filter((user) => user.id)
+        .map((user) => [String(user.id), user]),
+    );
+    const comments = (payload.data ?? [])
+      .filter((tweet) => tweet.author_id && tweet.author_id !== me.id)
+      .filter((tweet) => tweet.conversation_id && targetMap.has(String(tweet.conversation_id)))
+      .map((tweet) => {
+        const author = users.get(String(tweet.author_id));
+        const target = targetMap.get(String(tweet.conversation_id));
+        return {
+          platform: "twitter",
+          post_id: target?.id ?? null,
+          post_external_id: tweet.conversation_id ?? null,
+          post_preview: target?.content?.slice(0, 120) ?? null,
+          commenter_username: author?.username ?? null,
+          commenter_name: author?.name ?? null,
+          text: tweet.text ?? "",
+          commented_at: tweet.created_at ?? null,
+          external_id: tweet.id ?? null,
+          permalink: author?.username && tweet.id ? `https://x.com/${author.username}/status/${tweet.id}` : null,
+        };
+      });
+    return jsonResponse({ data: comments });
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Failed to load Twitter/X comments", 500);
+  }
+}
+
+type TwitterSearchResponse = {
+  data?: Array<{
+    id?: string;
+    author_id?: string;
+    text?: string;
+    created_at?: string;
+  }>;
+  includes?: {
+    users?: Array<{
+      id?: string;
+      username?: string;
+      name?: string;
+    }>;
+  };
+};
+
+export async function searchTwitterPosts(env: Env, url: URL): Promise<Response> {
+  try {
+    const rawQuery = url.searchParams.get("q")?.trim();
+    if (!rawQuery) return errorResponse("Search query is required", 400);
+    const limit = Math.max(1, Math.min(Number(url.searchParams.get("limit") || 10) || 10, 25));
+    const credentials = await getTwitterCredentials(env);
+    if (!credentials) return errorResponse("No active Twitter/X account with API credentials was found.", 400);
+
+    const query = rawQuery.includes("-is:retweet") ? rawQuery : `${rawQuery} -is:retweet`;
+    const endpoint = new URL("https://api.twitter.com/2/tweets/search/recent");
+    endpoint.searchParams.set("query", query);
+    endpoint.searchParams.set("max_results", String(limit));
+    endpoint.searchParams.set("tweet.fields", "author_id,created_at,text");
+    endpoint.searchParams.set("expansions", "author_id");
+    endpoint.searchParams.set("user.fields", "username,name");
+    const queryParams = {
+      query,
+      max_results: String(limit),
+      "tweet.fields": "author_id,created_at,text",
+      expansions: "author_id",
+      "user.fields": "username,name",
+    };
+    const response = await fetch(endpoint.toString(), {
+      headers: {
+        Authorization: await buildTwitterOAuthHeader("GET", "https://api.twitter.com/2/tweets/search/recent", credentials, queryParams),
+      },
+    });
+    const payload = await response.json() as TwitterSearchResponse & { detail?: string; title?: string; errors?: Array<{ message?: string }> };
+    if (!response.ok) {
+      throw new Error(extractTwitterErrorMessage(payload, "Twitter/X search failed"));
+    }
+
+    const users = new Map(
+      (payload.includes?.users ?? [])
+        .filter((user) => user.id)
+        .map((user) => [String(user.id), user]),
+    );
+    const results = (payload.data ?? []).map((tweet) => {
+      const author = users.get(String(tweet.author_id ?? ""));
+      return {
+        post_id: tweet.id ?? null,
+        username: author?.username ?? null,
+        name: author?.name ?? null,
+        text: tweet.text ?? "",
+        created_at: tweet.created_at ?? null,
+        permalink: author?.username && tweet.id ? `https://x.com/${author.username}/status/${tweet.id}` : null,
+      };
+    });
+    return jsonResponse({ data: results });
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Failed to search Twitter/X", 500);
+  }
+}
+
 export async function publishTwitterPost(env: Env, postId: string): Promise<Response> {
   const id = Number(postId);
   if (Number.isNaN(id)) return errorResponse("Invalid post ID", 400);
 
   try {
-    const post = await env.DB.prepare("SELECT id, content, status FROM social_posts WHERE id = ? AND platform = 'twitter'")
+    const capabilities = await getSocialPostSchemaCapabilities(env);
+    const replySelect = capabilities.hasReplyToId ? "reply_to_id" : "NULL AS reply_to_id";
+    const post = await env.DB.prepare(`SELECT id, content, status, ${replySelect} FROM social_posts WHERE id = ? AND platform = 'twitter'`)
       .bind(id)
-      .first<{ id: number; content: string; status: string }>();
+      .first<{ id: number; content: string; status: string; reply_to_id: string | null }>();
     if (!post) return errorResponse("Twitter/X post not found", 404);
     if (!post.content?.trim()) return errorResponse("Post content is empty", 400);
     if (post.status === "posted") return errorResponse("Post is already published", 400);
@@ -285,11 +580,16 @@ export async function publishTwitterPost(env: Env, postId: string): Promise<Resp
         Authorization: await buildTwitterOAuthHeader("POST", endpoint, credentials),
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ text: post.content.trim() }),
+      body: JSON.stringify({
+        text: post.content.trim(),
+        ...(post.reply_to_id?.trim()
+          ? { reply: { in_reply_to_tweet_id: post.reply_to_id.trim() } }
+          : {}),
+      }),
     });
     const payload = await response.json() as { data?: { id?: string }; detail?: string; title?: string; errors?: Array<{ message?: string }> };
     if (!response.ok || !payload.data?.id) {
-      const message = payload.detail || payload.title || payload.errors?.map((error) => error.message).filter(Boolean).join("; ") || "Twitter/X publish failed";
+      const message = extractTwitterErrorMessage(payload, "Twitter/X publish failed");
       throw new Error(message);
     }
 
@@ -308,7 +608,8 @@ export async function publishTwitterPost(env: Env, postId: string): Promise<Resp
     await env.DB.prepare("UPDATE social_posts SET status = 'failed', updated_at = ? WHERE id = ?")
       .bind(now, id)
       .run();
-    return errorResponse(error instanceof Error ? error.message : "Failed to publish Twitter/X post", 500);
+    const failure = classifyTwitterPublishError(error instanceof Error ? error.message : "Failed to publish Twitter/X post");
+    return errorResponse(failure.message, failure.status);
   }
 }
 

@@ -127,7 +127,9 @@ export async function saveKnowledgeBase(
       );
     }
   } catch (error) {
-    return errorResponse("Failed to save knowledge base", 500);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("saveKnowledgeBase error:", message);
+    return errorResponse(`Failed to save knowledge base: ${message}`, 500);
   }
 }
 

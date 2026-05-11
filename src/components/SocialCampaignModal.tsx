@@ -9,6 +9,7 @@ type AccountOption = {
 type SharedCampaignValues = {
   name: string;
   account_id: number | null;
+  search_query: string;
   instruction: string;
   interval_minutes: number;
   duration_start: string | null;
@@ -58,6 +59,32 @@ function normalizePlatformLabel(platformLabel: string) {
   return platformLabel.replace(/\s+Agent$/i, "").trim();
 }
 
+function extractSearchQuery(value?: string | null) {
+  const text = String(value || "").trim();
+  for (const line of text.split("\n")) {
+    const match = line.match(/^search query:\s*(.+)$/i);
+    if (match?.[1]?.trim()) return match[1].trim();
+  }
+  return "";
+}
+
+function stripSearchQueryHeader(value?: string | null) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const lines = text.split("\n");
+  if (lines[0]?.match(/^search query:\s*(.+)$/i)) {
+    return lines.slice(1).join("\n").trim();
+  }
+  return text;
+}
+
+function buildCampaignInstruction(searchQuery: string, instruction: string) {
+  const query = searchQuery.trim();
+  const body = stripSearchQueryHeader(instruction);
+  if (!query) return body;
+  return body ? `Search query: ${query}\n\n${body}` : `Search query: ${query}`;
+}
+
 export function SocialCampaignModal(props: SocialCampaignModalProps) {
   const {
     mode = "create",
@@ -83,9 +110,12 @@ export function SocialCampaignModal(props: SocialCampaignModalProps) {
       ? (initialData as Partial<RedditCampaign> | null | undefined)?.name ?? ""
       : (initialData as PlannerItem | null | undefined)?.title ?? "",
     account_id: initialAccountId,
+    search_query: platform === "reddit"
+      ? ""
+      : extractSearchQuery((initialData as PlannerItem | null | undefined)?.instruction),
     instruction: platform === "reddit"
       ? (initialData as Partial<RedditCampaign> | null | undefined)?.agent_instructions ?? ""
-      : (initialData as PlannerItem | null | undefined)?.instruction ?? "",
+      : stripSearchQueryHeader((initialData as PlannerItem | null | undefined)?.instruction),
     interval_minutes: platform === "reddit"
       ? Number((initialData as Partial<RedditCampaign> | null | undefined)?.throttle_interval_minutes ?? 60)
       : Number((initialData as PlannerItem | null | undefined)?.interval_minutes ?? 60),
@@ -120,6 +150,10 @@ export function SocialCampaignModal(props: SocialCampaignModalProps) {
       setError("Campaign instruction is required.");
       return;
     }
+    if (platform !== "reddit" && !form.search_query.trim()) {
+      setError("Search query is required.");
+      return;
+    }
     if (form.interval_minutes <= 0) {
       setError("Interval must be greater than 0.");
       return;
@@ -136,7 +170,7 @@ export function SocialCampaignModal(props: SocialCampaignModalProps) {
     setSaving(true);
     setError(null);
     try {
-      const effectiveDurationStart = form.duration_start ?? new Date().toISOString();
+      const effectiveDurationStart = form.duration_start ?? null;
       if (platform === "reddit") {
         const payload: Partial<RedditCampaign> = {
           name: form.name.trim(),
@@ -156,9 +190,9 @@ export function SocialCampaignModal(props: SocialCampaignModalProps) {
           title: form.name.trim(),
           item_type: "campaign",
           platform,
-          status: "planned",
+          status: "approved",
           account_id: form.account_id,
-          instruction: form.instruction.trim(),
+          instruction: buildCampaignInstruction(form.search_query, form.instruction),
           interval_minutes: form.interval_minutes,
           duration_start: effectiveDurationStart,
           duration_end: form.duration_end,
@@ -242,7 +276,18 @@ export function SocialCampaignModal(props: SocialCampaignModalProps) {
                 />
               </label>
             </div>
-          ) : null}
+          ) : (
+            <label>
+              Search query
+              <input
+                value={form.search_query}
+                onChange={(event) => setForm((current) => ({ ...current, search_query: event.target.value }))}
+                placeholder="XAU trading"
+                required
+              />
+              <small className="social-muted">Used for live campaign search and approval suggestions.</small>
+            </label>
+          )}
 
           <label>
             Campaign instruction
@@ -281,6 +326,7 @@ export function SocialCampaignModal(props: SocialCampaignModalProps) {
                   setForm((current) => ({ ...current, duration_start: toIsoOrNull(event.target.value) }))
                 }
               />
+              <small className="social-muted">Leave blank to start immediately.</small>
             </label>
 
             <label>
@@ -292,6 +338,7 @@ export function SocialCampaignModal(props: SocialCampaignModalProps) {
                   setForm((current) => ({ ...current, duration_end: toIsoOrNull(event.target.value) }))
                 }
               />
+              <small className="social-muted">Leave blank to keep searching until enough matches are found.</small>
             </label>
           </div>
 

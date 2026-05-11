@@ -338,54 +338,29 @@ export async function searchThreads(env: Env, url: URL): Promise<Response> {
     const requestedAccountId = Number(url.searchParams.get("account_id") || 0) || undefined;
     const credentials = await getThreadsCredentials(env, requestedAccountId);
     if (!credentials) return errorResponse("No active Threads account with access token was found.", 400);
-    const baseParams = {
+    const baseParams: Record<string, string> = {
       q,
       search_type: url.searchParams.get("search_type") || "TOP",
-      search_mode: url.searchParams.get("search_mode") || "KEYWORD",
       fields: "id,permalink,username,text,timestamp,media_type,has_replies,is_quote_post",
       limit: url.searchParams.get("limit") || "20",
     };
 
-    const withQueryToken = new URL(`${THREADS_GRAPH_BASE}/keyword_search`);
-    Object.entries(baseParams).forEach(([key, value]) => withQueryToken.searchParams.set(key, value));
-    withQueryToken.searchParams.set("access_token", credentials.accessToken);
+    const apiUrl = new URL(`${THREADS_GRAPH_BASE}/keyword_search`);
+    Object.entries(baseParams).forEach(([key, value]) => apiUrl.searchParams.set(key, value));
+    apiUrl.searchParams.set("access_token", credentials.accessToken);
 
-    const withBearer = new URL(`${THREADS_GRAPH_BASE}/keyword_search`);
-    Object.entries(baseParams).forEach(([key, value]) => withBearer.searchParams.set(key, value));
+    const response = await fetch(apiUrl.toString());
+    const payload = await response.json() as { data?: unknown[]; error?: { message?: string; code?: number; type?: string } };
 
-    const [bearerResponse, queryTokenResponse] = await Promise.all([
-      fetch(withBearer.toString(), {
-        headers: {
-          Authorization: `Bearer ${credentials.accessToken}`,
-        },
-      }),
-      fetch(withQueryToken.toString()),
-    ]);
-
-    const bearerPayload = await bearerResponse.json();
-    const bearerData = Array.isArray((bearerPayload as { data?: unknown[] }).data)
-      ? (bearerPayload as { data: unknown[] }).data
-      : [];
-    if (bearerResponse.ok && bearerData.length > 0) {
-      return jsonResponse(bearerPayload);
+    if (!response.ok || payload.error) {
+      const msg = payload.error?.message || getGraphErrorMessage(payload, "Threads search failed");
+      console.error("Threads keyword_search error:", JSON.stringify(payload));
+      return errorResponse(`Threads API: ${msg}`, response.ok ? 502 : response.status);
     }
 
-    const queryTokenPayload = await queryTokenResponse.json();
-    const queryTokenData = Array.isArray((queryTokenPayload as { data?: unknown[] }).data)
-      ? (queryTokenPayload as { data: unknown[] }).data
-      : [];
-    if (queryTokenResponse.ok && queryTokenData.length > 0) {
-      return jsonResponse(queryTokenPayload);
-    }
-
-    if (!bearerResponse.ok) {
-      return errorResponse(getGraphErrorMessage(bearerPayload, "Threads search failed"), bearerResponse.status);
-    }
-    if (!queryTokenResponse.ok) {
-      return errorResponse(getGraphErrorMessage(queryTokenPayload, "Threads search failed"), queryTokenResponse.status);
-    }
-
-    return jsonResponse({ data: [] });
+    const data = Array.isArray(payload.data) ? payload.data : [];
+    console.log(`Threads keyword_search q="${q}" returned ${data.length} results`);
+    return jsonResponse({ data });
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Failed to search Threads", 500);
   }
@@ -401,6 +376,41 @@ export async function listThreadsReplies(env: Env, url: URL): Promise<Response> 
     return jsonResponse({ data: replies });
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Failed to load Threads replies", 500);
+  }
+}
+
+export async function listThreadsComments(env: Env, postId?: string | null, limit?: string | null): Promise<Response> {
+  try {
+    let mediaId = "";
+    if (postId) {
+      const row = await env.DB.prepare(
+        "SELECT external_id FROM social_posts WHERE id = ? AND platform = 'threads' AND status = 'posted'",
+      )
+        .bind(Number(postId))
+        .first<{ external_id: string | null }>();
+      mediaId = row?.external_id?.trim() || "";
+    }
+    const replies = await fetchThreadsRepliesData(env, {
+      mediaId: mediaId || null,
+      limit,
+      reverse: "true",
+    });
+    const mapped = replies.map((reply) => ({
+      platform: "threads",
+      post_id: postId ? Number(postId) : null,
+      post_external_id: typeof reply.root_post === "object" && reply.root_post && "id" in reply.root_post
+        ? String((reply.root_post as { id?: string }).id || "")
+        : mediaId || null,
+      commenter_username: reply.username ? String(reply.username) : null,
+      commenter_name: null,
+      text: reply.text ? String(reply.text) : "",
+      commented_at: reply.timestamp ? String(reply.timestamp) : null,
+      external_id: reply.id ? String(reply.id) : null,
+      permalink: reply.permalink ? String(reply.permalink) : null,
+    }));
+    return jsonResponse({ data: mapped });
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Failed to load Threads comments", 500);
   }
 }
 
