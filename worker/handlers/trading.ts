@@ -133,8 +133,8 @@ function normalizeTradingStrategy(row: TradingStrategyRow | null) {
 function validateRiskFields(payload: Partial<CreateStrategyPayload>): string | null {
   const rrMin = payload.rr_min ?? 1.5;
   const rrMax = payload.rr_max ?? 2.5;
-  const breakevenRr = payload.breakeven_rr ?? rrMin;
-  const dailyMaxTradeSignals = payload.daily_max_trade_signals ?? 7;
+  const breakevenRr = payload.breakeven_rr ?? 1.0;
+  const dailyMaxTradeSignals = payload.daily_max_trade_signals ?? 8;
   const confidenceThreshold = payload.confidence_threshold ?? 85;
 
   if (payload.risk_usd_min !== undefined && payload.risk_usd_max !== undefined) {
@@ -289,13 +289,13 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
         null,
         String(payload.strategy_text || "").trim(),
         JSON.stringify(assets),
-        payload.daily_max_trade_signals ?? 7,
+        payload.daily_max_trade_signals ?? 8,
         payload.strategy_type,
-        payload.risk_usd_min ?? 50,
-        payload.risk_usd_max ?? 50,
+        payload.risk_usd_min ?? 8,
+        payload.risk_usd_max ?? 17,
         payload.rr_min ?? 1.5,
         payload.rr_max ?? 2.5,
-        payload.breakeven_rr ?? 1.5,
+        payload.breakeven_rr ?? 1.0,
         payload.max_open_positions ?? 1,
         payload.execution_mode ?? "demo",
         payload.confidence_threshold ?? 85,
@@ -320,13 +320,13 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
         knowledge_base_id: null,
         strategy_text: String(payload.strategy_text || "").trim(),
         assets,
-        daily_max_trade_signals: payload.daily_max_trade_signals ?? 7,
+        daily_max_trade_signals: payload.daily_max_trade_signals ?? 8,
         strategy_type: payload.strategy_type,
-        risk_usd_min: payload.risk_usd_min ?? 50,
-        risk_usd_max: payload.risk_usd_max ?? 50,
+        risk_usd_min: payload.risk_usd_min ?? 8,
+        risk_usd_max: payload.risk_usd_max ?? 17,
         rr_min: payload.rr_min ?? 1.5,
         rr_max: payload.rr_max ?? 2.5,
-        breakeven_rr: payload.breakeven_rr ?? 1.5,
+        breakeven_rr: payload.breakeven_rr ?? 1.0,
         max_open_positions: payload.max_open_positions ?? 1,
         execution_mode: payload.execution_mode ?? "demo",
         confidence_threshold: payload.confidence_threshold ?? 85,

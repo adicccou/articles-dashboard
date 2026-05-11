@@ -16,13 +16,13 @@ function buildInitialForm(strategy?: TradingStrategy): Partial<TradingStrategy> 
       name: "",
       strategy_text: "",
       assets: ["EURUSD"],
-      daily_max_trade_signals: 7,
+      daily_max_trade_signals: 8,
       strategy_type: "daytrading",
-      risk_usd_min: 50,
-      risk_usd_max: 50,
+      risk_usd_min: 8,
+      risk_usd_max: 17,
       rr_min: 1.5,
       rr_max: 2.5,
-      breakeven_rr: 1.5,
+      breakeven_rr: 1.0,
       max_open_positions: 1,
       execution_mode: "demo",
       confidence_threshold: 85,
@@ -105,10 +105,10 @@ export function TradingStrategyForm({
     const assets = parseAssets(assetsText);
     const rrMin = Number(form.rr_min ?? 1.5);
     const rrMax = Number(form.rr_max ?? 2.5);
-    const breakevenRr = Number(form.breakeven_rr ?? 1.5);
-    const riskUsdMin = Number(form.risk_usd_min ?? 50);
-    const riskUsdMax = Number(form.risk_usd_max ?? 50);
-    const dailyMaxTradeSignals = Number(form.daily_max_trade_signals ?? 7);
+    const breakevenRr = Number(form.breakeven_rr ?? 1.0);
+    const riskUsdMin = Number(form.risk_usd_min ?? 8);
+    const riskUsdMax = Number(form.risk_usd_max ?? 17);
+    const dailyMaxTradeSignals = Number(form.daily_max_trade_signals ?? 8);
     const confidenceThreshold = Number(form.confidence_threshold ?? 85);
 
     if (!form.name || !String(form.strategy_text || "").trim() || assets.length === 0) {
@@ -277,7 +277,7 @@ export function TradingStrategyForm({
               type="number"
               min="1"
               step="1"
-              value={form.daily_max_trade_signals ?? 7}
+              value={form.daily_max_trade_signals ?? 8}
               onChange={(e) => handleChange("daily_max_trade_signals", Number(e.target.value))}
               className="trading-form__input"
             />
@@ -326,7 +326,7 @@ export function TradingStrategyForm({
               type="number"
               min="1"
               step="1"
-              value={form.risk_usd_min ?? 50}
+              value={form.risk_usd_min ?? 8}
               onChange={(e) => handleChange("risk_usd_min", Number(e.target.value))}
               className="trading-form__input"
             />
@@ -340,7 +340,7 @@ export function TradingStrategyForm({
               type="number"
               min="1"
               step="1"
-              value={form.risk_usd_max ?? 50}
+              value={form.risk_usd_max ?? 17}
               onChange={(e) => handleChange("risk_usd_max", Number(e.target.value))}
               className="trading-form__input"
             />
@@ -395,12 +395,12 @@ export function TradingStrategyForm({
             type="number"
             min="0"
             step="0.1"
-            value={form.breakeven_rr ?? 1.5}
+            value={form.breakeven_rr ?? 1.0}
             onChange={(e) => handleChange("breakeven_rr", Number(e.target.value))}
             className="trading-form__input"
           />
           <p className="trading-form__helper">
-            Example: `1.5` means when profit reaches 1.5R, stop loss moves to breakeven.
+            Example: `1.0` means when profit reaches 1R, stop loss moves to breakeven.
           </p>
         </div>
       </section>
