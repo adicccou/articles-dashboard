@@ -15,6 +15,8 @@ interface CreateStrategyPayload {
   breakeven_rr?: number;
   max_open_positions?: number;
   execution_mode?: "demo" | "live";
+  confidence_threshold?: number;
+  self_learning_mode?: "off" | "suggest_only";
   trading_hours?: unknown;
 }
 
@@ -34,6 +36,8 @@ type TradingStrategyRow = {
   breakeven_rr: number;
   max_open_positions: number;
   execution_mode: "demo" | "live";
+  confidence_threshold: number;
+  self_learning_mode: "off" | "suggest_only";
   trading_hours: string;
   status: "active" | "inactive" | "paused" | "testing";
   created_at: string;
@@ -131,6 +135,7 @@ function validateRiskFields(payload: Partial<CreateStrategyPayload>): string | n
   const rrMax = payload.rr_max ?? 2.5;
   const breakevenRr = payload.breakeven_rr ?? rrMin;
   const dailyMaxTradeSignals = payload.daily_max_trade_signals ?? 7;
+  const confidenceThreshold = payload.confidence_threshold ?? 85;
 
   if (payload.risk_usd_min !== undefined && payload.risk_usd_max !== undefined) {
     if (payload.risk_usd_max < payload.risk_usd_min) {
@@ -156,6 +161,17 @@ function validateRiskFields(payload: Partial<CreateStrategyPayload>): string | n
 
   if (!Number.isFinite(dailyMaxTradeSignals) || dailyMaxTradeSignals < 1) {
     return "Daily max trade signals must be at least 1.";
+  }
+
+  if (!Number.isFinite(confidenceThreshold) || confidenceThreshold < 50 || confidenceThreshold > 100) {
+    return "Confidence threshold must be between 50 and 100.";
+  }
+
+  if (
+    payload.self_learning_mode !== undefined &&
+    !["off", "suggest_only"].includes(payload.self_learning_mode)
+  ) {
+    return "Self-learning mode must be off or suggest_only.";
   }
 
   return null;
@@ -259,12 +275,14 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
         breakeven_rr,
         max_open_positions,
         execution_mode,
+        confidence_threshold,
+        self_learning_mode,
         trading_hours,
         status,
         parsed_strategy,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'inactive', ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'inactive', ?, ?, ?)`,
     )
       .bind(
         payload.name,
@@ -280,6 +298,8 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
         payload.breakeven_rr ?? 1.5,
         payload.max_open_positions ?? 1,
         payload.execution_mode ?? "demo",
+        payload.confidence_threshold ?? 85,
+        payload.self_learning_mode ?? "suggest_only",
         tradingHours,
         parsedStrategyStr,
         now,
@@ -309,6 +329,8 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
         breakeven_rr: payload.breakeven_rr ?? 1.5,
         max_open_positions: payload.max_open_positions ?? 1,
         execution_mode: payload.execution_mode ?? "demo",
+        confidence_threshold: payload.confidence_threshold ?? 85,
+        self_learning_mode: payload.self_learning_mode ?? "suggest_only",
         trading_hours: Array.isArray(payload.trading_hours) ? payload.trading_hours : [],
         status: "inactive",
         parsed_strategy: parsedStrategyStr ? JSON.parse(parsedStrategyStr) : null,
@@ -419,6 +441,14 @@ export async function updateStrategy(
     if (payload.execution_mode !== undefined) {
       updates.push("execution_mode = ?");
       values.push(payload.execution_mode);
+    }
+    if (payload.confidence_threshold !== undefined) {
+      updates.push("confidence_threshold = ?");
+      values.push(payload.confidence_threshold);
+    }
+    if (payload.self_learning_mode !== undefined) {
+      updates.push("self_learning_mode = ?");
+      values.push(payload.self_learning_mode);
     }
     if (payload.trading_hours !== undefined) {
       updates.push("trading_hours = ?");

@@ -17,7 +17,7 @@ import { handleAuthorizeRequest, handleOAuthCallback, listRedditAccounts, delete
 import { getKnowledgeBase, saveKnowledgeBase, getVersions, getVersion } from "./handlers/knowledge-base";
 import { listStrategies, getStrategy, createStrategy, updateStrategy, activateStrategy, deactivateStrategy, deleteStrategy, getStrategyStats, getStrategyExecutions, getActiveStrategyInternal } from "./handlers/trading";
 import { chatWithAssistant } from "./handlers/assistant";
-import { completeCtraderConnectionFromAgent, getAppSettings, getInternalAgentSettings, getLeanStatus, syncAgentFromSettings, updateAppSettings } from "./handlers/settings";
+import { completeCtraderConnectionFromAgent, getAppSettings, getInternalAgentSettings, getLeanStatus, getLearningReport, syncAgentFromSettings, updateAppSettings } from "./handlers/settings";
 import {
   listPlannerItems,
   createPlannerItem,
@@ -1185,6 +1185,12 @@ export default {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
       return await getLeanStatus(env);
+    }
+
+    if (url.pathname === "/api/trading/learning-report" && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await getLearningReport(env);
     }
 
     if (url.pathname === "/api/trading/strategies" && request.method === "GET") {

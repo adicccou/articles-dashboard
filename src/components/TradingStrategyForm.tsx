@@ -25,6 +25,8 @@ function buildInitialForm(strategy?: TradingStrategy): Partial<TradingStrategy> 
       breakeven_rr: 1.5,
       max_open_positions: 1,
       execution_mode: "demo",
+      confidence_threshold: 85,
+      self_learning_mode: "suggest_only",
       trading_hours: [],
     }
   );
@@ -107,6 +109,7 @@ export function TradingStrategyForm({
     const riskUsdMin = Number(form.risk_usd_min ?? 50);
     const riskUsdMax = Number(form.risk_usd_max ?? 50);
     const dailyMaxTradeSignals = Number(form.daily_max_trade_signals ?? 7);
+    const confidenceThreshold = Number(form.confidence_threshold ?? 85);
 
     if (!form.name || !String(form.strategy_text || "").trim() || assets.length === 0) {
       setError("Please add a strategy name, strategy instructions, and at least one trading asset.");
@@ -146,6 +149,11 @@ export function TradingStrategyForm({
       return;
     }
 
+    if (!Number.isFinite(confidenceThreshold) || confidenceThreshold < 50 || confidenceThreshold > 100) {
+      setError("Confidence threshold must be between 50 and 100.");
+      return;
+    }
+
     for (const w of tradingHours) {
       if (w.days.length === 0) {
         setError("Each working hours window must have at least one day selected.");
@@ -169,6 +177,8 @@ export function TradingStrategyForm({
         risk_usd_min: riskUsdMin,
         risk_usd_max: riskUsdMax,
         daily_max_trade_signals: dailyMaxTradeSignals,
+        confidence_threshold: confidenceThreshold,
+        self_learning_mode: form.self_learning_mode || "suggest_only",
         max_open_positions: Number(form.max_open_positions ?? 1),
         trading_hours: tradingHours,
       });
@@ -392,6 +402,49 @@ export function TradingStrategyForm({
           <p className="trading-form__helper">
             Example: `1.5` means when profit reaches 1.5R, stop loss moves to breakeven.
           </p>
+        </div>
+      </section>
+
+      <section className="trading-form__section">
+        <h3>Backtesting & Self-Learning</h3>
+
+        <div className="trading-form__row">
+          <div className="trading-form__group">
+            <label htmlFor="confidence_threshold">Minimum LEAN Confidence</label>
+            <input
+              id="confidence_threshold"
+              type="number"
+              min="50"
+              max="100"
+              step="1"
+              value={form.confidence_threshold ?? 85}
+              onChange={(e) => handleChange("confidence_threshold", Number(e.target.value))}
+              className="trading-form__input"
+            />
+            <p className="trading-form__helper">
+              LEAN signals below this score are suppressed before Telegram approval.
+            </p>
+          </div>
+
+          <div className="trading-form__group">
+            <label htmlFor="self_learning_mode">Self-Learning</label>
+            <select
+              id="self_learning_mode"
+              value={form.self_learning_mode || "suggest_only"}
+              onChange={(e) => handleChange("self_learning_mode", e.target.value as TradingStrategy["self_learning_mode"])}
+              className="trading-form__input"
+            >
+              <option value="suggest_only">Suggest only</option>
+              <option value="off">Off</option>
+            </select>
+            <p className="trading-form__helper">
+              Suggestions are reported to Telegram and dashboard. They do not auto-change live rules.
+            </p>
+          </div>
+        </div>
+
+        <div className="trading-form__notice">
+          Live and demo trades still require Telegram approval. Dashboard controls the settings; Telegram controls the final approval.
         </div>
       </section>
 

@@ -168,10 +168,13 @@ type ActiveStrategy = {
   daily_max_trade_signals: number;
   rr_min: number;
   rr_max: number;
+  breakeven_rr: number;
   risk_usd_min: number;
   risk_usd_max: number;
   max_open_positions: number;
   execution_mode: string;
+  confidence_threshold: number;
+  self_learning_mode: string;
   trading_hours: string;
   parsed_strategy: string | null;
 };
@@ -236,7 +239,11 @@ async function syncTradingAgent(
     payload.symbols = assets;
     payload.risk_usd_min = strategy.risk_usd_min;
     payload.risk_usd_max = strategy.risk_usd_max;
+    payload.rr_min = strategy.rr_min;
     payload.default_rr_ratio = strategy.rr_max;
+    payload.sl_to_breakeven_at = strategy.breakeven_rr;
+    payload.confidence_threshold = strategy.confidence_threshold;
+    payload.self_learning_mode = strategy.self_learning_mode;
     payload.max_open_trades = strategy.max_open_positions;
     payload.max_daily_signals = strategy.daily_max_trade_signals;
     payload.demo_mode = strategy.execution_mode !== "live";
@@ -288,8 +295,9 @@ async function syncTradingAgent(
 async function getActiveStrategy(env: Env): Promise<ActiveStrategy | undefined> {
   try {
     const row = await env.DB.prepare(
-      `SELECT name, strategy_text, assets, daily_max_trade_signals, rr_min, rr_max, risk_usd_min, risk_usd_max,
-              max_open_positions, execution_mode, trading_hours, parsed_strategy
+      `SELECT name, strategy_text, assets, daily_max_trade_signals, rr_min, rr_max, breakeven_rr,
+              risk_usd_min, risk_usd_max, max_open_positions, execution_mode, confidence_threshold,
+              self_learning_mode, trading_hours, parsed_strategy
        FROM trading_strategies WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1`,
     ).first<ActiveStrategy>();
     return row ?? undefined;
@@ -491,6 +499,32 @@ export async function getLeanStatus(env: Env): Promise<Response> {
       {
         headers: { Authorization: `Bearer ${settings.trading_agent_token}` },
         signal: AbortSignal.timeout(5000),
+      },
+    );
+    if (!response.ok) {
+      return jsonResponse({ connected: false, error: `Agent returned ${response.status}` });
+    }
+    const data = await response.json() as Record<string, unknown>;
+    return jsonResponse({ connected: true, ...data });
+  } catch (error) {
+    return jsonResponse({
+      connected: false,
+      error: error instanceof Error ? error.message : "Could not reach trading agent",
+    });
+  }
+}
+
+export async function getLearningReport(env: Env): Promise<Response> {
+  const settings = await readSettings(env);
+  if (!settings.trading_agent_url || !settings.trading_agent_token) {
+    return jsonResponse({ connected: false, error: "Trading agent not configured" });
+  }
+  try {
+    const response = await fetch(
+      `${settings.trading_agent_url.replace(/\/$/, "")}/learning-report`,
+      {
+        headers: { Authorization: `Bearer ${settings.trading_agent_token}` },
+        signal: AbortSignal.timeout(10000),
       },
     );
     if (!response.ok) {

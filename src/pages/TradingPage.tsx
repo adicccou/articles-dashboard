@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import { TradingStrategyForm } from "../components/TradingStrategyForm";
 import { KnowledgeBaseEditor } from "../components/KnowledgeBaseEditor";
 import { LeanStatusCard } from "../components/LeanStatusCard";
+import { LearningReportCard } from "../components/LearningReportCard";
 import { asArray } from "../lib/collections";
 
 type TabView = "strategies" | "form";
@@ -136,6 +137,7 @@ export function TradingPage() {
     <div className="stack">
       {error && <p className="error panel">{error}</p>}
       <LeanStatusCard />
+      <LearningReportCard />
       <section className="panel">
         <div className="panel__title-row">
           <h2>📈 Trading Strategies</h2>

@@ -51,6 +51,16 @@
   color: #64748b;
 }
 
+.trading-form__notice {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 12px 14px;
+}
+
 .trading-form__group label {
   font-weight: 500;
   font-size: 14px;

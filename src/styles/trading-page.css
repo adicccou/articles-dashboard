@@ -234,3 +234,151 @@
   color: #9ca3af;
   margin: 0;
 }
+
+/* -- Learning Report Card -------------------------------------- */
+.learning-report-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.learning-report-card--loading {
+  gap: 4px;
+}
+
+.learning-report-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.learning-report-card__header h3 {
+  margin: 4px 0 0;
+  font-size: 18px;
+}
+
+.learning-report-card__eyebrow,
+.learning-report-card__label {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.learning-report-card__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.learning-report-card__stats > div {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.learning-report-card__stats strong {
+  color: #0f172a;
+  font-size: 20px;
+}
+
+.learning-report-card__stats small,
+.learning-report-card__muted {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.learning-report-card__good {
+  color: #15803d !important;
+}
+
+.learning-report-card__risk {
+  color: #b91c1c !important;
+}
+
+.learning-report-card__symbols,
+.learning-report-card__factors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.learning-report-card__symbols span,
+.learning-report-card__factors span {
+  background: #eef2ff;
+  border-radius: 999px;
+  color: #3730a3;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+}
+
+.learning-report-card__factors span {
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.learning-report-card__subhead {
+  color: #111827;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.learning-report-card__suggestions {
+  border-top: 1px solid #e5e7eb;
+  padding-top: 14px;
+}
+
+.learning-report-card__suggestion {
+  display: grid;
+  grid-template-columns: 54px 1fr;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.learning-report-card__suggestion + .learning-report-card__suggestion {
+  border-top: 1px solid #f1f5f9;
+}
+
+.learning-report-card__suggestion strong {
+  color: #111827;
+  font-size: 13px;
+  text-transform: capitalize;
+}
+
+.learning-report-card__suggestion p {
+  color: #64748b;
+  font-size: 12px;
+  margin: 3px 0 0;
+}
+
+.learning-report-card__impact {
+  align-self: start;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 4px 7px;
+  text-align: center;
+}
+
+.learning-report-card__impact--high {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.learning-report-card__impact--med {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.learning-report-card__impact--low {
+  background: #dcfce7;
+  color: #166534;
+}

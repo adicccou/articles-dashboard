@@ -182,6 +182,8 @@ export type TradingStrategy = {
   breakeven_rr: number;
   max_open_positions: number;
   execution_mode: "demo" | "live";
+  confidence_threshold: number;
+  self_learning_mode: "off" | "suggest_only";
   trading_hours: TradingHoursWindow[];   // [] = send anytime
   parsed_strategy?: {
     hard_rules: {
@@ -200,6 +202,45 @@ export type TradingStrategy = {
   status: "active" | "inactive" | "paused" | "testing";
   created_at: string;
   updated_at: string;
+};
+
+export type LearningSuggestion = {
+  factor: string;
+  current: string;
+  recommended: string;
+  expected_winrate: string;
+  impact: "HIGH" | "MED" | "LOW" | string;
+  evidence: string;
+};
+
+export type LearningReport = {
+  connected: boolean;
+  ok?: boolean;
+  date_range?: string;
+  report_text?: string;
+  ingested?: {
+    backtest?: number;
+    live?: number;
+  };
+  stats?: {
+    total?: number;
+    min_trades?: number;
+    win_rate?: number;
+    avg_rr?: number;
+    profit_factor?: number;
+    source_counts?: {
+      backtest?: number;
+      live?: number;
+    };
+    by_symbol?: Record<string, number>;
+    best_hours_utc?: string;
+    with_rsi_div?: number;
+    without_rsi_div?: number;
+    with_vwap?: number;
+    without_vwap?: number;
+    suggestions?: LearningSuggestion[];
+  };
+  error?: string;
 };
 
 export type TradingExecution = {
