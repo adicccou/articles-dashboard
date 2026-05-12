@@ -65,7 +65,7 @@ export function TradingStrategyForm({
   function parseAssets(value: string): string[] {
     return value
       .split(/[,\n]/)
-      .map((entry) => entry.trim().toUpperCase())
+      .map((entry) => entry.trim().toUpperCase().replaceAll("/", ""))
       .filter(Boolean);
   }
 
@@ -119,7 +119,7 @@ export function TradingStrategyForm({
     const invalid = invalidAssets(assets);
     if (invalid.length > 0) {
       setError(
-        "Trading Assets should only contain symbols like XAUUSD, US500, or EURUSD. Add strategy rules in the knowledge base after creating the strategy.",
+        "Trading Assets should only contain symbols like XAUUSD, US500, BTCUSD, or EURUSD. Add strategy rules in the knowledge base after creating the strategy.",
       );
       return;
     }
@@ -229,7 +229,7 @@ export function TradingStrategyForm({
             id="assets"
             value={assetsText}
             onChange={(e) => setAssetsText(e.target.value)}
-            placeholder="EURUSD, GBPUSD, XAUUSD"
+            placeholder="XAUUSD, US500, BTCUSD"
             className="trading-form__textarea"
             rows={3}
           />
@@ -237,7 +237,7 @@ export function TradingStrategyForm({
             One strategy can track several assets. Separate them with commas or new lines.
           </p>
           <p className="trading-form__helper">
-            Use asset symbols only, like `XAUUSD`, `US500`, or `EURUSD`. Add your strategy rules in the knowledge base after saving.
+            Use asset symbols only, like `XAUUSD`, `US500`, or `BTCUSD`. Add your strategy rules in the knowledge base after saving.
           </p>
         </div>
 

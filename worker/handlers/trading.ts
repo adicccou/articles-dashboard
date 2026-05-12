@@ -51,7 +51,7 @@ export function normalizeTradingStrategyForInternal(row: TradingStrategyRow | nu
 function normalizeAssets(input: unknown): string[] {
   if (Array.isArray(input)) {
     return input
-      .map((value) => String(value).trim().toUpperCase())
+      .map((value) => String(value).trim().toUpperCase().replaceAll("/", ""))
       .filter(Boolean);
   }
 
@@ -64,7 +64,7 @@ function normalizeAssets(input: unknown): string[] {
     } catch {
       return input
         .split(/[,\n]/)
-        .map((value) => value.trim().toUpperCase())
+        .map((value) => value.trim().toUpperCase().replaceAll("/", ""))
         .filter(Boolean);
     }
   }
@@ -183,7 +183,7 @@ function validateAssets(assets: string[]): string | null {
   }
   const invalid = assets.filter((asset) => !/^[A-Z0-9._/-]{2,20}$/.test(asset));
   if (invalid.length > 0) {
-    return "Trading assets must be symbols like XAUUSD, US500, or EURUSD.";
+    return "Trading assets must be symbols like XAUUSD, US500, BTCUSD, or EURUSD.";
   }
   return null;
 }
