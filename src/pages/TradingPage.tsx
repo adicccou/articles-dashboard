@@ -3,7 +3,6 @@ import type { TradingStrategy, TradingStats } from "../lib/types";
 import { api } from "../lib/api";
 import { TradingStrategyForm } from "../components/TradingStrategyForm";
 import { KnowledgeBaseEditor } from "../components/KnowledgeBaseEditor";
-import { LeanStatusCard } from "../components/LeanStatusCard";
 import { LearningReportCard } from "../components/LearningReportCard";
 import { asArray } from "../lib/collections";
 
@@ -136,7 +135,6 @@ export function TradingPage() {
   return (
     <div className="stack">
       {error && <p className="error panel">{error}</p>}
-      <LeanStatusCard />
       <LearningReportCard />
       <section className="panel">
         <div className="panel__title-row">
