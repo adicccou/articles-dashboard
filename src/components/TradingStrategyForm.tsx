@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
-import type { TradingStrategy, TradingHoursWindow } from "../lib/types";
+import type { TradingStrategy } from "../lib/types";
 import "../styles/trading-strategy-form.css";
-
-const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 interface TradingStrategyFormProps {
   strategy?: TradingStrategy;
@@ -32,10 +30,6 @@ function buildInitialForm(strategy?: TradingStrategy): Partial<TradingStrategy> 
   );
 }
 
-function defaultWindow(): TradingHoursWindow {
-  return { days: ["Mon", "Tue", "Wed", "Thu", "Fri"], from: "08:00", to: "17:00" };
-}
-
 export function TradingStrategyForm({
   strategy,
   onSubmit,
@@ -43,7 +37,6 @@ export function TradingStrategyForm({
 }: TradingStrategyFormProps) {
   const [form, setForm] = useState<Partial<TradingStrategy>>(buildInitialForm(strategy));
   const [assetsText, setAssetsText] = useState((strategy?.assets || ["EURUSD"]).join(", "));
-  const [tradingHours, setTradingHours] = useState<TradingHoursWindow[]>(strategy?.trading_hours ?? []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,7 +44,6 @@ export function TradingStrategyForm({
     const next = buildInitialForm(strategy);
     setForm(next);
     setAssetsText((next.assets || []).join(", "));
-    setTradingHours(strategy?.trading_hours ?? []);
     setError(null);
   }, [strategy]);
 
@@ -71,32 +63,6 @@ export function TradingStrategyForm({
 
   function invalidAssets(values: string[]): string[] {
     return values.filter((asset) => !/^[A-Z0-9._/-]{2,20}$/.test(asset));
-  }
-
-  function addWindow() {
-    setTradingHours((prev) => [...prev, defaultWindow()]);
-  }
-
-  function removeWindow(idx: number) {
-    setTradingHours((prev) => prev.filter((_, i) => i !== idx));
-  }
-
-  function updateWindow(idx: number, patch: Partial<TradingHoursWindow>) {
-    setTradingHours((prev) =>
-      prev.map((w, i) => (i === idx ? { ...w, ...patch } : w)),
-    );
-  }
-
-  function toggleDay(idx: number, day: string) {
-    setTradingHours((prev) =>
-      prev.map((w, i) => {
-        if (i !== idx) return w;
-        const days = w.days.includes(day)
-          ? w.days.filter((d) => d !== day)
-          : [...w.days, day];
-        return { ...w, days };
-      }),
-    );
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -154,17 +120,6 @@ export function TradingStrategyForm({
       return;
     }
 
-    for (const w of tradingHours) {
-      if (w.days.length === 0) {
-        setError("Each working hours window must have at least one day selected.");
-        return;
-      }
-      if (!w.from || !w.to) {
-        setError("Each working hours window must have a start and end time.");
-        return;
-      }
-    }
-
     try {
       setLoading(true);
       setError(null);
@@ -180,7 +135,7 @@ export function TradingStrategyForm({
         confidence_threshold: confidenceThreshold,
         self_learning_mode: form.self_learning_mode || "suggest_only",
         max_open_positions: Number(form.max_open_positions ?? 1),
-        trading_hours: tradingHours,
+        trading_hours: [],
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save strategy");
@@ -446,73 +401,6 @@ export function TradingStrategyForm({
         <div className="trading-form__notice">
           Live and demo trades still require Telegram approval. Dashboard controls the settings; Telegram controls the final approval.
         </div>
-      </section>
-
-      <section className="trading-form__section">
-        <div className="trading-form__section-header">
-          <h3>Working Hours</h3>
-          <button type="button" className="trading-form__add-window" onClick={addWindow}>
-            + Add window
-          </button>
-        </div>
-        <p className="trading-form__helper" style={{ marginBottom: 16 }}>
-          Signals are only sent during the time windows below. Leave empty to send anytime (24/7).
-        </p>
-
-        {tradingHours.length === 0 && (
-          <div className="trading-form__hours-empty">
-            No restrictions — signals sent anytime.
-          </div>
-        )}
-
-        {tradingHours.map((window, idx) => (
-          <div key={idx} className="trading-form__hours-window">
-            <div className="trading-form__hours-window-header">
-              <span className="trading-form__hours-window-label">Window {idx + 1}</span>
-              <button
-                type="button"
-                className="trading-form__remove-window"
-                onClick={() => removeWindow(idx)}
-              >
-                Remove
-              </button>
-            </div>
-
-            <div className="trading-form__days">
-              {DAYS.map((day) => (
-                <button
-                  key={day}
-                  type="button"
-                  className={`trading-form__day-btn${window.days.includes(day) ? " trading-form__day-btn--active" : ""}`}
-                  onClick={() => toggleDay(idx, day)}
-                >
-                  {day}
-                </button>
-              ))}
-            </div>
-
-            <div className="trading-form__hours-times">
-              <div className="trading-form__group">
-                <label>From</label>
-                <input
-                  type="time"
-                  value={window.from}
-                  onChange={(e) => updateWindow(idx, { from: e.target.value })}
-                  className="trading-form__input"
-                />
-              </div>
-              <div className="trading-form__group">
-                <label>To</label>
-                <input
-                  type="time"
-                  value={window.to}
-                  onChange={(e) => updateWindow(idx, { to: e.target.value })}
-                  className="trading-form__input"
-                />
-              </div>
-            </div>
-          </div>
-        ))}
       </section>
 
       <div className="trading-form__actions">
