@@ -312,8 +312,30 @@ export type CustomLeanAssetWorkers = {
     market_order_only: boolean;
     one_worker_one_stats: boolean;
     updated_at: string;
+    worker_count?: number;
+    status_counts?: Record<string, number>;
+    event_counts?: Record<string, number>;
   };
   workers: CustomLeanWorker[];
+};
+
+export type CustomLeanDiagnostics = {
+  connected: boolean;
+  updated_at: string;
+  diagnostics_file?: string;
+  diagnostics_present: boolean;
+  diagnostics_age_seconds: number | null;
+  diagnostics_stale: boolean;
+  mode: string;
+  worker_count: number;
+  status_counts: Record<string, number>;
+  event_counts: Record<string, number>;
+  active_worker_ids: string[];
+  expected_runnable_worker_ids: string[];
+  missing_runnable_worker_ids: string[];
+  unexpected_worker_ids: string[];
+  catalog: CustomLeanWorker[];
+  diagnostics: Record<string, unknown>;
 };
 
 export type CustomLeanSettings = {

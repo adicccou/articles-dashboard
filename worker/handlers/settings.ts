@@ -626,6 +626,34 @@ export async function completeCtraderConnectionFromAgent(
   }
 }
 
+async function fetchTradingAgentJson(
+  settings: StoredSettings,
+  path: string,
+  timeoutMs = 10000,
+): Promise<Record<string, unknown> | unknown[]> {
+  if (!settings.trading_agent_url || !settings.trading_agent_token) {
+    throw new Error("Trading agent not configured");
+  }
+
+  const baseUrl = settings.trading_agent_url.replace(/\/$/, "");
+  const url = `${baseUrl}${path}`;
+  console.info("trading.agent_fetch.request", { path, has_token: Boolean(settings.trading_agent_token) });
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${settings.trading_agent_token}` },
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+
+  if (!response.ok) {
+    const body = (await response.text()).slice(0, 300);
+    console.error("trading.agent_fetch.failed", { path, status: response.status, body });
+    throw new Error(`Trading agent returned ${response.status}${body ? `: ${body}` : ""}`);
+  }
+
+  const payload = await response.json() as Record<string, unknown> | unknown[];
+  console.info("trading.agent_fetch.success", { path, status: response.status });
+  return payload;
+}
+
 export async function getLeanStatus(env: Env): Promise<Response> {
   const settings = await readSettings(env);
   if (!settings.trading_agent_url || !settings.trading_agent_token) {
@@ -680,27 +708,30 @@ export async function getLearningReport(env: Env): Promise<Response> {
 
 export async function getCustomLeanWorkers(env: Env): Promise<Response> {
   const settings = await readSettings(env);
-  if (!settings.trading_agent_url || !settings.trading_agent_token) {
-    return errorResponse("Trading agent not configured", 503);
-  }
   try {
-    const response = await fetch(
-      `${settings.trading_agent_url.replace(/\/$/, "")}/custom-lean/workers`,
-      {
-        headers: { Authorization: `Bearer ${settings.trading_agent_token}` },
-        signal: AbortSignal.timeout(10000),
-      },
-    );
-    if (!response.ok) {
-      return errorResponse(`Trading agent returned ${response.status}`, 502);
-    }
-    const data = await response.json() as Record<string, unknown> | unknown[];
+    const data = await fetchTradingAgentJson(settings, "/custom-lean/workers");
     const assets = Array.isArray(data)
       ? data
       : Array.isArray(data.assets)
         ? data.assets
         : [];
+    const workerCount = assets.reduce((count, asset) => {
+      if (!asset || typeof asset !== "object") return count;
+      const workers = (asset as { workers?: unknown }).workers;
+      return count + (Array.isArray(workers) ? workers.length : 0);
+    }, 0);
+    console.info("trading.custom_lean.workers.loaded", { assets: assets.length, worker_count: workerCount });
     return jsonResponse(assets);
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Could not reach trading agent", 502);
+  }
+}
+
+export async function getCustomLeanDiagnostics(env: Env): Promise<Response> {
+  const settings = await readSettings(env);
+  try {
+    const data = await fetchTradingAgentJson(settings, "/custom-lean/diagnostics");
+    return jsonResponse(data);
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Could not reach trading agent", 502);
   }

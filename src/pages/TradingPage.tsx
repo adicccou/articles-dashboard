@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import type { CustomLeanAssetWorkers, CustomLeanSettings, CustomLeanWorker } from "../lib/types";
+import type { CustomLeanAssetWorkers, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorker } from "../lib/types";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
 
@@ -82,6 +82,7 @@ const DEFAULT_SETTINGS: CustomLeanSettings = {
 
 export function TradingPage() {
   const [assets, setAssets] = useState<CustomLeanAssetWorkers[]>([]);
+  const [diagnostics, setDiagnostics] = useState<CustomLeanDiagnostics | null>(null);
   const [selectedAsset, setSelectedAsset] = useState("US500");
   const [settings, setSettings] = useState<CustomLeanSettings>(DEFAULT_SETTINGS);
   const [settingsDraft, setSettingsDraft] = useState<CustomLeanSettings>(DEFAULT_SETTINGS);
@@ -94,12 +95,14 @@ export function TradingPage() {
   async function load() {
     try {
       setLoading(true);
-      const [data, generalSettings] = await Promise.all([
+      const [data, generalSettings, diagnosticsData] = await Promise.all([
         api.getCustomLeanWorkers(),
         api.getCustomLeanSettings(),
+        api.getCustomLeanDiagnostics().catch(() => null),
       ]);
       const normalized = asArray<CustomLeanAssetWorkers>(data);
       setAssets(normalized);
+      setDiagnostics(diagnosticsData);
       setSettings(generalSettings);
       setSettingsDraft(generalSettings);
       if (normalized[0]?.asset) {
@@ -298,6 +301,13 @@ export function TradingPage() {
               <div>
                 <span>Coordinator</span>
                 <strong>{activeAsset.coordinator.mode.toUpperCase()}</strong>
+              </div>
+              <div>
+                <span>Diagnostics</span>
+                <strong className={diagnostics?.diagnostics_stale ? "custom-lean-risk" : "custom-lean-good"}>
+                  {diagnostics?.diagnostics_stale ? "STALE" : "LIVE"}
+                </strong>
+                <small>{diagnostics?.diagnostics_age_seconds ?? 0}s ago</small>
               </div>
               <div>
                 <span>Total trades</span>
