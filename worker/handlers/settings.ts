@@ -16,6 +16,11 @@ type StoredSettings = {
   ctrader_account_id: string;
   ctrader_demo_account_id: string;
   ctrader_live_account_id: string;
+  custom_lean_active: string;
+  custom_lean_risk_usd_min: string;
+  custom_lean_risk_usd_max: string;
+  custom_lean_max_open_trades_per_worker: string;
+  custom_lean_execution_mode: string;
   // Twitter/X
   twitter_api_key: string;
   twitter_api_secret: string;
@@ -44,6 +49,11 @@ const DEFAULTS: StoredSettings = {
   ctrader_account_id: "",
   ctrader_demo_account_id: "",
   ctrader_live_account_id: "",
+  custom_lean_active: "true",
+  custom_lean_risk_usd_min: "8",
+  custom_lean_risk_usd_max: "17",
+  custom_lean_max_open_trades_per_worker: "1",
+  custom_lean_execution_mode: "demo",
   twitter_api_key: "",
   twitter_api_secret: "",
   twitter_access_token: "",
@@ -95,6 +105,7 @@ function publicSettings(settings: StoredSettings) {
     ctrader_account_id: settings.ctrader_account_id,
     ctrader_demo_account_id: settings.ctrader_demo_account_id,
     ctrader_live_account_id: settings.ctrader_live_account_id,
+    custom_lean_settings: publicCustomLeanSettings(settings),
     ctrader_connected: Boolean(
       settings.ctrader_client_id &&
       settings.ctrader_client_secret &&
@@ -126,6 +137,7 @@ function internalAgentSettings(
   settings: StoredSettings,
   strategy?: Pick<ActiveStrategy, "execution_mode">,
 ) {
+  const customLean = publicCustomLeanSettings(settings);
   return {
     gemini_api_key: settings.gemini_api_key,
     gemini_flash_model: settings.gemini_flash_model,
@@ -142,9 +154,15 @@ function internalAgentSettings(
     ctrader_client_id: settings.ctrader_client_id,
     ctrader_client_secret: settings.ctrader_client_secret,
     ctrader_access_token: settings.ctrader_access_token,
-    ctrader_account_id: resolveCtraderAccountId(settings, strategy?.execution_mode),
+    ctrader_account_id: customLean.selected_account_id,
     ctrader_demo_account_id: settings.ctrader_demo_account_id,
     ctrader_live_account_id: settings.ctrader_live_account_id,
+    demo_mode: customLean.execution_mode !== "live",
+    auto_execute_demo_signals: customLean.active,
+    risk_usd_min: customLean.risk_usd_min,
+    risk_usd_max: customLean.risk_usd_max,
+    custom_lean_active: customLean.active,
+    custom_lean_max_open_trades_per_worker: customLean.max_open_trades_per_worker,
     trading_agent_url: settings.trading_agent_url,
     updated_at: settings.updated_at ?? null,
   };
@@ -159,6 +177,35 @@ function resolveCtraderAccountId(
     return settings.ctrader_live_account_id || settings.ctrader_account_id || settings.ctrader_demo_account_id || "";
   }
   return settings.ctrader_demo_account_id || settings.ctrader_account_id || settings.ctrader_live_account_id || "";
+}
+
+function parseBool(value: string, fallback = false): boolean {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return fallback;
+  return ["1", "true", "yes", "on"].includes(normalized);
+}
+
+function parseNumber(value: string, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeExecutionMode(value: string | undefined): "demo" | "live" {
+  return String(value || "").trim().toLowerCase() === "live" ? "live" : "demo";
+}
+
+function publicCustomLeanSettings(settings: StoredSettings) {
+  const executionMode = normalizeExecutionMode(settings.custom_lean_execution_mode);
+  return {
+    active: parseBool(settings.custom_lean_active, true),
+    risk_usd_min: parseNumber(settings.custom_lean_risk_usd_min, 8),
+    risk_usd_max: parseNumber(settings.custom_lean_risk_usd_max, 17),
+    max_open_trades_per_worker: Math.max(1, Math.trunc(parseNumber(settings.custom_lean_max_open_trades_per_worker, 1))),
+    execution_mode: executionMode,
+    demo_account_id: settings.ctrader_demo_account_id,
+    live_account_id: settings.ctrader_live_account_id,
+    selected_account_id: resolveCtraderAccountId(settings, executionMode),
+  };
 }
 
 type ActiveStrategy = {
@@ -193,13 +240,7 @@ async function syncTradingAgent(
     });
     return { ok: false, message: "Trading agent URL and token are not configured yet." };
   }
-  if (!settings.gemini_api_key) {
-    console.warn("trading.agent_sync.skipped", {
-      reason: "ai_key_missing",
-      active_strategy: strategy?.name ?? null,
-    });
-    return { ok: false, message: "AI API key is missing, so there is nothing to sync." };
-  }
+  const customLean = publicCustomLeanSettings(settings);
 
   const payload: Record<string, unknown> = {
     dashboard_api_url: dashboardOrigin ?? "",
@@ -218,9 +259,15 @@ async function syncTradingAgent(
     ctrader_client_id: settings.ctrader_client_id,
     ctrader_client_secret: settings.ctrader_client_secret,
     ctrader_access_token: settings.ctrader_access_token,
-    ctrader_account_id: resolveCtraderAccountId(settings, strategy?.execution_mode),
+    ctrader_account_id: customLean.selected_account_id,
     ctrader_demo_account_id: settings.ctrader_demo_account_id,
     ctrader_live_account_id: settings.ctrader_live_account_id,
+    demo_mode: customLean.execution_mode !== "live",
+    auto_execute_demo_signals: customLean.active,
+    risk_usd_min: customLean.risk_usd_min,
+    risk_usd_max: customLean.risk_usd_max,
+    custom_lean_active: customLean.active,
+    custom_lean_max_open_trades_per_worker: customLean.max_open_trades_per_worker,
     twitter_api_key: settings.twitter_api_key,
     twitter_api_secret: settings.twitter_api_secret,
     twitter_access_token: settings.twitter_access_token,
@@ -237,8 +284,8 @@ async function syncTradingAgent(
     payload.strategy_text = strategy.strategy_text ?? "";
     payload.strategy_name = strategy.name ?? "";
     payload.symbols = assets;
-    payload.risk_usd_min = strategy.risk_usd_min;
-    payload.risk_usd_max = strategy.risk_usd_max;
+    payload.risk_usd_min = customLean.risk_usd_min;
+    payload.risk_usd_max = customLean.risk_usd_max;
     payload.rr_min = strategy.rr_min;
     payload.default_rr_ratio = strategy.rr_max;
     payload.sl_to_breakeven_at = strategy.breakeven_rr;
@@ -246,7 +293,7 @@ async function syncTradingAgent(
     payload.self_learning_mode = strategy.self_learning_mode;
     payload.max_open_trades = strategy.max_open_positions;
     payload.max_daily_signals = strategy.daily_max_trade_signals;
-    payload.demo_mode = strategy.execution_mode !== "live";
+    payload.demo_mode = customLean.execution_mode !== "live";
     payload.trading_hours = strategy.trading_hours ?? "[]";
     try {
       payload.parsed_strategy = strategy.parsed_strategy ? JSON.parse(strategy.parsed_strategy) : null;
@@ -258,7 +305,7 @@ async function syncTradingAgent(
   console.info("trading.agent_sync.request", {
     active: Boolean(strategy),
     strategy_name: strategy?.name ?? null,
-    mode: strategy?.execution_mode ?? null,
+    mode: customLean.execution_mode,
     symbols: strategy ? (() => {
       try { return JSON.parse(strategy.assets) as string[]; } catch { return []; }
     })() : [],
@@ -289,7 +336,7 @@ async function syncTradingAgent(
     active: Boolean(strategy),
     strategy_name: strategy?.name ?? null,
   });
-  return { ok: true, message: `Synced AI API${strategyNote} to the trading agent.` };
+  return { ok: true, message: `Synced Custom-Lean settings${strategyNote} to the trading agent.` };
 }
 
 async function getActiveStrategy(env: Env): Promise<ActiveStrategy | undefined> {
@@ -352,7 +399,12 @@ export async function updateAppSettings(env: Env, request: Request, dashboardOri
     await upsertSetting(env, "ctrader_access_token", next.ctrader_access_token, updatedAt);
     await upsertSetting(env, "ctrader_demo_account_id", next.ctrader_demo_account_id, updatedAt);
     await upsertSetting(env, "ctrader_live_account_id", next.ctrader_live_account_id, updatedAt);
-    next.ctrader_account_id = resolveCtraderAccountId(next, savedActiveStrategy?.execution_mode);
+    await upsertSetting(env, "custom_lean_active", next.custom_lean_active, updatedAt);
+    await upsertSetting(env, "custom_lean_risk_usd_min", next.custom_lean_risk_usd_min, updatedAt);
+    await upsertSetting(env, "custom_lean_risk_usd_max", next.custom_lean_risk_usd_max, updatedAt);
+    await upsertSetting(env, "custom_lean_max_open_trades_per_worker", next.custom_lean_max_open_trades_per_worker, updatedAt);
+    await upsertSetting(env, "custom_lean_execution_mode", next.custom_lean_execution_mode, updatedAt);
+    next.ctrader_account_id = resolveCtraderAccountId(next, normalizeExecutionMode(next.custom_lean_execution_mode));
     await upsertSetting(env, "ctrader_account_id", next.ctrader_account_id, updatedAt);
     await upsertSetting(env, "twitter_api_key", next.twitter_api_key, updatedAt);
     await upsertSetting(env, "twitter_api_secret", next.twitter_api_secret, updatedAt);
@@ -375,6 +427,11 @@ export async function updateAppSettings(env: Env, request: Request, dashboardOri
       payload.ctrader_demo_account_id !== undefined ||
       payload.ctrader_live_account_id !== undefined ||
       payload.ctrader_account_id !== undefined ||
+      payload.custom_lean_active !== undefined ||
+      payload.custom_lean_risk_usd_min !== undefined ||
+      payload.custom_lean_risk_usd_max !== undefined ||
+      payload.custom_lean_max_open_trades_per_worker !== undefined ||
+      payload.custom_lean_execution_mode !== undefined ||
       payload.twitter_api_key !== undefined ||
       payload.twitter_api_secret !== undefined ||
       payload.twitter_access_token !== undefined ||
@@ -398,6 +455,87 @@ export async function updateAppSettings(env: Env, request: Request, dashboardOri
     });
   } catch {
     return errorResponse("Failed to update app settings", 500);
+  }
+}
+
+function cleanCustomLeanSettingsPayload(payload: Record<string, unknown>, current: StoredSettings): StoredSettings {
+  const active = typeof payload.active === "boolean"
+    ? payload.active
+    : parseBool(String(payload.active ?? current.custom_lean_active), true);
+  const riskMin = Number(payload.risk_usd_min ?? current.custom_lean_risk_usd_min);
+  const riskMax = Number(payload.risk_usd_max ?? current.custom_lean_risk_usd_max);
+  const workerCap = Number(payload.max_open_trades_per_worker ?? current.custom_lean_max_open_trades_per_worker);
+  const executionMode = normalizeExecutionMode(String(payload.execution_mode ?? current.custom_lean_execution_mode));
+
+  if (!Number.isFinite(riskMin) || riskMin <= 0) {
+    throw new Error("Min risk must be greater than 0.");
+  }
+  if (!Number.isFinite(riskMax) || riskMax <= 0) {
+    throw new Error("Max risk must be greater than 0.");
+  }
+  if (riskMax < riskMin) {
+    throw new Error("Max risk must be greater than or equal to min risk.");
+  }
+  if (!Number.isFinite(workerCap) || workerCap < 1) {
+    throw new Error("Each worker max open trades must be at least 1.");
+  }
+
+  const next: StoredSettings = {
+    ...current,
+    custom_lean_active: active ? "true" : "false",
+    custom_lean_risk_usd_min: String(riskMin),
+    custom_lean_risk_usd_max: String(riskMax),
+    custom_lean_max_open_trades_per_worker: String(Math.max(1, Math.trunc(workerCap))),
+    custom_lean_execution_mode: executionMode,
+  };
+  next.ctrader_account_id = resolveCtraderAccountId(next, executionMode);
+  return next;
+}
+
+export async function getCustomLeanSettings(env: Env): Promise<Response> {
+  try {
+    const settings = await readSettings(env);
+    return jsonResponse(publicCustomLeanSettings(settings));
+  } catch {
+    return errorResponse("Failed to load Custom-Lean settings", 500);
+  }
+}
+
+export async function updateCustomLeanSettings(
+  env: Env,
+  request: Request,
+  dashboardOrigin?: string,
+): Promise<Response> {
+  try {
+    const payload = await parseJson<Record<string, unknown>>(request);
+    const current = await readSettings(env);
+    const next = cleanCustomLeanSettingsPayload(payload, current);
+    const activeStrategy = await getActiveStrategy(env);
+    const updatedAt = new Date().toISOString();
+
+    await upsertSetting(env, "custom_lean_active", next.custom_lean_active, updatedAt);
+    await upsertSetting(env, "custom_lean_risk_usd_min", next.custom_lean_risk_usd_min, updatedAt);
+    await upsertSetting(env, "custom_lean_risk_usd_max", next.custom_lean_risk_usd_max, updatedAt);
+    await upsertSetting(env, "custom_lean_max_open_trades_per_worker", next.custom_lean_max_open_trades_per_worker, updatedAt);
+    await upsertSetting(env, "custom_lean_execution_mode", next.custom_lean_execution_mode, updatedAt);
+    await upsertSetting(env, "ctrader_account_id", next.ctrader_account_id, updatedAt);
+
+    let syncResult: { ok: boolean; message: string } | null = null;
+    try {
+      syncResult = await syncTradingAgent(next, activeStrategy, dashboardOrigin);
+    } catch (error) {
+      syncResult = {
+        ok: false,
+        message: error instanceof Error ? error.message : "Trading agent sync failed.",
+      };
+    }
+
+    return jsonResponse({
+      ...publicCustomLeanSettings({ ...next, updated_at: updatedAt }),
+      sync_result: syncResult,
+    });
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Failed to update Custom-Lean settings", 400);
   }
 }
 
@@ -456,7 +594,7 @@ export async function completeCtraderConnectionFromAgent(
             ctrader_demo_account_id: nextDemoAccountId,
             ctrader_live_account_id: nextLiveAccountId,
           },
-          (await getActiveStrategy(env))?.execution_mode,
+          normalizeExecutionMode(current.custom_lean_execution_mode),
         ),
     };
     const updatedAt = new Date().toISOString();

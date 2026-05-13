@@ -316,6 +316,21 @@ export type CustomLeanAssetWorkers = {
   workers: CustomLeanWorker[];
 };
 
+export type CustomLeanSettings = {
+  active: boolean;
+  risk_usd_min: number;
+  risk_usd_max: number;
+  max_open_trades_per_worker: number;
+  execution_mode: "demo" | "live";
+  demo_account_id: string;
+  live_account_id: string;
+  selected_account_id: string;
+  sync_result?: {
+    ok: boolean;
+    message: string;
+  } | null;
+};
+
 export type AssistantMessage = {
   role: "user" | "assistant";
   content: string;
@@ -396,6 +411,7 @@ export type AppSettings = {
   ctrader_account_id: string;
   ctrader_demo_account_id: string;
   ctrader_live_account_id: string;
+  custom_lean_settings?: CustomLeanSettings;
   ctrader_connected: boolean;
   ctrader_client_secret_saved?: boolean;
   ctrader_access_token_saved?: boolean;
@@ -431,6 +447,11 @@ export type AppSettingsInput = {
   ctrader_account_id?: string;
   ctrader_demo_account_id?: string;
   ctrader_live_account_id?: string;
+  custom_lean_active?: string;
+  custom_lean_risk_usd_min?: string;
+  custom_lean_risk_usd_max?: string;
+  custom_lean_max_open_trades_per_worker?: string;
+  custom_lean_execution_mode?: "demo" | "live";
   // Twitter/X
   twitter_api_key?: string;
   twitter_api_secret?: string;

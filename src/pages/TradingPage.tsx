@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CustomLeanAssetWorkers, CustomLeanWorker } from "../lib/types";
+import type { FormEvent } from "react";
+import type { CustomLeanAssetWorkers, CustomLeanSettings, CustomLeanWorker } from "../lib/types";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
 
@@ -68,18 +69,39 @@ function backtestSummary(worker: CustomLeanWorker) {
   return `${worker.stats.backtest_period}: ${formatPercent(worker.stats.backtest_win_rate ?? 0)} win rate / ${worker.stats.backtest_total_trades ?? 0} trades`;
 }
 
+const DEFAULT_SETTINGS: CustomLeanSettings = {
+  active: true,
+  risk_usd_min: 8,
+  risk_usd_max: 17,
+  max_open_trades_per_worker: 1,
+  execution_mode: "demo",
+  demo_account_id: "",
+  live_account_id: "",
+  selected_account_id: "",
+};
+
 export function TradingPage() {
   const [assets, setAssets] = useState<CustomLeanAssetWorkers[]>([]);
   const [selectedAsset, setSelectedAsset] = useState("US500");
+  const [settings, setSettings] = useState<CustomLeanSettings>(DEFAULT_SETTINGS);
+  const [settingsDraft, setSettingsDraft] = useState<CustomLeanSettings>(DEFAULT_SETTINGS);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
     try {
       setLoading(true);
-      const data = await api.getCustomLeanWorkers();
+      const [data, generalSettings] = await Promise.all([
+        api.getCustomLeanWorkers(),
+        api.getCustomLeanSettings(),
+      ]);
       const normalized = asArray<CustomLeanAssetWorkers>(data);
       setAssets(normalized);
+      setSettings(generalSettings);
+      setSettingsDraft(generalSettings);
       if (normalized[0]?.asset) {
         setSelectedAsset((current) => current || normalized[0].asset);
       }
@@ -94,6 +116,42 @@ export function TradingPage() {
   useEffect(() => {
     void load();
   }, []);
+
+  async function saveSettings(nextSettings = settingsDraft) {
+    try {
+      setSavingSettings(true);
+      setSettingsMessage(null);
+      const saved = await api.updateCustomLeanSettings({
+        active: nextSettings.active,
+        risk_usd_min: Number(nextSettings.risk_usd_min),
+        risk_usd_max: Number(nextSettings.risk_usd_max),
+        max_open_trades_per_worker: Number(nextSettings.max_open_trades_per_worker),
+        execution_mode: nextSettings.execution_mode,
+      });
+      setSettings(saved);
+      setSettingsDraft(saved);
+      setSettingsMessage(saved.sync_result?.message || "General settings saved.");
+    } catch (err) {
+      setSettingsMessage(err instanceof Error ? err.message : "Failed to save general settings.");
+    } finally {
+      setSavingSettings(false);
+    }
+  }
+
+  function submitSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void saveSettings();
+  }
+
+  function updateSettingsDraft(patch: Partial<CustomLeanSettings>) {
+    setSettingsDraft((current) => ({ ...current, ...patch }));
+  }
+
+  function toggleActive() {
+    const nextSettings = { ...settingsDraft, active: !settingsDraft.active };
+    setSettingsDraft(nextSettings);
+    void saveSettings(nextSettings);
+  }
 
   const activeAsset = useMemo(
     () => assets.find((asset) => asset.asset === selectedAsset) ?? assets[0],
@@ -131,10 +189,95 @@ export function TradingPage() {
             independently per asset, with each worker keeping its own stats.
           </p>
         </div>
-        <button className="button-secondary" onClick={() => void load()}>
-          Refresh
+        <button className="button-secondary" onClick={() => setSettingsOpen((value) => !value)}>
+          General settings
         </button>
       </section>
+
+      {settingsOpen ? (
+        <section className="panel custom-lean-settings">
+          <div className="custom-lean-settings__title">
+            <div>
+              <span className={settings.active ? "custom-lean-settings__status custom-lean-settings__status--active" : "custom-lean-settings__status"}>
+                {settings.active ? "Active" : "Inactive"}
+              </span>
+              <h3>General Settings</h3>
+            </div>
+            <button
+              className={settingsDraft.active ? "button-secondary custom-lean-deactivate" : "button-secondary custom-lean-activate"}
+              type="button"
+              onClick={toggleActive}
+              disabled={savingSettings}
+            >
+              {settingsDraft.active ? "Deactivate" : "Activate"}
+            </button>
+          </div>
+
+          <form className="custom-lean-settings__form" onSubmit={submitSettings}>
+            <label>
+              <span>Min risk USD</span>
+              <input
+                type="number"
+                min="1"
+                step="0.01"
+                value={settingsDraft.risk_usd_min}
+                onChange={(event) => updateSettingsDraft({ risk_usd_min: Number(event.target.value) })}
+              />
+            </label>
+            <label>
+              <span>Max risk USD</span>
+              <input
+                type="number"
+                min="1"
+                step="0.01"
+                value={settingsDraft.risk_usd_max}
+                onChange={(event) => updateSettingsDraft({ risk_usd_max: Number(event.target.value) })}
+              />
+            </label>
+            <label>
+              <span>Each worker max open trades</span>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={settingsDraft.max_open_trades_per_worker}
+                onChange={(event) => updateSettingsDraft({ max_open_trades_per_worker: Number(event.target.value) })}
+              />
+            </label>
+
+            <div className="custom-lean-account">
+              <span>Account</span>
+              <div className="custom-lean-account__toggle">
+                <button
+                  type="button"
+                  className={settingsDraft.execution_mode === "demo" ? "custom-lean-account__button custom-lean-account__button--active" : "custom-lean-account__button"}
+                  onClick={() => updateSettingsDraft({ execution_mode: "demo" })}
+                >
+                  Demo
+                </button>
+                <button
+                  type="button"
+                  className={settingsDraft.execution_mode === "live" ? "custom-lean-account__button custom-lean-account__button--active" : "custom-lean-account__button"}
+                  onClick={() => updateSettingsDraft({ execution_mode: "live" })}
+                >
+                  Live
+                </button>
+              </div>
+              <small>
+                Selected account: {settingsDraft.execution_mode === "live"
+                  ? settingsDraft.live_account_id || settingsDraft.selected_account_id || "not set"
+                  : settingsDraft.demo_account_id || settingsDraft.selected_account_id || "not set"}
+              </small>
+            </div>
+
+            <button className="button-secondary custom-lean-save" type="submit" disabled={savingSettings}>
+              {savingSettings ? "Saving..." : "Save settings"}
+            </button>
+          </form>
+
+          {settingsMessage ? <p className="custom-lean-settings__message">{settingsMessage}</p> : null}
+        </section>
+      ) : null}
 
       <section className="panel custom-lean-assets">
         <div className="custom-lean-assets__tabs">

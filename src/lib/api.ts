@@ -1,4 +1,4 @@
-import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialAccountInput, SocialPost, ThreadsCampaignResult, ThreadsMediaResponse, CustomLeanAssetWorkers } from "./types";
+import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialAccountInput, SocialPost, ThreadsCampaignResult, ThreadsMediaResponse, CustomLeanAssetWorkers, CustomLeanSettings } from "./types";
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -125,6 +125,13 @@ export const api = {
     request<TradingExecution[]>(`/api/trading/strategies/${id}/executions`),
   getCustomLeanWorkers: () =>
     request<CustomLeanAssetWorkers[]>("/api/trading/custom-lean/workers"),
+  getCustomLeanSettings: () =>
+    request<CustomLeanSettings>("/api/trading/custom-lean/settings"),
+  updateCustomLeanSettings: (payload: Partial<CustomLeanSettings>) =>
+    request<CustomLeanSettings>("/api/trading/custom-lean/settings", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   chatWithAssistant: (messages: AssistantMessage[]) =>
     request<AssistantChatResponse>("/api/assistant/chat", {
       method: "POST",
