@@ -1,4 +1,4 @@
-import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialAccountInput, SocialPost, ThreadsCampaignResult, ThreadsMediaResponse } from "./types";
+import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialAccountInput, SocialPost, ThreadsCampaignResult, ThreadsMediaResponse, CustomLeanAssetWorkers } from "./types";
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -123,6 +123,8 @@ export const api = {
     request<TradingStats>(`/api/trading/strategies/${id}/stats`),
   getTradingExecutions: (id: number) =>
     request<TradingExecution[]>(`/api/trading/strategies/${id}/executions`),
+  getCustomLeanWorkers: () =>
+    request<CustomLeanAssetWorkers[]>("/api/trading/custom-lean/workers"),
   chatWithAssistant: (messages: AssistantMessage[]) =>
     request<AssistantChatResponse>("/api/assistant/chat", {
       method: "POST",

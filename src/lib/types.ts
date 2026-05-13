@@ -275,6 +275,44 @@ export type TradingStats = {
   updated_at: string;
 };
 
+export type CustomLeanWorkerStats = {
+  period: string;
+  total_trades: number;
+  trades_per_day: number;
+  win_rate: number;
+  pnl_r: number;
+  pnl_usd_at_20_risk: number;
+  avg_win_rr: number;
+  avg_loss_rr: number;
+  today_trades: number;
+  today_pnl_usd: number;
+};
+
+export type CustomLeanWorker = {
+  id: string;
+  asset: string;
+  name: string;
+  role: string;
+  description: string;
+  playbook: string;
+  components: string[];
+  target_trades_per_day: string;
+  status: "ready" | "shadow" | "emit" | "paused";
+  stats: CustomLeanWorkerStats;
+};
+
+export type CustomLeanAssetWorkers = {
+  asset: string;
+  display_name: string;
+  coordinator: {
+    mode: "shadow" | "emit";
+    market_order_only: boolean;
+    one_worker_one_stats: boolean;
+    updated_at: string;
+  };
+  workers: CustomLeanWorker[];
+};
+
 export type AssistantMessage = {
   role: "user" | "assistant";
   content: string;

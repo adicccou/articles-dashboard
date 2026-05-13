@@ -183,7 +183,7 @@ function validateAssets(assets: string[]): string | null {
   }
   const invalid = assets.filter((asset) => !/^[A-Z0-9._/-]{2,20}$/.test(asset));
   if (invalid.length > 0) {
-    return "Trading assets must be symbols like XAUUSD, US500, BTCUSD, or EURUSD.";
+    return "Trading assets must be symbols like XAUUSD, US500, BTCUSD, AUDUSD, XTIUSD, or EURUSD.";
   }
   return null;
 }
@@ -198,6 +198,140 @@ export async function listStrategies(env: Env): Promise<Response> {
   } catch {
     return errorResponse("Failed to fetch strategies", 500);
   }
+}
+
+const CUSTOM_LEAN_WORKER_ASSETS = [
+  {
+    asset: "US500",
+    display_name: "US500",
+    coordinator: {
+      mode: "shadow",
+      market_order_only: true,
+      one_worker_one_stats: true,
+      updated_at: "2026-05-14T00:00:00Z",
+    },
+    workers: [
+      {
+        id: "us500_a_selective",
+        asset: "US500",
+        name: "A Selective",
+        role: "A only",
+        description: "Selective sweep and structure playbook. Low frequency, higher reward profile.",
+        playbook: "Top-down bias, previous-day sweep, M5 structure confirmation, market order only at current executable price.",
+        components: ["A"],
+        target_trades_per_day: "1-2",
+        status: "ready",
+        stats: {
+          period: "US500 Jan-Apr 2026",
+          total_trades: 14,
+          trades_per_day: 1.27,
+          win_rate: 0.5,
+          pnl_r: 10.67,
+          pnl_usd_at_20_risk: 213.4,
+          avg_win_rr: 2.524,
+          avg_loss_rr: -1.0,
+          today_trades: 0,
+          today_pnl_usd: 0,
+        },
+      },
+      {
+        id: "us500_b_high_frequency",
+        asset: "US500",
+        name: "B High-Frequency",
+        role: "B continuation scalp",
+        description: "Higher frequency continuation scalp. Designed to add the daily trade count.",
+        playbook: "Rolling or previous-day sweep, M5/M1 momentum continuation, FVG preference, market order only.",
+        components: ["B high-frequency"],
+        target_trades_per_day: "4-8",
+        status: "ready",
+        stats: {
+          period: "US500 Jan-Apr 2026",
+          total_trades: 428,
+          trades_per_day: 5.04,
+          win_rate: 0.3949,
+          pnl_r: 37.156,
+          pnl_usd_at_20_risk: 743.12,
+          avg_win_rr: 1.634,
+          avg_loss_rr: -0.923,
+          today_trades: 0,
+          today_pnl_usd: 0,
+        },
+      },
+      {
+        id: "us500_combo_a_b_high_frequency",
+        asset: "US500",
+        name: "A + B High-Frequency Combo",
+        role: "combo",
+        description: "Runs the selective A profile plus the high-frequency B profile as one combined worker lane.",
+        playbook: "A selective context first; B continuation fills frequency gaps when A is quiet. Market order only.",
+        components: ["A", "B high-frequency"],
+        target_trades_per_day: "4-8",
+        status: "ready",
+        stats: {
+          period: "US500 Jan-Apr 2026",
+          total_trades: 432,
+          trades_per_day: 5.08,
+          win_rate: 0.3958,
+          pnl_r: 40.527,
+          pnl_usd_at_20_risk: 810.53,
+          avg_win_rr: 1.652,
+          avg_loss_rr: -0.927,
+          today_trades: 0,
+          today_pnl_usd: 0,
+        },
+      },
+      {
+        id: "us500_b_higher_winrate",
+        asset: "US500",
+        name: "B Higher-Winrate",
+        role: "B higher-winrate",
+        description: "More filtered B worker. Lower average reward, better hit rate, still market-order only.",
+        playbook: "H1-aligned sweep, OB preference, same-side VWAP filter, shorter hold window.",
+        components: ["B higher-winrate"],
+        target_trades_per_day: "3-5",
+        status: "ready",
+        stats: {
+          period: "US500 Jan-Apr 2026",
+          total_trades: 311,
+          trades_per_day: 3.66,
+          win_rate: 0.5113,
+          pnl_r: 28.679,
+          pnl_usd_at_20_risk: 573.59,
+          avg_win_rr: 0.932,
+          avg_loss_rr: -0.786,
+          today_trades: 0,
+          today_pnl_usd: 0,
+        },
+      },
+      {
+        id: "us500_combo_a_b_higher_winrate",
+        asset: "US500",
+        name: "A + B Higher-Winrate Combo",
+        role: "combo",
+        description: "Combines A selective with the more filtered B worker. Better balance of accuracy and daily count.",
+        playbook: "A selective context plus filtered B continuation. Market order only; no pending or stale planned-entry layer.",
+        components: ["A", "B higher-winrate"],
+        target_trades_per_day: "3-6",
+        status: "ready",
+        stats: {
+          period: "US500 Jan-Apr 2026",
+          total_trades: 324,
+          trades_per_day: 3.81,
+          win_rate: 0.5093,
+          pnl_r: 37.15,
+          pnl_usd_at_20_risk: 742.99,
+          avg_win_rr: 0.991,
+          avg_loss_rr: -0.795,
+          today_trades: 0,
+          today_pnl_usd: 0,
+        },
+      },
+    ],
+  },
+] as const;
+
+export async function listCustomLeanWorkers(): Promise<Response> {
+  return jsonResponse(CUSTOM_LEAN_WORKER_ASSETS);
 }
 
 export async function getStrategy(env: Env, strategyId: string): Promise<Response> {

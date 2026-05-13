@@ -15,7 +15,7 @@ import {
 } from "./handlers/reddit";
 import { handleAuthorizeRequest, handleOAuthCallback, listRedditAccounts, deleteRedditAccount } from "./handlers/reddit-auth";
 import { getKnowledgeBase, saveKnowledgeBase, getVersions, getVersion } from "./handlers/knowledge-base";
-import { listStrategies, getStrategy, createStrategy, updateStrategy, activateStrategy, deactivateStrategy, deleteStrategy, getStrategyStats, getStrategyExecutions, getActiveStrategyInternal } from "./handlers/trading";
+import { listStrategies, getStrategy, createStrategy, updateStrategy, activateStrategy, deactivateStrategy, deleteStrategy, getStrategyStats, getStrategyExecutions, getActiveStrategyInternal, listCustomLeanWorkers } from "./handlers/trading";
 import { chatWithAssistant } from "./handlers/assistant";
 import { completeCtraderConnectionFromAgent, getAppSettings, getInternalAgentSettings, getLeanStatus, getLearningReport, syncAgentFromSettings, updateAppSettings } from "./handlers/settings";
 import {
@@ -1191,6 +1191,12 @@ export default {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
       return await getLearningReport(env);
+    }
+
+    if (url.pathname === "/api/trading/custom-lean/workers" && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await listCustomLeanWorkers();
     }
 
     if (url.pathname === "/api/trading/strategies" && request.method === "GET") {
