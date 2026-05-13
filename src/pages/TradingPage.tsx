@@ -61,6 +61,13 @@ function WorkerRow({ worker }: { worker: CustomLeanWorker }) {
   );
 }
 
+function backtestSummary(worker: CustomLeanWorker) {
+  if (!worker.stats.backtest_period) {
+    return null;
+  }
+  return `${worker.stats.backtest_period}: ${formatPercent(worker.stats.backtest_win_rate ?? 0)} win rate / ${worker.stats.backtest_total_trades ?? 0} trades`;
+}
+
 export function TradingPage() {
   const [assets, setAssets] = useState<CustomLeanAssetWorkers[]>([]);
   const [selectedAsset, setSelectedAsset] = useState("US500");
@@ -190,10 +197,11 @@ export function TradingPage() {
             <div className="custom-lean-playbooks">
               {activeAsset.workers.map((worker) => (
                 <article key={worker.id}>
-                  <span>{formatPercent(worker.stats.win_rate)} win rate</span>
+                  <span>Live {formatPercent(worker.stats.win_rate)} win rate</span>
                   <h3>{worker.name}</h3>
                   <p>{worker.playbook}</p>
                   <small>{worker.stats.period} / {worker.stats.trades_per_day.toFixed(2)} trades per day</small>
+                  {backtestSummary(worker) && <small>{backtestSummary(worker)}</small>}
                 </article>
               ))}
             </div>
