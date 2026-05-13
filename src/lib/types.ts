@@ -277,6 +277,9 @@ export type TradingStats = {
 
 export type CustomLeanWorkerStats = {
   period: string;
+  backtest_period?: string;
+  backtest_total_trades?: number;
+  backtest_win_rate?: number;
   total_trades: number;
   trades_per_day: number;
   win_rate: number;

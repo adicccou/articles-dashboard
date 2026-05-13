@@ -539,3 +539,31 @@ export async function getLearningReport(env: Env): Promise<Response> {
     });
   }
 }
+
+export async function getCustomLeanWorkers(env: Env): Promise<Response> {
+  const settings = await readSettings(env);
+  if (!settings.trading_agent_url || !settings.trading_agent_token) {
+    return errorResponse("Trading agent not configured", 503);
+  }
+  try {
+    const response = await fetch(
+      `${settings.trading_agent_url.replace(/\/$/, "")}/custom-lean/workers`,
+      {
+        headers: { Authorization: `Bearer ${settings.trading_agent_token}` },
+        signal: AbortSignal.timeout(10000),
+      },
+    );
+    if (!response.ok) {
+      return errorResponse(`Trading agent returned ${response.status}`, 502);
+    }
+    const data = await response.json() as Record<string, unknown> | unknown[];
+    const assets = Array.isArray(data)
+      ? data
+      : Array.isArray(data.assets)
+        ? data.assets
+        : [];
+    return jsonResponse(assets);
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Could not reach trading agent", 502);
+  }
+}

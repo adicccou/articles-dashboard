@@ -41,7 +41,7 @@ function WorkerRow({ worker }: { worker: CustomLeanWorker }) {
         <strong className={pnlPositive ? "custom-lean-good" : "custom-lean-risk"}>
           {formatR(worker.stats.pnl_r)}
         </strong>
-        <small>{formatUsd(worker.stats.pnl_usd_at_20_risk)} at $20 risk</small>
+        <small>{formatUsd(worker.stats.pnl_usd_at_20_risk)} realized</small>
       </div>
       <div className="custom-lean-worker__metric">
         <span>Today PnL</span>
@@ -100,9 +100,10 @@ export function TradingPage() {
         totalTrades: acc.totalTrades + worker.stats.total_trades,
         todayTrades: acc.todayTrades + worker.stats.today_trades,
         pnlR: acc.pnlR + worker.stats.pnl_r,
+        pnlUsd: acc.pnlUsd + worker.stats.pnl_usd_at_20_risk,
         todayPnl: acc.todayPnl + worker.stats.today_pnl_usd,
       }),
-      { totalTrades: 0, todayTrades: 0, pnlR: 0, todayPnl: 0 },
+      { totalTrades: 0, todayTrades: 0, pnlR: 0, pnlUsd: 0, todayPnl: 0 },
     );
   }, [activeAsset]);
 
@@ -158,9 +159,10 @@ export function TradingPage() {
               </div>
               <div>
                 <span>Total PnL</span>
-                <strong className={totals.pnlR >= 0 ? "custom-lean-good" : "custom-lean-risk"}>
-                  {formatR(totals.pnlR)}
+                <strong className={totals.pnlUsd >= 0 ? "custom-lean-good" : "custom-lean-risk"}>
+                  {formatUsd(totals.pnlUsd)}
                 </strong>
+                <small>{formatR(totals.pnlR)}</small>
               </div>
               <div>
                 <span>Today PnL</span>
