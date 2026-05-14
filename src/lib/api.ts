@@ -124,13 +124,13 @@ export const api = {
   getTradingExecutions: (id: number) =>
     request<TradingExecution[]>(`/api/trading/strategies/${id}/executions`),
   getCustomLeanWorkers: () =>
-    request<CustomLeanAssetWorkers[]>("/api/trading/custom-lean/workers"),
+    request<CustomLeanAssetWorkers[]>("/api/trading/nautilus/workers"),
   getCustomLeanDiagnostics: () =>
-    request<CustomLeanDiagnostics>("/api/trading/custom-lean/diagnostics"),
+    request<CustomLeanDiagnostics>("/api/trading/nautilus/diagnostics"),
   getCustomLeanSettings: () =>
-    request<CustomLeanSettings>("/api/trading/custom-lean/settings"),
+    request<CustomLeanSettings>("/api/trading/nautilus/settings"),
   updateCustomLeanSettings: (payload: Partial<CustomLeanSettings>) =>
-    request<CustomLeanSettings>("/api/trading/custom-lean/settings", {
+    request<CustomLeanSettings>("/api/trading/nautilus/settings", {
       method: "POST",
       body: JSON.stringify(payload),
     }),

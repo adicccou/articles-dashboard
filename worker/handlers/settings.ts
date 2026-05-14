@@ -336,7 +336,7 @@ async function syncTradingAgent(
     active: Boolean(strategy),
     strategy_name: strategy?.name ?? null,
   });
-  return { ok: true, message: `Synced Custom-Lean settings${strategyNote} to the trading agent.` };
+  return { ok: true, message: `Synced Nautilus settings${strategyNote} to the trading agent.` };
 }
 
 async function getActiveStrategy(env: Env): Promise<ActiveStrategy | undefined> {
@@ -497,7 +497,7 @@ export async function getCustomLeanSettings(env: Env): Promise<Response> {
     const settings = await readSettings(env);
     return jsonResponse(publicCustomLeanSettings(settings));
   } catch {
-    return errorResponse("Failed to load Custom-Lean settings", 500);
+    return errorResponse("Failed to load Nautilus settings", 500);
   }
 }
 
@@ -535,7 +535,7 @@ export async function updateCustomLeanSettings(
       sync_result: syncResult,
     });
   } catch (error) {
-    return errorResponse(error instanceof Error ? error.message : "Failed to update Custom-Lean settings", 400);
+    return errorResponse(error instanceof Error ? error.message : "Failed to update Nautilus settings", 400);
   }
 }
 
@@ -709,7 +709,7 @@ export async function getLearningReport(env: Env): Promise<Response> {
 export async function getCustomLeanWorkers(env: Env): Promise<Response> {
   const settings = await readSettings(env);
   try {
-    const data = await fetchTradingAgentJson(settings, "/custom-lean/workers");
+    const data = await fetchTradingAgentJson(settings, "/nautilus/workers");
     const assets = Array.isArray(data)
       ? data
       : Array.isArray(data.assets)
@@ -720,7 +720,7 @@ export async function getCustomLeanWorkers(env: Env): Promise<Response> {
       const workers = (asset as { workers?: unknown }).workers;
       return count + (Array.isArray(workers) ? workers.length : 0);
     }, 0);
-    console.info("trading.custom_lean.workers.loaded", { assets: assets.length, worker_count: workerCount });
+    console.info("trading.nautilus.workers.loaded", { assets: assets.length, worker_count: workerCount });
     return jsonResponse(assets);
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Could not reach trading agent", 502);
@@ -730,7 +730,7 @@ export async function getCustomLeanWorkers(env: Env): Promise<Response> {
 export async function getCustomLeanDiagnostics(env: Env): Promise<Response> {
   const settings = await readSettings(env);
   try {
-    const data = await fetchTradingAgentJson(settings, "/custom-lean/diagnostics");
+    const data = await fetchTradingAgentJson(settings, "/nautilus/diagnostics");
     return jsonResponse(data);
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Could not reach trading agent", 502);

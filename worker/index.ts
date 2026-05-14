@@ -1193,25 +1193,25 @@ export default {
       return await getLearningReport(env);
     }
 
-    if (url.pathname === "/api/trading/custom-lean/workers" && request.method === "GET") {
+    if ((url.pathname === "/api/trading/nautilus/workers" || url.pathname === "/api/trading/custom-lean/workers") && request.method === "GET") {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
       return await getCustomLeanWorkers(env);
     }
 
-    if (url.pathname === "/api/trading/custom-lean/diagnostics" && request.method === "GET") {
+    if ((url.pathname === "/api/trading/nautilus/diagnostics" || url.pathname === "/api/trading/custom-lean/diagnostics") && request.method === "GET") {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
       return await getCustomLeanDiagnostics(env);
     }
 
-    if (url.pathname === "/api/trading/custom-lean/settings" && request.method === "GET") {
+    if ((url.pathname === "/api/trading/nautilus/settings" || url.pathname === "/api/trading/custom-lean/settings") && request.method === "GET") {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
       return await getCustomLeanSettings(env);
     }
 
-    if (url.pathname === "/api/trading/custom-lean/settings" && request.method === "POST") {
+    if ((url.pathname === "/api/trading/nautilus/settings" || url.pathname === "/api/trading/custom-lean/settings") && request.method === "POST") {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
       return await updateCustomLeanSettings(env, request, url.origin);

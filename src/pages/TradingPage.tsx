@@ -110,7 +110,7 @@ export function TradingPage() {
       }
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load Custom-Lean workers");
+      setError(err instanceof Error ? err.message : "Failed to load Nautilus workers");
     } finally {
       setLoading(false);
     }
@@ -185,7 +185,7 @@ export function TradingPage() {
 
       <section className="panel custom-lean-hero">
         <div>
-          <span className="custom-lean-eyebrow">Custom-Lean coordinator</span>
+          <span className="custom-lean-eyebrow">Nautilus coordinator</span>
           <h2>Asset Workers</h2>
           <p>
             Trading Strategies is hidden for now. This screen shows the worker model that will run
@@ -360,7 +360,7 @@ export function TradingPage() {
             </div>
           </>
         ) : (
-          <p className="custom-lean-empty">No Custom-Lean assets configured yet.</p>
+          <p className="custom-lean-empty">No Nautilus assets configured yet.</p>
         )}
       </section>
     </div>
