@@ -6,6 +6,7 @@ export type NavView =
   | "articles"
   | "reddit"
   | "trading"
+  | "ml-trading"
   | "planner"
   | "statistics";
 
@@ -26,6 +27,7 @@ export const TopNav: React.FC<TopNavProps> = ({
     { label: "Articles", view: "articles" },
     { label: "Social Agents", view: "reddit" },
     { label: "Trading", view: "trading" },
+    { label: "ML Trading", view: "ml-trading" },
     { label: "Scheduler", view: "planner" },
     { label: "Statistics", view: "statistics" },
   ];

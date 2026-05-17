@@ -301,6 +301,7 @@ export type CustomLeanWorker = {
   components: string[];
   target_trades_per_day: string;
   status: "ready" | "shadow" | "emit" | "paused";
+  enabled?: boolean;
   stats: CustomLeanWorkerStats;
 };
 
@@ -343,10 +344,46 @@ export type CustomLeanSettings = {
   risk_usd_min: number;
   risk_usd_max: number;
   max_open_trades_per_worker: number;
+  disabled_worker_ids: string[];
+  deleted_worker_ids: string[];
   execution_mode: "demo" | "live";
   demo_account_id: string;
   live_account_id: string;
   selected_account_id: string;
+  sync_result?: {
+    ok: boolean;
+    message: string;
+  } | null;
+};
+
+export type MlTradingAssetStats = {
+  period: string;
+  total_pnl_usd: number;
+  today_pnl_usd: number;
+  total_win_trades: number;
+  total_loss_trades: number;
+  avg_win_rr: number;
+  avg_loss_rr: number;
+};
+
+export type MlTradingAsset = {
+  asset: string;
+  display_name: string;
+  enabled: boolean;
+  model_stack: string;
+  timeframe: string;
+  notes: string;
+  stats: MlTradingAssetStats;
+};
+
+export type MlTradingSettings = {
+  active: boolean;
+  risk_usd_min: number;
+  risk_usd_max: number;
+  execution_mode: "demo";
+  demo_account_id: string;
+  selected_account_id: string;
+  enabled_assets: string[];
   sync_result?: {
     ok: boolean;
     message: string;
@@ -434,6 +471,7 @@ export type AppSettings = {
   ctrader_demo_account_id: string;
   ctrader_live_account_id: string;
   custom_lean_settings?: CustomLeanSettings;
+  ml_trading_settings?: MlTradingSettings;
   ctrader_connected: boolean;
   ctrader_client_secret_saved?: boolean;
   ctrader_access_token_saved?: boolean;
@@ -474,6 +512,10 @@ export type AppSettingsInput = {
   custom_lean_risk_usd_max?: string;
   custom_lean_max_open_trades_per_worker?: string;
   custom_lean_execution_mode?: "demo" | "live";
+  ml_trading_active?: string;
+  ml_trading_risk_usd_min?: string;
+  ml_trading_risk_usd_max?: string;
+  ml_trading_enabled_assets?: string;
   // Twitter/X
   twitter_api_key?: string;
   twitter_api_secret?: string;

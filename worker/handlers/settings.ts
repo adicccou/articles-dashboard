@@ -21,6 +21,12 @@ type StoredSettings = {
   custom_lean_risk_usd_max: string;
   custom_lean_max_open_trades_per_worker: string;
   custom_lean_execution_mode: string;
+  custom_lean_disabled_worker_ids: string;
+  custom_lean_deleted_worker_ids: string;
+  ml_trading_active: string;
+  ml_trading_risk_usd_min: string;
+  ml_trading_risk_usd_max: string;
+  ml_trading_enabled_assets: string;
   // Twitter/X
   twitter_api_key: string;
   twitter_api_secret: string;
@@ -54,6 +60,12 @@ const DEFAULTS: StoredSettings = {
   custom_lean_risk_usd_max: "17",
   custom_lean_max_open_trades_per_worker: "1",
   custom_lean_execution_mode: "demo",
+  custom_lean_disabled_worker_ids: "",
+  custom_lean_deleted_worker_ids: "",
+  ml_trading_active: "false",
+  ml_trading_risk_usd_min: "8",
+  ml_trading_risk_usd_max: "17",
+  ml_trading_enabled_assets: "XAUUSD",
   twitter_api_key: "",
   twitter_api_secret: "",
   twitter_access_token: "",
@@ -106,6 +118,7 @@ function publicSettings(settings: StoredSettings) {
     ctrader_demo_account_id: settings.ctrader_demo_account_id,
     ctrader_live_account_id: settings.ctrader_live_account_id,
     custom_lean_settings: publicCustomLeanSettings(settings),
+    ml_trading_settings: publicMlTradingSettings(settings),
     ctrader_connected: Boolean(
       settings.ctrader_client_id &&
       settings.ctrader_client_secret &&
@@ -138,6 +151,7 @@ function internalAgentSettings(
   strategy?: Pick<ActiveStrategy, "execution_mode">,
 ) {
   const customLean = publicCustomLeanSettings(settings);
+  const mlTrading = publicMlTradingSettings(settings);
   return {
     gemini_api_key: settings.gemini_api_key,
     gemini_flash_model: settings.gemini_flash_model,
@@ -163,6 +177,13 @@ function internalAgentSettings(
     risk_usd_max: customLean.risk_usd_max,
     custom_lean_active: customLean.active,
     custom_lean_max_open_trades_per_worker: customLean.max_open_trades_per_worker,
+    custom_lean_disabled_worker_ids: customLean.disabled_worker_ids,
+    ml_trading_active: mlTrading.active,
+    ml_trading_risk_usd_min: mlTrading.risk_usd_min,
+    ml_trading_risk_usd_max: mlTrading.risk_usd_max,
+    ml_trading_enabled_assets: mlTrading.enabled_assets,
+    ml_trading_execution_mode: "demo",
+    ml_trading_selected_account_id: mlTrading.selected_account_id,
     trading_agent_url: settings.trading_agent_url,
     updated_at: settings.updated_at ?? null,
   };
@@ -196,15 +217,41 @@ function normalizeExecutionMode(value: string | undefined): "demo" | "live" {
 
 function publicCustomLeanSettings(settings: StoredSettings) {
   const executionMode = normalizeExecutionMode(settings.custom_lean_execution_mode);
+  const disabledWorkerIds = String(settings.custom_lean_disabled_worker_ids || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const deletedWorkerIds = String(settings.custom_lean_deleted_worker_ids || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
   return {
     active: parseBool(settings.custom_lean_active, true),
     risk_usd_min: parseNumber(settings.custom_lean_risk_usd_min, 8),
     risk_usd_max: parseNumber(settings.custom_lean_risk_usd_max, 17),
     max_open_trades_per_worker: Math.max(1, Math.trunc(parseNumber(settings.custom_lean_max_open_trades_per_worker, 1))),
     execution_mode: executionMode,
+    disabled_worker_ids: disabledWorkerIds,
+    deleted_worker_ids: deletedWorkerIds,
     demo_account_id: settings.ctrader_demo_account_id,
     live_account_id: settings.ctrader_live_account_id,
     selected_account_id: resolveCtraderAccountId(settings, executionMode),
+  };
+}
+
+function publicMlTradingSettings(settings: StoredSettings) {
+  const enabledAssets = String(settings.ml_trading_enabled_assets || "XAUUSD")
+    .split(",")
+    .map((value) => value.trim().toUpperCase().replaceAll("/", ""))
+    .filter(Boolean);
+  return {
+    active: parseBool(settings.ml_trading_active, false),
+    risk_usd_min: parseNumber(settings.ml_trading_risk_usd_min, 8),
+    risk_usd_max: parseNumber(settings.ml_trading_risk_usd_max, 17),
+    execution_mode: "demo" as const,
+    demo_account_id: settings.ctrader_demo_account_id,
+    selected_account_id: settings.ctrader_demo_account_id || settings.ctrader_account_id || "",
+    enabled_assets: Array.from(new Set(enabledAssets.length ? enabledAssets : ["XAUUSD"])),
   };
 }
 
@@ -241,6 +288,7 @@ async function syncTradingAgent(
     return { ok: false, message: "Trading agent URL and token are not configured yet." };
   }
   const customLean = publicCustomLeanSettings(settings);
+  const mlTrading = publicMlTradingSettings(settings);
 
   const payload: Record<string, unknown> = {
     dashboard_api_url: dashboardOrigin ?? "",
@@ -268,6 +316,14 @@ async function syncTradingAgent(
     risk_usd_max: customLean.risk_usd_max,
     custom_lean_active: customLean.active,
     custom_lean_max_open_trades_per_worker: customLean.max_open_trades_per_worker,
+    custom_lean_disabled_worker_ids: customLean.disabled_worker_ids,
+    custom_lean_deleted_worker_ids: customLean.deleted_worker_ids,
+    ml_trading_active: mlTrading.active,
+    ml_trading_risk_usd_min: mlTrading.risk_usd_min,
+    ml_trading_risk_usd_max: mlTrading.risk_usd_max,
+    ml_trading_enabled_assets: mlTrading.enabled_assets,
+    ml_trading_execution_mode: "demo",
+    ml_trading_selected_account_id: mlTrading.selected_account_id,
     twitter_api_key: settings.twitter_api_key,
     twitter_api_secret: settings.twitter_api_secret,
     twitter_access_token: settings.twitter_access_token,
@@ -404,6 +460,10 @@ export async function updateAppSettings(env: Env, request: Request, dashboardOri
     await upsertSetting(env, "custom_lean_risk_usd_max", next.custom_lean_risk_usd_max, updatedAt);
     await upsertSetting(env, "custom_lean_max_open_trades_per_worker", next.custom_lean_max_open_trades_per_worker, updatedAt);
     await upsertSetting(env, "custom_lean_execution_mode", next.custom_lean_execution_mode, updatedAt);
+    await upsertSetting(env, "ml_trading_active", next.ml_trading_active, updatedAt);
+    await upsertSetting(env, "ml_trading_risk_usd_min", next.ml_trading_risk_usd_min, updatedAt);
+    await upsertSetting(env, "ml_trading_risk_usd_max", next.ml_trading_risk_usd_max, updatedAt);
+    await upsertSetting(env, "ml_trading_enabled_assets", next.ml_trading_enabled_assets, updatedAt);
     next.ctrader_account_id = resolveCtraderAccountId(next, normalizeExecutionMode(next.custom_lean_execution_mode));
     await upsertSetting(env, "ctrader_account_id", next.ctrader_account_id, updatedAt);
     await upsertSetting(env, "twitter_api_key", next.twitter_api_key, updatedAt);
@@ -432,6 +492,11 @@ export async function updateAppSettings(env: Env, request: Request, dashboardOri
       payload.custom_lean_risk_usd_max !== undefined ||
       payload.custom_lean_max_open_trades_per_worker !== undefined ||
       payload.custom_lean_execution_mode !== undefined ||
+      payload.custom_lean_deleted_worker_ids !== undefined ||
+      payload.ml_trading_active !== undefined ||
+      payload.ml_trading_risk_usd_min !== undefined ||
+      payload.ml_trading_risk_usd_max !== undefined ||
+      payload.ml_trading_enabled_assets !== undefined ||
       payload.twitter_api_key !== undefined ||
       payload.twitter_api_secret !== undefined ||
       payload.twitter_access_token !== undefined ||
@@ -466,6 +531,18 @@ function cleanCustomLeanSettingsPayload(payload: Record<string, unknown>, curren
   const riskMax = Number(payload.risk_usd_max ?? current.custom_lean_risk_usd_max);
   const workerCap = Number(payload.max_open_trades_per_worker ?? current.custom_lean_max_open_trades_per_worker);
   const executionMode = normalizeExecutionMode(String(payload.execution_mode ?? current.custom_lean_execution_mode));
+  const disabledWorkerIds = Array.isArray(payload.disabled_worker_ids)
+    ? payload.disabled_worker_ids.map((value) => String(value || "").trim()).filter(Boolean)
+    : String(payload.disabled_worker_ids ?? current.custom_lean_disabled_worker_ids)
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+  const deletedWorkerIds = Array.isArray(payload.deleted_worker_ids)
+    ? payload.deleted_worker_ids.map((value) => String(value || "").trim()).filter(Boolean)
+    : String(payload.deleted_worker_ids ?? current.custom_lean_deleted_worker_ids)
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
 
   if (!Number.isFinite(riskMin) || riskMin <= 0) {
     throw new Error("Min risk must be greater than 0.");
@@ -487,9 +564,43 @@ function cleanCustomLeanSettingsPayload(payload: Record<string, unknown>, curren
     custom_lean_risk_usd_max: String(riskMax),
     custom_lean_max_open_trades_per_worker: String(Math.max(1, Math.trunc(workerCap))),
     custom_lean_execution_mode: executionMode,
+    custom_lean_disabled_worker_ids: Array.from(new Set(disabledWorkerIds)).join(","),
+    custom_lean_deleted_worker_ids: Array.from(new Set(deletedWorkerIds)).join(","),
   };
   next.ctrader_account_id = resolveCtraderAccountId(next, executionMode);
   return next;
+}
+
+function cleanMlTradingSettingsPayload(payload: Record<string, unknown>, current: StoredSettings): StoredSettings {
+  const active = typeof payload.active === "boolean"
+    ? payload.active
+    : parseBool(String(payload.active ?? current.ml_trading_active), false);
+  const riskMin = Number(payload.risk_usd_min ?? current.ml_trading_risk_usd_min);
+  const riskMax = Number(payload.risk_usd_max ?? current.ml_trading_risk_usd_max);
+  const enabledAssets = Array.isArray(payload.enabled_assets)
+    ? payload.enabled_assets.map((value) => String(value || "").trim().toUpperCase().replaceAll("/", "")).filter(Boolean)
+    : String(payload.enabled_assets ?? current.ml_trading_enabled_assets)
+      .split(",")
+      .map((value) => value.trim().toUpperCase().replaceAll("/", ""))
+      .filter(Boolean);
+
+  if (!Number.isFinite(riskMin) || riskMin <= 0) {
+    throw new Error("ML Trading min risk must be greater than 0.");
+  }
+  if (!Number.isFinite(riskMax) || riskMax <= 0) {
+    throw new Error("ML Trading max risk must be greater than 0.");
+  }
+  if (riskMax < riskMin) {
+    throw new Error("ML Trading max risk must be greater than or equal to min risk.");
+  }
+
+  return {
+    ...current,
+    ml_trading_active: active ? "true" : "false",
+    ml_trading_risk_usd_min: String(riskMin),
+    ml_trading_risk_usd_max: String(riskMax),
+    ml_trading_enabled_assets: Array.from(new Set(enabledAssets.length ? enabledAssets : ["XAUUSD"])).join(","),
+  };
 }
 
 export async function getCustomLeanSettings(env: Env): Promise<Response> {
@@ -498,6 +609,15 @@ export async function getCustomLeanSettings(env: Env): Promise<Response> {
     return jsonResponse(publicCustomLeanSettings(settings));
   } catch {
     return errorResponse("Failed to load Nautilus settings", 500);
+  }
+}
+
+export async function getMlTradingSettings(env: Env): Promise<Response> {
+  try {
+    const settings = await readSettings(env);
+    return jsonResponse(publicMlTradingSettings(settings));
+  } catch {
+    return errorResponse("Failed to load ML Trading settings", 500);
   }
 }
 
@@ -518,6 +638,8 @@ export async function updateCustomLeanSettings(
     await upsertSetting(env, "custom_lean_risk_usd_max", next.custom_lean_risk_usd_max, updatedAt);
     await upsertSetting(env, "custom_lean_max_open_trades_per_worker", next.custom_lean_max_open_trades_per_worker, updatedAt);
     await upsertSetting(env, "custom_lean_execution_mode", next.custom_lean_execution_mode, updatedAt);
+    await upsertSetting(env, "custom_lean_disabled_worker_ids", next.custom_lean_disabled_worker_ids, updatedAt);
+    await upsertSetting(env, "custom_lean_deleted_worker_ids", next.custom_lean_deleted_worker_ids, updatedAt);
     await upsertSetting(env, "ctrader_account_id", next.ctrader_account_id, updatedAt);
 
     let syncResult: { ok: boolean; message: string } | null = null;
@@ -536,6 +658,42 @@ export async function updateCustomLeanSettings(
     });
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Failed to update Nautilus settings", 400);
+  }
+}
+
+export async function updateMlTradingSettings(
+  env: Env,
+  request: Request,
+  dashboardOrigin?: string,
+): Promise<Response> {
+  try {
+    const payload = await parseJson<Record<string, unknown>>(request);
+    const current = await readSettings(env);
+    const next = cleanMlTradingSettingsPayload(payload, current);
+    const activeStrategy = await getActiveStrategy(env);
+    const updatedAt = new Date().toISOString();
+
+    await upsertSetting(env, "ml_trading_active", next.ml_trading_active, updatedAt);
+    await upsertSetting(env, "ml_trading_risk_usd_min", next.ml_trading_risk_usd_min, updatedAt);
+    await upsertSetting(env, "ml_trading_risk_usd_max", next.ml_trading_risk_usd_max, updatedAt);
+    await upsertSetting(env, "ml_trading_enabled_assets", next.ml_trading_enabled_assets, updatedAt);
+
+    let syncResult: { ok: boolean; message: string } | null = null;
+    try {
+      syncResult = await syncTradingAgent(next, activeStrategy, dashboardOrigin);
+    } catch (error) {
+      syncResult = {
+        ok: false,
+        message: error instanceof Error ? error.message : "Trading agent sync failed.",
+      };
+    }
+
+    return jsonResponse({
+      ...publicMlTradingSettings({ ...next, updated_at: updatedAt }),
+      sync_result: syncResult,
+    });
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Failed to update ML Trading settings", 400);
   }
 }
 
@@ -715,13 +873,40 @@ export async function getCustomLeanWorkers(env: Env): Promise<Response> {
       : Array.isArray(data.assets)
         ? data.assets
         : [];
+    const customLeanSettings = publicCustomLeanSettings(settings);
+    const disabledWorkerIds = new Set(customLeanSettings.disabled_worker_ids);
+    const deletedWorkerIds = new Set(customLeanSettings.deleted_worker_ids);
+    const normalizedAssets = assets.map((asset) => {
+      if (!asset || typeof asset !== "object") return asset;
+      const rawWorkers = (asset as { workers?: unknown }).workers;
+      const workers = Array.isArray(rawWorkers) ? rawWorkers : [];
+      return {
+        ...asset,
+        workers: workers
+          .map((worker) => {
+            if (!worker || typeof worker !== "object") return worker;
+            const workerId = String((worker as { id?: unknown }).id || "").trim();
+            const enabled = workerId ? !disabledWorkerIds.has(workerId) : true;
+            return {
+              ...worker,
+              enabled,
+              status: enabled ? String((worker as { status?: unknown }).status || "ready") : "paused",
+            };
+          })
+          .filter((worker) => {
+            if (!worker || typeof worker !== "object") return false;
+            const workerId = String((worker as { id?: unknown }).id || "").trim();
+            return workerId ? !deletedWorkerIds.has(workerId) : true;
+          }),
+      };
+    });
     const workerCount = assets.reduce((count, asset) => {
       if (!asset || typeof asset !== "object") return count;
       const workers = (asset as { workers?: unknown }).workers;
       return count + (Array.isArray(workers) ? workers.length : 0);
     }, 0);
     console.info("trading.nautilus.workers.loaded", { assets: assets.length, worker_count: workerCount });
-    return jsonResponse(assets);
+    return jsonResponse(normalizedAssets);
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Could not reach trading agent", 502);
   }
@@ -732,6 +917,31 @@ export async function getCustomLeanDiagnostics(env: Env): Promise<Response> {
   try {
     const data = await fetchTradingAgentJson(settings, "/nautilus/diagnostics");
     return jsonResponse(data);
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Could not reach trading agent", 502);
+  }
+}
+
+export async function getMlTradingAssets(env: Env): Promise<Response> {
+  const settings = await readSettings(env);
+  try {
+    const data = await fetchTradingAgentJson(settings, "/ml-trading/assets");
+    const assets = Array.isArray(data)
+      ? data
+      : Array.isArray((data as Record<string, unknown>).assets)
+        ? (data as Record<string, unknown>).assets as unknown[]
+        : [];
+    const mlSettings = publicMlTradingSettings(settings);
+    const enabledAssets = new Set(mlSettings.enabled_assets);
+    const normalizedAssets = assets.map((asset) => {
+      if (!asset || typeof asset !== "object") return asset;
+      const symbol = String((asset as { asset?: unknown }).asset || "").trim().toUpperCase();
+      return {
+        ...asset,
+        enabled: symbol ? enabledAssets.has(symbol) : false,
+      };
+    });
+    return jsonResponse(normalizedAssets);
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Could not reach trading agent", 502);
   }

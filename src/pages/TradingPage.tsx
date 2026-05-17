@@ -16,9 +16,20 @@ function formatPercent(value: number) {
   return `${(value * 100).toFixed(1)}%`;
 }
 
-function WorkerRow({ worker }: { worker: CustomLeanWorker }) {
+function WorkerRow({
+  worker,
+  saving,
+  onToggle,
+  onDelete,
+}: {
+  worker: CustomLeanWorker;
+  saving: boolean;
+  onToggle: (worker: CustomLeanWorker) => void;
+  onDelete: (worker: CustomLeanWorker) => void;
+}) {
   const pnlPositive = worker.stats.pnl_r >= 0;
   const todayPositive = worker.stats.today_pnl_usd >= 0;
+  const enabled = worker.enabled !== false;
 
   return (
     <div className="custom-lean-worker">
@@ -58,6 +69,33 @@ function WorkerRow({ worker }: { worker: CustomLeanWorker }) {
         <span>Avg loss RR</span>
         <strong>{worker.stats.avg_loss_rr.toFixed(2)}R</strong>
       </div>
+      <div className="custom-lean-worker__metric custom-lean-worker__metric--toggle">
+        <span>Worker</span>
+        <div className="custom-lean-worker__actions">
+          <button
+            type="button"
+            className={enabled ? "custom-lean-worker__toggle custom-lean-worker__toggle--on" : "custom-lean-worker__toggle"}
+            aria-pressed={enabled}
+            onClick={() => onToggle(worker)}
+            disabled={saving}
+          >
+            <span className="custom-lean-worker__toggle-knob" />
+          </button>
+          <button
+            type="button"
+            className="custom-lean-worker__delete"
+            onClick={() => onDelete(worker)}
+            disabled={saving}
+            aria-label={`Delete ${worker.name}`}
+            title={`Delete ${worker.name}`}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9 3h6l1 2h4v2H4V5h4l1-2zm1 6h2v8h-2V9zm4 0h2v8h-2V9zM7 9h2v8H7V9zm1 11h8a2 2 0 0 0 2-2V8H6v10a2 2 0 0 0 2 2z" />
+            </svg>
+          </button>
+        </div>
+        <small>{enabled ? "On" : "Off"}</small>
+      </div>
     </div>
   );
 }
@@ -74,6 +112,8 @@ const DEFAULT_SETTINGS: CustomLeanSettings = {
   risk_usd_min: 8,
   risk_usd_max: 17,
   max_open_trades_per_worker: 1,
+  disabled_worker_ids: [],
+  deleted_worker_ids: [],
   execution_mode: "demo",
   demo_account_id: "",
   live_account_id: "",
@@ -88,6 +128,7 @@ export function TradingPage() {
   const [settingsDraft, setSettingsDraft] = useState<CustomLeanSettings>(DEFAULT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [savingWorkerId, setSavingWorkerId] = useState<string | null>(null);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -110,7 +151,7 @@ export function TradingPage() {
       }
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load Nautilus workers");
+      setError(err instanceof Error ? err.message : "Failed to load trading dashboards");
     } finally {
       setLoading(false);
     }
@@ -129,6 +170,8 @@ export function TradingPage() {
         risk_usd_min: Number(nextSettings.risk_usd_min),
         risk_usd_max: Number(nextSettings.risk_usd_max),
         max_open_trades_per_worker: Number(nextSettings.max_open_trades_per_worker),
+        disabled_worker_ids: nextSettings.disabled_worker_ids,
+        deleted_worker_ids: nextSettings.deleted_worker_ids,
         execution_mode: nextSettings.execution_mode,
       });
       setSettings(saved);
@@ -156,13 +199,63 @@ export function TradingPage() {
     void saveSettings(nextSettings);
   }
 
+  async function toggleWorker(worker: CustomLeanWorker) {
+    const disabled = new Set(settingsDraft.disabled_worker_ids);
+    if (disabled.has(worker.id)) {
+      disabled.delete(worker.id);
+    } else {
+      disabled.add(worker.id);
+    }
+    const nextSettings = {
+      ...settingsDraft,
+      disabled_worker_ids: Array.from(disabled),
+    };
+    setSettingsDraft(nextSettings);
+    setSavingWorkerId(worker.id);
+    try {
+      await saveSettings(nextSettings);
+      await load();
+    } finally {
+      setSavingWorkerId(null);
+    }
+  }
+
+  async function deleteWorker(worker: CustomLeanWorker) {
+    const confirmed = window.confirm(`Delete ${worker.name}?\n\nThis will hide the worker from the dashboard and disable it from trading.`);
+    if (!confirmed) {
+      return;
+    }
+    const disabled = new Set(settingsDraft.disabled_worker_ids);
+    const deleted = new Set(settingsDraft.deleted_worker_ids);
+    disabled.add(worker.id);
+    deleted.add(worker.id);
+    const nextSettings = {
+      ...settingsDraft,
+      disabled_worker_ids: Array.from(disabled),
+      deleted_worker_ids: Array.from(deleted),
+    };
+    setSettingsDraft(nextSettings);
+    setSavingWorkerId(worker.id);
+    try {
+      await saveSettings(nextSettings);
+      await load();
+    } finally {
+      setSavingWorkerId(null);
+    }
+  }
+
   const activeAsset = useMemo(
     () => assets.find((asset) => asset.asset === selectedAsset) ?? assets[0],
     [assets, selectedAsset],
   );
 
+  const visibleWorkers = useMemo(() => {
+    const deleted = new Set(settingsDraft.deleted_worker_ids);
+    return (activeAsset?.workers ?? []).filter((worker) => !deleted.has(worker.id));
+  }, [activeAsset, settingsDraft.deleted_worker_ids]);
+
   const totals = useMemo(() => {
-    const workers = activeAsset?.workers ?? [];
+    const workers = visibleWorkers;
     return workers.reduce(
       (acc, worker) => ({
         totalTrades: acc.totalTrades + worker.stats.total_trades,
@@ -173,7 +266,7 @@ export function TradingPage() {
       }),
       { totalTrades: 0, todayTrades: 0, pnlR: 0, pnlUsd: 0, todayPnl: 0 },
     );
-  }, [activeAsset]);
+  }, [visibleWorkers]);
 
   if (loading) {
     return <div className="loading-screen">Loading...</div>;
@@ -188,8 +281,8 @@ export function TradingPage() {
           <span className="custom-lean-eyebrow">Nautilus coordinator</span>
           <h2>Asset Workers</h2>
           <p>
-            Trading Strategies is hidden for now. This screen shows the worker model that will run
-            independently per asset, with each worker keeping its own stats.
+            Trading Strategies is hidden for now. This screen shows only the regular worker model
+            per asset, with each worker keeping its own stats and controls.
           </p>
         </div>
         <button className="button-secondary" onClick={() => setSettingsOpen((value) => !value)}>
@@ -281,7 +374,6 @@ export function TradingPage() {
           {settingsMessage ? <p className="custom-lean-settings__message">{settingsMessage}</p> : null}
         </section>
       ) : null}
-
       <section className="panel custom-lean-assets">
         <div className="custom-lean-assets__tabs">
           {assets.map((asset) => (
@@ -341,14 +433,25 @@ export function TradingPage() {
                 <span>Today PnL</span>
                 <span>Avg win RR</span>
                 <span>Avg loss RR</span>
+                <span>Actions</span>
               </div>
-              {activeAsset.workers.map((worker) => (
-                <WorkerRow key={worker.id} worker={worker} />
-              ))}
+              {visibleWorkers.length ? (
+                visibleWorkers.map((worker) => (
+                  <WorkerRow
+                    key={worker.id}
+                    worker={worker}
+                    saving={savingWorkerId === worker.id}
+                    onToggle={toggleWorker}
+                    onDelete={deleteWorker}
+                  />
+                ))
+              ) : (
+                <div className="custom-lean-workers__empty">No visible workers for this asset.</div>
+              )}
             </div>
 
             <div className="custom-lean-playbooks">
-              {activeAsset.workers.map((worker) => (
+              {visibleWorkers.map((worker) => (
                 <article key={worker.id}>
                   <span>Live {formatPercent(worker.stats.win_rate)} win rate</span>
                   <h3>{worker.name}</h3>

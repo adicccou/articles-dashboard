@@ -5,6 +5,7 @@ import { ArticleEditor } from "../components/ArticleEditor";
 import { SiteForm } from "../components/SiteForm";
 import { SocialAgentsPage } from "./SocialAgentsPage";
 import { TradingPage } from "./TradingPage";
+import { MlTradingPage } from "./MlTradingPage";
 import { PlannerPage } from "./PlannerPage";
 import { ViewErrorBoundary } from "../components/ViewErrorBoundary";
 import { StatisticsPage } from "./StatisticsPage";
@@ -89,6 +90,10 @@ export function DashboardPage({
 
     if (view === "trading") {
       return <TradingPage />;
+    }
+
+    if (view === "ml-trading") {
+      return <MlTradingPage />;
     }
 
     if (view === "planner") {
