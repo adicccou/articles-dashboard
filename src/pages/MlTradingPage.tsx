@@ -154,6 +154,45 @@ export function MlTradingPage() {
     { totalPnlUsd: 0, todayPnlUsd: 0 },
   );
 
+  const summaryCards = [
+    {
+      label: "Coordinator",
+      value: mlSettings.active ? "DEMO ACTIVE" : "INACTIVE",
+      detail: null as string | null,
+      tone: null as string | null,
+    },
+    {
+      label: "Execution",
+      value: "DEMO",
+      detail: mlSettings.demo_account_id || mlSettings.selected_account_id || "account not set",
+      tone: null as string | null,
+    },
+    {
+      label: "PNL total",
+      value: formatUsd(aggregateMlStats.totalPnlUsd),
+      detail: "All ML assets",
+      tone: aggregateMlStats.totalPnlUsd >= 0 ? "custom-lean-good" : "custom-lean-risk",
+    },
+    {
+      label: "PNL today",
+      value: formatUsd(aggregateMlStats.todayPnlUsd),
+      detail: "All ML assets",
+      tone: aggregateMlStats.todayPnlUsd >= 0 ? "custom-lean-good" : "custom-lean-risk",
+    },
+    {
+      label: "Min risk",
+      value: formatUsd(mlSettings.risk_usd_min),
+      detail: null as string | null,
+      tone: null as string | null,
+    },
+    {
+      label: "Max risk",
+      value: formatUsd(mlSettings.risk_usd_max),
+      detail: null as string | null,
+      tone: null as string | null,
+    },
+  ];
+
   function toggleMlActive() {
     const nextSettings = { ...mlSettingsDraft, active: !mlSettingsDraft.active };
     setMlSettingsDraft(nextSettings);
@@ -277,35 +316,13 @@ export function MlTradingPage() {
 
       <section className="panel custom-lean-assets">
         <div className="custom-lean-summary">
-          <div>
-            <span>Coordinator</span>
-            <strong>{mlSettings.active ? "DEMO ACTIVE" : "INACTIVE"}</strong>
-          </div>
-          <div>
-            <span>Execution</span>
-            <strong>DEMO</strong>
-            <small>{mlSettings.demo_account_id || mlSettings.selected_account_id || "account not set"}</small>
-          </div>
-          <div>
-            <span>Total PnL all ML assets</span>
-            <strong className={aggregateMlStats.totalPnlUsd >= 0 ? "custom-lean-good" : "custom-lean-risk"}>
-              {formatUsd(aggregateMlStats.totalPnlUsd)}
-            </strong>
-          </div>
-          <div>
-            <span>Today PnL all ML assets</span>
-            <strong className={aggregateMlStats.todayPnlUsd >= 0 ? "custom-lean-good" : "custom-lean-risk"}>
-              {formatUsd(aggregateMlStats.todayPnlUsd)}
-            </strong>
-          </div>
-          <div>
-            <span>Min risk</span>
-            <strong>{formatUsd(mlSettings.risk_usd_min)}</strong>
-          </div>
-          <div>
-            <span>Max risk</span>
-            <strong>{formatUsd(mlSettings.risk_usd_max)}</strong>
-          </div>
+          {summaryCards.map((card) => (
+            <div key={card.label}>
+              <span>{card.label}</span>
+              <strong className={card.tone || undefined}>{card.value}</strong>
+              {card.detail ? <small>{card.detail}</small> : null}
+            </div>
+          ))}
         </div>
 
         <div className="custom-lean-workers">
