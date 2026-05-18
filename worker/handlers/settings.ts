@@ -876,6 +876,15 @@ export async function getCustomLeanWorkers(env: Env): Promise<Response> {
     const customLeanSettings = publicCustomLeanSettings(settings);
     const disabledWorkerIds = new Set(customLeanSettings.disabled_worker_ids);
     const deletedWorkerIds = new Set(customLeanSettings.deleted_worker_ids);
+    const isMlTradingWorker = (worker: unknown) => {
+      if (!worker || typeof worker !== "object") return false;
+      const probe = [
+        String((worker as { id?: unknown }).id || "").trim().toLowerCase(),
+        String((worker as { name?: unknown }).name || "").trim().toLowerCase(),
+        String((worker as { role?: unknown }).role || "").trim().toLowerCase(),
+      ].join(" ");
+      return probe.includes("ml trading") || probe.includes("ml_trading") || probe.includes("ml_liquidity_fvg");
+    };
     const normalizedAssets = assets.map((asset) => {
       if (!asset || typeof asset !== "object") return asset;
       const rawWorkers = (asset as { workers?: unknown }).workers;
@@ -883,6 +892,7 @@ export async function getCustomLeanWorkers(env: Env): Promise<Response> {
       return {
         ...asset,
         workers: workers
+          .filter((worker) => !isMlTradingWorker(worker))
           .map((worker) => {
             if (!worker || typeof worker !== "object") return worker;
             const workerId = String((worker as { id?: unknown }).id || "").trim();
@@ -899,6 +909,10 @@ export async function getCustomLeanWorkers(env: Env): Promise<Response> {
             return workerId ? !deletedWorkerIds.has(workerId) : true;
           }),
       };
+    }).filter((asset) => {
+      if (!asset || typeof asset !== "object") return false;
+      const workers = (asset as { workers?: unknown }).workers;
+      return Array.isArray(workers) && workers.length > 0;
     });
     const workerCount = assets.reduce((count, asset) => {
       if (!asset || typeof asset !== "object") return count;
