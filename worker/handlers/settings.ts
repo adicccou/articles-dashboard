@@ -65,7 +65,7 @@ const DEFAULTS: StoredSettings = {
   ml_trading_active: "false",
   ml_trading_risk_usd_min: "8",
   ml_trading_risk_usd_max: "17",
-  ml_trading_enabled_assets: "XAUUSD",
+  ml_trading_enabled_assets: "XAUUSD,US500,SOLUSD",
   twitter_api_key: "",
   twitter_api_secret: "",
   twitter_access_token: "",
@@ -240,7 +240,7 @@ function publicCustomLeanSettings(settings: StoredSettings) {
 }
 
 function publicMlTradingSettings(settings: StoredSettings) {
-  const enabledAssets = String(settings.ml_trading_enabled_assets || "XAUUSD")
+  const enabledAssets = String(settings.ml_trading_enabled_assets || "XAUUSD,US500,SOLUSD")
     .split(",")
     .map((value) => value.trim().toUpperCase().replaceAll("/", ""))
     .filter(Boolean);
@@ -251,7 +251,7 @@ function publicMlTradingSettings(settings: StoredSettings) {
     execution_mode: "demo" as const,
     demo_account_id: settings.ctrader_demo_account_id,
     selected_account_id: settings.ctrader_demo_account_id || settings.ctrader_account_id || "",
-    enabled_assets: Array.from(new Set(enabledAssets.length ? enabledAssets : ["XAUUSD"])),
+    enabled_assets: Array.from(new Set(enabledAssets.length ? enabledAssets : ["XAUUSD", "US500", "SOLUSD"])),
   };
 }
 
@@ -599,7 +599,7 @@ function cleanMlTradingSettingsPayload(payload: Record<string, unknown>, current
     ml_trading_active: active ? "true" : "false",
     ml_trading_risk_usd_min: String(riskMin),
     ml_trading_risk_usd_max: String(riskMax),
-    ml_trading_enabled_assets: Array.from(new Set(enabledAssets.length ? enabledAssets : ["XAUUSD"])).join(","),
+    ml_trading_enabled_assets: Array.from(new Set(enabledAssets.length ? enabledAssets : ["XAUUSD", "US500", "SOLUSD"])).join(","),
   };
 }
 
