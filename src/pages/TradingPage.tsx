@@ -49,7 +49,7 @@ function WorkerRow({
         <strong>{worker.stats.today_trades}</strong>
       </div>
       <div className="custom-lean-worker__metric">
-        <span>PnL</span>
+        <span>Total PnL</span>
         <strong className={pnlPositive ? "custom-lean-good" : "custom-lean-risk"}>
           {formatR(worker.stats.pnl_r)}
         </strong>
@@ -429,7 +429,7 @@ export function TradingPage() {
                 <span>Worker</span>
                 <span>Total trades</span>
                 <span>Today</span>
-                <span>PnL</span>
+                <span>Total PnL</span>
                 <span>Today PnL</span>
                 <span>Avg win RR</span>
                 <span>Avg loss RR</span>

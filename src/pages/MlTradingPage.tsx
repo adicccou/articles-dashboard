@@ -168,13 +168,13 @@ export function MlTradingPage() {
       tone: null as string | null,
     },
     {
-      label: "PNL total",
+      label: "Total PnL",
       value: formatUsd(aggregateMlStats.totalPnlUsd),
       detail: "All ML assets",
       tone: aggregateMlStats.totalPnlUsd >= 0 ? "custom-lean-good" : "custom-lean-risk",
     },
     {
-      label: "PNL today",
+      label: "Today PnL",
       value: formatUsd(aggregateMlStats.todayPnlUsd),
       detail: "All ML assets",
       tone: aggregateMlStats.todayPnlUsd >= 0 ? "custom-lean-good" : "custom-lean-risk",
