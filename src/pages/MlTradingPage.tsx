@@ -80,7 +80,7 @@ const DEFAULT_ML_SETTINGS: MlTradingSettings = {
   execution_mode: "demo",
   demo_account_id: "",
   selected_account_id: "",
-  enabled_assets: ["XAUUSD"],
+  enabled_assets: ["XAUUSD", "US500", "SOLUSD"],
 };
 
 export function MlTradingPage() {
@@ -145,6 +145,9 @@ export function MlTradingPage() {
   function updateMlSettingsDraft(patch: Partial<MlTradingSettings>) {
     setMlSettingsDraft((current) => ({ ...current, ...patch }));
   }
+
+  const aggregateTotalPnlUsd = mlAssets.reduce((sum, asset) => sum + asset.stats.total_pnl_usd, 0);
+  const aggregateTodayPnlUsd = mlAssets.reduce((sum, asset) => sum + asset.stats.today_pnl_usd, 0);
 
   function toggleMlActive() {
     const nextSettings = { ...mlSettingsDraft, active: !mlSettingsDraft.active };
@@ -277,6 +280,18 @@ export function MlTradingPage() {
             <span>Execution</span>
             <strong>DEMO</strong>
             <small>{mlSettings.demo_account_id || mlSettings.selected_account_id || "account not set"}</small>
+          </div>
+          <div>
+            <span>Total PnL all assets</span>
+            <strong className={aggregateTotalPnlUsd >= 0 ? "custom-lean-good" : "custom-lean-risk"}>
+              {formatUsd(aggregateTotalPnlUsd)}
+            </strong>
+          </div>
+          <div>
+            <span>Today PnL all assets</span>
+            <strong className={aggregateTodayPnlUsd >= 0 ? "custom-lean-good" : "custom-lean-risk"}>
+              {formatUsd(aggregateTodayPnlUsd)}
+            </strong>
           </div>
           <div>
             <span>Min risk</span>
