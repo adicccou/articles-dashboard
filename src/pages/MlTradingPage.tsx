@@ -146,8 +146,13 @@ export function MlTradingPage() {
     setMlSettingsDraft((current) => ({ ...current, ...patch }));
   }
 
-  const aggregateTotalPnlUsd = mlAssets.reduce((sum, asset) => sum + asset.stats.total_pnl_usd, 0);
-  const aggregateTodayPnlUsd = mlAssets.reduce((sum, asset) => sum + asset.stats.today_pnl_usd, 0);
+  const aggregateMlStats = mlAssets.reduce(
+    (acc, asset) => ({
+      totalPnlUsd: acc.totalPnlUsd + (Number.isFinite(asset.stats.total_pnl_usd) ? asset.stats.total_pnl_usd : 0),
+      todayPnlUsd: acc.todayPnlUsd + (Number.isFinite(asset.stats.today_pnl_usd) ? asset.stats.today_pnl_usd : 0),
+    }),
+    { totalPnlUsd: 0, todayPnlUsd: 0 },
+  );
 
   function toggleMlActive() {
     const nextSettings = { ...mlSettingsDraft, active: !mlSettingsDraft.active };
@@ -282,15 +287,15 @@ export function MlTradingPage() {
             <small>{mlSettings.demo_account_id || mlSettings.selected_account_id || "account not set"}</small>
           </div>
           <div>
-            <span>Total PnL all assets</span>
-            <strong className={aggregateTotalPnlUsd >= 0 ? "custom-lean-good" : "custom-lean-risk"}>
-              {formatUsd(aggregateTotalPnlUsd)}
+            <span>Total PnL all ML assets</span>
+            <strong className={aggregateMlStats.totalPnlUsd >= 0 ? "custom-lean-good" : "custom-lean-risk"}>
+              {formatUsd(aggregateMlStats.totalPnlUsd)}
             </strong>
           </div>
           <div>
-            <span>Today PnL all assets</span>
-            <strong className={aggregateTodayPnlUsd >= 0 ? "custom-lean-good" : "custom-lean-risk"}>
-              {formatUsd(aggregateTodayPnlUsd)}
+            <span>Today PnL all ML assets</span>
+            <strong className={aggregateMlStats.todayPnlUsd >= 0 ? "custom-lean-good" : "custom-lean-risk"}>
+              {formatUsd(aggregateMlStats.todayPnlUsd)}
             </strong>
           </div>
           <div>
