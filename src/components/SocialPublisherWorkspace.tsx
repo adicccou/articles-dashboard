@@ -66,7 +66,7 @@ type SocialPublisherWorkspaceProps = {
 
 const AUTO_SCHEDULE_HOURS = [10, 13, 16];
 const AUTO_SCHEDULE_MIN_GAP_MS = 90 * 60 * 1000;
-const AUTO_SCHEDULE_MAX_ITEMS_PER_DAY = 3;
+const AUTO_SCHEDULE_MAX_ITEMS_PER_DAY = 1;
 const AUTO_SCHEDULE_LOOKAHEAD_DAYS = 14;
 
 function toDateTimeLocalValue(date: Date) {
@@ -114,8 +114,6 @@ function chooseAutoSchedule(existingSlots: string[]) {
     const day = new Date(now);
     day.setHours(0, 0, 0, 0);
     day.setDate(day.getDate() + offset);
-    const weekday = day.getDay();
-    if (weekday === 0 || weekday === 6) continue;
 
     const dayItems = scheduled.filter((item) => sameLocalDay(item, day));
     if (dayItems.length >= AUTO_SCHEDULE_MAX_ITEMS_PER_DAY) continue;

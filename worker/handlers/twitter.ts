@@ -1,6 +1,8 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 
+const IMAGE_URL_ALIASES = ["image_url", "imageUrl", "imageURL", "image", "photo", "picture", "media", "media_url", "mediaUrl", "url"] as const;
+
 type TwitterAccountPayload = {
   username: string;
   api_key: string;
@@ -34,6 +36,28 @@ type SocialPostSchemaCapabilities = {
   hasAccountId: boolean;
   hasReplyToId: boolean;
 };
+
+function extractImageUrl(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || undefined;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const extracted = extractImageUrl(item);
+      if (extracted) return extracted;
+    }
+    return undefined;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    for (const key of IMAGE_URL_ALIASES) {
+      const extracted = extractImageUrl(record[key]);
+      if (extracted) return extracted;
+    }
+  }
+  return undefined;
+}
 
 async function upsertSetting(env: Env, key: string, value: string, updatedAt: string): Promise<void> {
   await env.DB.prepare(
@@ -303,8 +327,18 @@ export async function updateSocialPost(env: Env, postId: string, request: Reques
     const payload = await parseJson<{
       content?: string;
       image_url?: string | null;
+      imageUrl?: string | null;
+      imageURL?: string | null;
+      image?: unknown;
+      photo?: unknown;
+      picture?: unknown;
+      media?: unknown;
+      media_url?: string | null;
+      mediaUrl?: string | null;
+      url?: string | null;
       status?: string;
       scheduled_at?: string;
+      scheduledAt?: string;
       title?: string | null;
       subreddit?: string | null;
       account_id?: number | null;
@@ -315,11 +349,16 @@ export async function updateSocialPost(env: Env, postId: string, request: Reques
 
     const updates: string[] = [];
     const values: unknown[] = [];
+    let imageUrl: string | null | undefined = payload.image_url;
+    if (imageUrl === undefined) {
+      imageUrl = extractImageUrl(payload);
+    }
+    const scheduledAt = payload.scheduled_at ?? payload.scheduledAt;
 
     if (payload.content !== undefined) { updates.push("content = ?"); values.push(payload.content); }
-    if (payload.image_url !== undefined) { updates.push("image_url = ?"); values.push(payload.image_url); }
+    if (imageUrl !== undefined) { updates.push("image_url = ?"); values.push(imageUrl); }
     if (payload.status !== undefined) { updates.push("status = ?"); values.push(payload.status); }
-    if (payload.scheduled_at !== undefined) { updates.push("scheduled_at = ?"); values.push(payload.scheduled_at); }
+    if (scheduledAt !== undefined) { updates.push("scheduled_at = ?"); values.push(scheduledAt); }
     if (capabilities.hasTitle && payload.title !== undefined) { updates.push("title = ?"); values.push(payload.title?.trim() || null); }
     if (capabilities.hasSubreddit && payload.subreddit !== undefined) { updates.push("subreddit = ?"); values.push(payload.subreddit?.trim().replace(/^r\//i, "") || null); }
     if (capabilities.hasAccountId && payload.account_id !== undefined) { updates.push("account_id = ?"); values.push(payload.account_id); }

@@ -348,7 +348,7 @@ async function handleInternalContext(env: Env) {
        LIMIT 20`,
     ).all(),
     env.DB.prepare(
-      `SELECT id, username, status, created_at
+      `SELECT id, name AS username, status, created_at
        FROM reddit_accounts
        ORDER BY created_at DESC`,
     ).all(),

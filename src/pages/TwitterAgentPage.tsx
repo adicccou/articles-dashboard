@@ -11,6 +11,7 @@ const TWITTER_KB_ID = 1;
 
 export function TwitterAgentPage() {
   const [posts, setPosts] = useState<SocialPost[]>([]);
+  const [scheduledSocialPosts, setScheduledSocialPosts] = useState<SocialPost[]>([]);
   const [plannerItems, setPlannerItems] = useState<PlannerItem[]>([]);
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [newPost, setNewPost] = useState("");
@@ -24,12 +25,20 @@ export function TwitterAgentPage() {
   async function load() {
     try {
       setLoading(true);
-      const [postsData, plannerData, accountsData] = await Promise.all([
+      const [postsData, plannerData, accountsData, threadsScheduledPosts, redditScheduledPosts] = await Promise.all([
         api.listSocialPosts("twitter"),
         api.listPlannerItems(),
         api.listTwitterAccounts(),
+        api.listSocialPosts("threads").catch(() => []),
+        api.listSocialPosts("reddit").catch(() => []),
       ]);
-      setPosts(asArray<SocialPost>(postsData));
+      const loadedPosts = asArray<SocialPost>(postsData);
+      setPosts(loadedPosts);
+      setScheduledSocialPosts([
+        ...loadedPosts,
+        ...asArray<SocialPost>(threadsScheduledPosts),
+        ...asArray<SocialPost>(redditScheduledPosts),
+      ]);
       setPlannerItems(asArray<PlannerItem>(plannerData));
       setAccounts(asArray<SocialAccount>(accountsData));
       setError(null);
@@ -48,9 +57,22 @@ export function TwitterAgentPage() {
   const campaigns = plannerItems.filter(
     (item) => item.item_type === "campaign" && ["x", "twitter", "twitter/x"].includes(item.platform.trim().toLowerCase()),
   );
+  const activePlannerPostStatuses = new Set(["planned", "drafting", "approved"]);
+  const activeSocialPostStatuses = new Set(["draft", "approved", "scheduled"]);
+  const socialPlannerPlatforms = new Set(["reddit", "threads", "thread", "twitter", "x", "twitter/x"]);
   const scheduledSlots = [
-    ...plannerItems.map((item) => item.scheduled_for).filter((value): value is string => Boolean(value)),
-    ...posts.map((post) => post.scheduled_at).filter((value): value is string => Boolean(value)),
+    ...plannerItems
+      .filter((item) => (
+        item.item_type === "post"
+        && activePlannerPostStatuses.has(item.status)
+        && socialPlannerPlatforms.has(item.platform.trim().toLowerCase())
+      ))
+      .map((item) => item.scheduled_for)
+      .filter((value): value is string => Boolean(value)),
+    ...scheduledSocialPosts
+      .filter((post) => activeSocialPostStatuses.has(post.status))
+      .map((post) => post.scheduled_at)
+      .filter((value): value is string => Boolean(value)),
   ];
   const editingCampaign = editingCampaignId ? campaigns.find((item) => item.id === editingCampaignId) ?? null : null;
   const confirmDeleteCampaign = (title: string) =>

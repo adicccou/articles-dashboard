@@ -42,8 +42,8 @@ type SettingsPayload = Partial<StoredSettings>;
 
 const DEFAULTS: StoredSettings = {
   gemini_api_key: "",
-  gemini_flash_model: "gemini-3.1-flash-lite",
-  gemini_pro_model: "gemini-3.1-pro-preview",
+  gemini_flash_model: "",
+  gemini_pro_model: "",
   global_ai_rules: "",
   social_agent_rules: "",
   workspace_timezone: "Asia/Kuala_Lumpur",

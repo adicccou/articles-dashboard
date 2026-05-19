@@ -20,6 +20,13 @@ export class GeminiRateLimitError extends GeminiApiError {
   }
 }
 
+export class GeminiBillingError extends GeminiApiError {
+  constructor(message: string, statusCode = 429) {
+    super(message, statusCode);
+    this.name = "GeminiBillingError";
+  }
+}
+
 interface GeminiTextRequest {
   apiKey: string;
   model: string;
@@ -36,6 +43,35 @@ type GeminiResponse = {
   }>;
   promptFeedback?: unknown;
 };
+
+type GeminiErrorResponse = {
+  error?: {
+    status?: string;
+    message?: string;
+  };
+};
+
+function isBillingOrCreditError(message: string): boolean {
+  const normalized = message.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!normalized) return false;
+  const billingTerms = ["billing", "prepayment", "credit", "credits", "quota project"];
+  const depletionTerms = ["depleted", "exhausted", "not enough", "insufficient", "payment"];
+  return billingTerms.some((term) => normalized.includes(term)) &&
+    depletionTerms.some((term) => normalized.includes(term));
+}
+
+async function readGeminiErrorText(response: Response): Promise<string> {
+  const body = await response.text();
+  if (!body.trim()) return "";
+  try {
+    const parsed = JSON.parse(body) as GeminiErrorResponse;
+    const status = parsed.error?.status?.trim() ?? "";
+    const message = parsed.error?.message?.trim() ?? "";
+    return [status, message].filter(Boolean).join(" ");
+  } catch {
+    return body.trim();
+  }
+}
 
 export interface ParsedStrategy {
   hard_rules: {
@@ -90,6 +126,11 @@ export async function callGeminiText({
     );
 
     if (!response.ok) {
+      const errorText = await readGeminiErrorText(response);
+      if (isBillingOrCreditError(errorText)) {
+        throw new GeminiBillingError(`Gemini billing or credits unavailable for model ${model}: ${errorText}`, response.status);
+      }
+
       if ([429, 500, 502, 503, 504].includes(response.status) && attempt < 2) {
         const retryAfter = response.headers.get("retry-after");
         const retryMs = retryAfter ? Number.parseFloat(retryAfter) * 1000 : (attempt + 1) * 1000;
@@ -98,10 +139,10 @@ export async function callGeminiText({
       }
 
       if (response.status === 429) {
-        throw new GeminiRateLimitError(`Gemini rate limit reached for model ${model}.`);
+        throw new GeminiRateLimitError(`Gemini rate limit reached for model ${model}: ${errorText}`);
       }
 
-      throw new GeminiApiError(`Gemini API request failed for model ${model}.`, response.status);
+      throw new GeminiApiError(`Gemini API request failed for model ${model}: ${errorText}`, response.status);
     }
 
     const data = (await response.json()) as GeminiResponse;
@@ -119,6 +160,9 @@ export async function callGeminiText({
 }
 
 export function formatGeminiUserError(error: unknown): string {
+  if (error instanceof GeminiBillingError) {
+    return "AI is not available because the connected Gemini project has no prepaid credits or billing quota left. Add credits/billing in Google AI Studio, or switch the dashboard to a Gemini API key from a project with credits.";
+  }
   if (error instanceof GeminiRateLimitError) {
     return "AI is busy right now because the Gemini request limit was hit. Please wait a minute and try again.";
   }

@@ -104,8 +104,8 @@ async function readAssistantRuntimeSettings(env: Env): Promise<AssistantRuntimeS
   ).all<{ key: string; value: string }>();
 
   let geminiApiKey = "";
-  let geminiFlashModel = "gemini-3.1-flash-lite";
-  let geminiProModel = "gemini-3.1-pro-preview";
+  let geminiFlashModel = "";
+  let geminiProModel = "";
   let globalAiRules = "";
   let socialAgentRules = "";
 

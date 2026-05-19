@@ -18,6 +18,7 @@ const THREADS_FULL_SCOPES = [
 
 export function ThreadsAgentPage() {
   const [posts, setPosts] = useState<SocialPost[]>([]);
+  const [scheduledSocialPosts, setScheduledSocialPosts] = useState<SocialPost[]>([]);
   const [plannerItems, setPlannerItems] = useState<PlannerItem[]>([]);
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [newPost, setNewPost] = useState("");
@@ -34,14 +35,29 @@ export function ThreadsAgentPage() {
   async function load() {
     try {
       setLoading(true);
-      const [postsData, plannerData, accountsData, campaignResultsData] = await Promise.all([
+      const [
+        postsData,
+        plannerData,
+        accountsData,
+        campaignResultsData,
+        twitterScheduledPosts,
+        redditScheduledPosts,
+      ] = await Promise.all([
         api.listSocialPosts("threads"),
         api.listPlannerItems(),
         api.listThreadsAccounts(),
         api.listThreadsCampaignResults(),
+        api.listSocialPosts("twitter").catch(() => []),
+        api.listSocialPosts("reddit").catch(() => []),
       ]);
       const loadedAccounts = asArray<SocialAccount>(accountsData);
-      setPosts(asArray<SocialPost>(postsData));
+      const loadedPosts = asArray<SocialPost>(postsData);
+      setPosts(loadedPosts);
+      setScheduledSocialPosts([
+        ...loadedPosts,
+        ...asArray<SocialPost>(twitterScheduledPosts),
+        ...asArray<SocialPost>(redditScheduledPosts),
+      ]);
       setPlannerItems(asArray<PlannerItem>(plannerData));
       setAccounts(loadedAccounts);
       setCampaignResults(asArray<ThreadsCampaignResult>(campaignResultsData));
@@ -74,9 +90,22 @@ export function ThreadsAgentPage() {
   const campaigns = plannerItems.filter(
     (item) => item.item_type === "campaign" && item.platform.trim().toLowerCase() === "threads",
   );
+  const activePlannerPostStatuses = new Set(["planned", "drafting", "approved"]);
+  const activeSocialPostStatuses = new Set(["draft", "approved", "scheduled"]);
+  const socialPlannerPlatforms = new Set(["reddit", "threads", "thread", "twitter", "x", "twitter/x"]);
   const scheduledSlots = [
-    ...plannerItems.map((item) => item.scheduled_for).filter((value): value is string => Boolean(value)),
-    ...posts.map((post) => post.scheduled_at).filter((value): value is string => Boolean(value)),
+    ...plannerItems
+      .filter((item) => (
+        item.item_type === "post"
+        && activePlannerPostStatuses.has(item.status)
+        && socialPlannerPlatforms.has(item.platform.trim().toLowerCase())
+      ))
+      .map((item) => item.scheduled_for)
+      .filter((value): value is string => Boolean(value)),
+    ...scheduledSocialPosts
+      .filter((post) => activeSocialPostStatuses.has(post.status))
+      .map((post) => post.scheduled_at)
+      .filter((value): value is string => Boolean(value)),
   ];
   const replyCount = campaignResults.filter((item) => item.review_status === "new").length || replyLookupResults.length;
   const editingCampaign = editingCampaignId ? campaigns.find((item) => item.id === editingCampaignId) ?? null : null;
