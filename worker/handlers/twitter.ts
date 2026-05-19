@@ -1,7 +1,7 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 
-const IMAGE_URL_ALIASES = ["image_url", "imageUrl", "imageURL", "image", "photo", "picture", "media", "media_url", "mediaUrl", "url"] as const;
+const IMAGE_URL_ALIASES = ["image_url", "imageUrl", "imageURL", "image", "photo", "picture", "media", "media_url", "mediaUrl", "media_urls", "mediaUrls", "url"] as const;
 
 type TwitterAccountPayload = {
   username: string;
@@ -335,6 +335,8 @@ export async function updateSocialPost(env: Env, postId: string, request: Reques
       media?: unknown;
       media_url?: string | null;
       mediaUrl?: string | null;
+      media_urls?: unknown;
+      mediaUrls?: unknown;
       url?: string | null;
       status?: string;
       scheduled_at?: string;
