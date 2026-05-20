@@ -30,6 +30,7 @@ body {
     linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(248, 250, 252, 0.98)),
     radial-gradient(circle at top left, rgba(226, 232, 240, 0.5), transparent 24%);
   color: inherit;
+  overflow-x: hidden;
 }
 
 button,
@@ -172,6 +173,7 @@ label {
 
 .panel {
   padding: 1.25rem;
+  min-width: 0;
 }
 
 .stack {
@@ -193,6 +195,7 @@ label {
 
 .table {
   display: grid;
+  min-width: 0;
 }
 
 .table__row {
@@ -202,6 +205,12 @@ label {
   align-items: center;
   padding: 0.95rem 0;
   border-bottom: 1px solid #f1f5f9;
+  min-width: 0;
+}
+
+.table__row > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .table__row--header {
@@ -484,6 +493,7 @@ h2 {
 
   .shell__main {
     padding: 1rem;
+    min-width: 0;
   }
 
   .shell__sidebar {
@@ -494,5 +504,28 @@ h2 {
   .article-editor__select,
   .article-editor__color-control {
     width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .panel {
+    border-radius: 14px;
+    padding: 1rem;
+  }
+
+  .actions,
+  .topbar,
+  .panel__title-row {
+    gap: 0.75rem;
+  }
+
+  .panel__title-row button {
+    width: 100%;
+  }
+
+  input,
+  textarea,
+  select {
+    font-size: 16px;
   }
 }

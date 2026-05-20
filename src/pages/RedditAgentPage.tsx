@@ -199,28 +199,24 @@ export function RedditAgentPage() {
               </div>
             </div>
           ) : (
-            <div className="table">
-              <div className="table__row table__row--header">
-                <span>Post</span>
-                <span>Status</span>
-                <span>Scheduled</span>
-                <span>Strategy</span>
-              </div>
+            <div className="social-post-card-grid">
               {redditPosts.map((item) => (
-                <div className="table__row" key={item.id}>
-                  <span className="social-content-preview">
+                <article className="social-post-card" key={item.id}>
+                  <div className="social-post-card__media">
                     {renderPlannerPostMedia(item)}
-                    <span className="social-content-preview__body">
-                      <span className="social-content-preview__text">{item.title}</span>
-                      {item.description ? <small className="social-content-preview__meta">{item.description}</small> : null}
-                    </span>
-                  </span>
-                  <span>
-                    <span className="social-status-pill social-status-pill--neutral">{item.status}</span>
-                  </span>
-                  <span className="social-muted">{item.scheduled_for ? formatDisplayDateTime(item.scheduled_for) : "—"}</span>
-                  <span className="social-muted">{item.related_strategy_name || "—"}</span>
-                </div>
+                  </div>
+                  <div className="social-post-card__body">
+                    <div className="social-post-card__meta">
+                      <span className="social-status-pill social-status-pill--neutral">{item.status}</span>
+                      <span className="social-muted">{item.scheduled_for ? formatDisplayDateTime(item.scheduled_for) : "Unscheduled"}</span>
+                    </div>
+                    <p className="social-post-card__content">{item.title || "Untitled Reddit post"}</p>
+                    {item.description ? <p className="social-post-card__description">{item.description}</p> : null}
+                    {item.related_strategy_name ? (
+                      <span className="social-post-card__tag">{item.related_strategy_name}</span>
+                    ) : null}
+                  </div>
+                </article>
               ))}
             </div>
           )

@@ -463,26 +463,22 @@ export function SocialPublisherWorkspace({
                 <p className="social-empty-card__copy">{queueHint}</p>
               </div>
             ) : (
-              <div className="table">
-                <div className="table__row table__row--header">
-                  <span>Content</span>
-                  <span>Status</span>
-                  <span>Scheduled</span>
-                  <span>Actions</span>
-                </div>
+              <div className="social-post-card-grid">
                 {posts.map((post) => (
-                  <div className="table__row" key={post.id}>
-                    <span className="social-content-preview">
+                  <article className="social-post-card" key={post.id}>
+                    <div className="social-post-card__media">
                       {renderPostMedia(post.image_url, post.content)}
-                      <span className="social-content-preview__text">{post.content}</span>
-                    </span>
-                    <span>
-                      <span className={`social-status-pill social-status-pill--${statusTone(post.status)}`}>{post.status}</span>
-                    </span>
-                    <span className="social-muted">
-                      {post.scheduled_at ? formatDisplayDateTime(post.scheduled_at) : "—"}
-                    </span>
-                    <span className="social-table-actions">
+                    </div>
+                    <div className="social-post-card__body">
+                      <div className="social-post-card__meta">
+                        <span className={`social-status-pill social-status-pill--${statusTone(post.status)}`}>{post.status}</span>
+                        <span className="social-muted">
+                          {post.scheduled_at ? formatDisplayDateTime(post.scheduled_at) : "Unscheduled"}
+                        </span>
+                      </div>
+                      <p className="social-post-card__content">{post.content || "No text content"}</p>
+                    </div>
+                    <div className="social-post-card__actions">
                       {onPublishPost && post.status !== "posted" ? (
                         <button className="social-inline-button" type="button" onClick={() => void onPublishPost(post.id)}>
                           Publish
@@ -491,8 +487,8 @@ export function SocialPublisherWorkspace({
                       <button className="social-inline-button social-inline-button--danger" type="button" onClick={() => void onDeletePost(post.id)}>
                         Delete
                       </button>
-                    </span>
-                  </div>
+                    </div>
+                  </article>
                 ))}
               </div>
             )}
