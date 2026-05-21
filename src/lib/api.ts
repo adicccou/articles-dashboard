@@ -1,4 +1,4 @@
-import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialAccountInput, SocialPost, ThreadsCampaignResult, ThreadsMediaResponse, CustomLeanAssetWorkers, CustomLeanDiagnostics, CustomLeanSettings, MlTradingAsset, MlTradingSettings } from "./types";
+import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialAccountInput, SocialPost, ThreadsCampaignResult, ThreadsMediaResponse, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorkersResponse, MlTradingAssetsResponse, MlTradingDiagnostics, MlTradingSettings } from "./types";
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -124,7 +124,7 @@ export const api = {
   getTradingExecutions: (id: number) =>
     request<TradingExecution[]>(`/api/trading/strategies/${id}/executions`),
   getCustomLeanWorkers: () =>
-    request<CustomLeanAssetWorkers[]>("/api/trading/nautilus/workers"),
+    request<CustomLeanWorkersResponse>("/api/trading/nautilus/workers"),
   getCustomLeanDiagnostics: () =>
     request<CustomLeanDiagnostics>("/api/trading/nautilus/diagnostics"),
   getCustomLeanSettings: () =>
@@ -135,7 +135,9 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   getMlTradingAssets: () =>
-    request<MlTradingAsset[]>("/api/trading/ml/assets"),
+    request<MlTradingAssetsResponse>("/api/trading/ml/assets"),
+  getMlTradingDiagnostics: () =>
+    request<MlTradingDiagnostics>("/api/trading/ml/diagnostics"),
   getMlTradingSettings: () =>
     request<MlTradingSettings>("/api/trading/ml/settings"),
   updateMlTradingSettings: (payload: Partial<MlTradingSettings>) =>

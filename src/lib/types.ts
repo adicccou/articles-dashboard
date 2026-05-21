@@ -291,6 +291,34 @@ export type CustomLeanWorkerStats = {
   today_pnl_usd: number;
 };
 
+export type TradingRuntimeBlocker = {
+  code: string;
+  level: "info" | "warning" | "critical";
+  message: string;
+  scope: "runtime" | "settings" | "data" | "worker" | "asset";
+  target?: string;
+};
+
+export type TradingRuntimeRowState = {
+  status: string;
+  reason: string;
+  updated_at?: string;
+  data_age_seconds?: number | null;
+  last_signal_id?: string;
+  risk?: Record<string, unknown> | null;
+  blockers?: TradingRuntimeBlocker[];
+};
+
+export type TradingRuntimeSummary = {
+  connected: boolean;
+  updated_at: string | null;
+  diagnostics_age_seconds?: number | null;
+  diagnostics_stale?: boolean;
+  status_counts: Record<string, number>;
+  event_counts?: Record<string, number>;
+  blockers: TradingRuntimeBlocker[];
+};
+
 export type CustomLeanWorker = {
   id: string;
   asset: string;
@@ -302,6 +330,10 @@ export type CustomLeanWorker = {
   target_trades_per_day: string;
   status: "ready" | "shadow" | "emit" | "paused";
   enabled?: boolean;
+  risk_usd_min?: number;
+  risk_usd_max?: number;
+  confidence_threshold?: number;
+  runtime?: TradingRuntimeRowState;
   stats: CustomLeanWorkerStats;
 };
 
@@ -317,7 +349,23 @@ export type CustomLeanAssetWorkers = {
     status_counts?: Record<string, number>;
     event_counts?: Record<string, number>;
   };
+  diagnostics?: TradingRuntimeSummary;
   workers: CustomLeanWorker[];
+};
+
+export type CustomLeanWorkersResponse = {
+  connected: boolean;
+  updated_at: string;
+  diagnostics: {
+    mode: "shadow" | "emit";
+    worker_count: number;
+    status_counts: Record<string, number>;
+    event_counts: Record<string, number>;
+    diagnostics_age_seconds?: number | null;
+    diagnostics_stale?: boolean;
+    blockers: TradingRuntimeBlocker[];
+  };
+  assets: CustomLeanAssetWorkers[];
 };
 
 export type CustomLeanDiagnostics = {
@@ -335,6 +383,7 @@ export type CustomLeanDiagnostics = {
   expected_runnable_worker_ids: string[];
   missing_runnable_worker_ids: string[];
   unexpected_worker_ids: string[];
+  blockers: TradingRuntimeBlocker[];
   catalog: CustomLeanWorker[];
   diagnostics: Record<string, unknown>;
 };
@@ -346,6 +395,8 @@ export type CustomLeanSettings = {
   max_open_trades_per_worker: number;
   disabled_worker_ids: string[];
   deleted_worker_ids: string[];
+  worker_risk_overrides: Record<string, { risk_usd_min: number; risk_usd_max: number }>;
+  worker_confidence_overrides: Record<string, { min_confidence: number }>;
   execution_mode: "demo" | "live";
   demo_account_id: string;
   live_account_id: string;
@@ -373,7 +424,38 @@ export type MlTradingAsset = {
   model_stack: string;
   timeframe: string;
   notes: string;
+  control_family?: "ml_asset" | "worker";
+  control_key?: string;
+  trade_symbol?: string;
+  risk_usd_min?: number;
+  risk_usd_max?: number;
+  confidence_threshold?: number;
+  runtime?: TradingRuntimeRowState;
   stats: MlTradingAssetStats;
+};
+
+export type MlTradingAssetsResponse = {
+  connected: boolean;
+  updated_at: string;
+  diagnostics: TradingRuntimeSummary;
+  assets: MlTradingAsset[];
+};
+
+export type MlTradingDiagnostics = {
+  connected: boolean;
+  updated_at: string | null;
+  asset_count: number;
+  status_counts: Record<string, number>;
+  blockers: TradingRuntimeBlocker[];
+  assets: Array<{
+    asset: string;
+    display_name: string;
+    status: string;
+    reason: string;
+    bar?: string;
+    data_age_seconds?: number | null;
+    last_signal_id?: string;
+  }>;
 };
 
 export type MlTradingSettings = {
@@ -384,6 +466,8 @@ export type MlTradingSettings = {
   demo_account_id: string;
   selected_account_id: string;
   enabled_assets: string[];
+  asset_risk_overrides: Record<string, { risk_usd_min: number; risk_usd_max: number }>;
+  asset_confidence_overrides: Record<string, { min_confidence: number }>;
   sync_result?: {
     ok: boolean;
     message: string;
@@ -510,11 +594,15 @@ export type AppSettingsInput = {
   custom_lean_active?: string;
   custom_lean_risk_usd_min?: string;
   custom_lean_risk_usd_max?: string;
+  custom_lean_worker_risk_overrides?: string;
+  custom_lean_worker_confidence_overrides?: string;
   custom_lean_max_open_trades_per_worker?: string;
   custom_lean_execution_mode?: "demo" | "live";
   ml_trading_active?: string;
   ml_trading_risk_usd_min?: string;
   ml_trading_risk_usd_max?: string;
+  ml_trading_asset_risk_overrides?: string;
+  ml_trading_asset_confidence_overrides?: string;
   ml_trading_enabled_assets?: string;
   // Twitter/X
   twitter_api_key?: string;

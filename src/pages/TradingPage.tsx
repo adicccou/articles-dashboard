@@ -3,6 +3,9 @@ import type { FormEvent } from "react";
 import type { CustomLeanAssetWorkers, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorker } from "../lib/types";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
+import { RuntimeDiagnosticsPanel } from "../components/trading/RuntimeDiagnosticsPanel";
+import { RuntimeSummaryCards } from "../components/trading/RuntimeSummaryCards";
+import { ExecutionControlsModal } from "../components/trading/ExecutionControlsModal";
 
 function formatR(value: number) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}R`;
@@ -18,13 +21,15 @@ function formatPercent(value: number) {
 
 function WorkerRow({
   worker,
+  assetLabel,
   saving,
-  onToggle,
+  onEdit,
   onDelete,
 }: {
   worker: CustomLeanWorker;
+  assetLabel: string;
   saving: boolean;
-  onToggle: (worker: CustomLeanWorker) => void;
+  onEdit: (worker: CustomLeanWorker) => void;
   onDelete: (worker: CustomLeanWorker) => void;
 }) {
   const pnlPositive = worker.stats.pnl_r >= 0;
@@ -36,9 +41,14 @@ function WorkerRow({
       <div className="custom-lean-worker__main">
         <div>
           <strong>{worker.name}</strong>
-          <span>{worker.role}</span>
+          <span>{assetLabel} · {worker.role}</span>
         </div>
         <p>{worker.description}</p>
+        {worker.runtime ? (
+          <small className={`custom-lean-worker__runtime custom-lean-worker__runtime--${worker.runtime.blockers?.[0]?.level || "ok"}`}>
+            {worker.runtime.status}: {worker.runtime.reason || "waiting for next decision"}
+          </small>
+        ) : null}
       </div>
       <div className="custom-lean-worker__metric">
         <span>Total trades</span>
@@ -70,16 +80,15 @@ function WorkerRow({
         <strong>{worker.stats.avg_loss_rr.toFixed(2)}R</strong>
       </div>
       <div className="custom-lean-worker__metric custom-lean-worker__metric--toggle">
-        <span>Worker</span>
+        <span>Actions</span>
         <div className="custom-lean-worker__actions">
           <button
             type="button"
-            className={enabled ? "custom-lean-worker__toggle custom-lean-worker__toggle--on" : "custom-lean-worker__toggle"}
-            aria-pressed={enabled}
-            onClick={() => onToggle(worker)}
+            className="button-secondary custom-lean-worker__edit"
+            onClick={() => onEdit(worker)}
             disabled={saving}
           >
-            <span className="custom-lean-worker__toggle-knob" />
+            Edit
           </button>
           <button
             type="button"
@@ -94,7 +103,7 @@ function WorkerRow({
             </svg>
           </button>
         </div>
-        <small>{enabled ? "On" : "Off"}</small>
+        <small>{enabled ? "Enabled" : "Disabled"}</small>
       </div>
     </div>
   );
@@ -114,6 +123,8 @@ const DEFAULT_SETTINGS: CustomLeanSettings = {
   max_open_trades_per_worker: 1,
   disabled_worker_ids: [],
   deleted_worker_ids: [],
+  worker_risk_overrides: {},
+  worker_confidence_overrides: {},
   execution_mode: "demo",
   demo_account_id: "",
   live_account_id: "",
@@ -123,12 +134,12 @@ const DEFAULT_SETTINGS: CustomLeanSettings = {
 export function TradingPage() {
   const [assets, setAssets] = useState<CustomLeanAssetWorkers[]>([]);
   const [diagnostics, setDiagnostics] = useState<CustomLeanDiagnostics | null>(null);
-  const [selectedAsset, setSelectedAsset] = useState("US500");
   const [settings, setSettings] = useState<CustomLeanSettings>(DEFAULT_SETTINGS);
   const [settingsDraft, setSettingsDraft] = useState<CustomLeanSettings>(DEFAULT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [savingWorkerId, setSavingWorkerId] = useState<string | null>(null);
+  const [editingWorkerId, setEditingWorkerId] = useState<string | null>(null);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -141,14 +152,11 @@ export function TradingPage() {
         api.getCustomLeanSettings(),
         api.getCustomLeanDiagnostics().catch(() => null),
       ]);
-      const normalized = asArray<CustomLeanAssetWorkers>(data);
+      const normalized = asArray<CustomLeanAssetWorkers>(data.assets);
       setAssets(normalized);
       setDiagnostics(diagnosticsData);
       setSettings(generalSettings);
       setSettingsDraft(generalSettings);
-      if (normalized[0]?.asset) {
-        setSelectedAsset((current) => current || normalized[0].asset);
-      }
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load trading dashboards");
@@ -172,6 +180,8 @@ export function TradingPage() {
         max_open_trades_per_worker: Number(nextSettings.max_open_trades_per_worker),
         disabled_worker_ids: nextSettings.disabled_worker_ids,
         deleted_worker_ids: nextSettings.deleted_worker_ids,
+        worker_risk_overrides: nextSettings.worker_risk_overrides,
+        worker_confidence_overrides: nextSettings.worker_confidence_overrides,
         execution_mode: nextSettings.execution_mode,
       });
       setSettings(saved);
@@ -197,6 +207,69 @@ export function TradingPage() {
     const nextSettings = { ...settingsDraft, active: !settingsDraft.active };
     setSettingsDraft(nextSettings);
     void saveSettings(nextSettings);
+  }
+
+  function workerRiskDraft(worker: CustomLeanWorker) {
+    return settingsDraft.worker_risk_overrides[worker.id] || {
+      risk_usd_min: Number(worker.risk_usd_min ?? settings.risk_usd_min),
+      risk_usd_max: Number(worker.risk_usd_max ?? settings.risk_usd_max),
+    };
+  }
+
+  function workerConfidenceDraft(worker: CustomLeanWorker) {
+    return settingsDraft.worker_confidence_overrides[worker.id] || {
+      min_confidence: Number(worker.confidence_threshold ?? 85),
+    };
+  }
+
+  function updateWorkerRiskDraft(worker: CustomLeanWorker, patch: Partial<{ risk_usd_min: number; risk_usd_max: number }>) {
+    const currentRisk = workerRiskDraft(worker);
+    setSettingsDraft((current) => ({
+      ...current,
+      worker_risk_overrides: {
+        ...current.worker_risk_overrides,
+        [worker.id]: {
+          ...currentRisk,
+          ...patch,
+        },
+      },
+    }));
+  }
+
+  function updateWorkerConfidenceDraft(worker: CustomLeanWorker, patch: Partial<{ min_confidence: number }>) {
+    const currentConfidence = workerConfidenceDraft(worker);
+    setSettingsDraft((current) => ({
+      ...current,
+      worker_confidence_overrides: {
+        ...current.worker_confidence_overrides,
+        [worker.id]: {
+          ...currentConfidence,
+          ...patch,
+        },
+      },
+    }));
+  }
+
+  async function saveWorkerRisk(worker: CustomLeanWorker) {
+    const nextSettings = {
+      ...settingsDraft,
+      worker_risk_overrides: {
+        ...settingsDraft.worker_risk_overrides,
+        [worker.id]: workerRiskDraft(worker),
+      },
+      worker_confidence_overrides: {
+        ...settingsDraft.worker_confidence_overrides,
+        [worker.id]: workerConfidenceDraft(worker),
+      },
+    };
+    setSettingsDraft(nextSettings);
+    setSavingWorkerId(worker.id);
+    try {
+      await saveSettings(nextSettings);
+      await load();
+    } finally {
+      setSavingWorkerId(null);
+    }
   }
 
   async function toggleWorker(worker: CustomLeanWorker) {
@@ -244,15 +317,22 @@ export function TradingPage() {
     }
   }
 
-  const activeAsset = useMemo(
-    () => assets.find((asset) => asset.asset === selectedAsset) ?? assets[0],
-    [assets, selectedAsset],
-  );
-
   const visibleWorkers = useMemo(() => {
     const deleted = new Set(settingsDraft.deleted_worker_ids);
-    return (activeAsset?.workers ?? []).filter((worker) => !deleted.has(worker.id));
-  }, [activeAsset, settingsDraft.deleted_worker_ids]);
+    return assets.flatMap((asset) =>
+      asset.workers
+        .filter((worker) => !deleted.has(worker.id))
+        .map((worker) => ({
+          ...worker,
+          displayAsset: asset.display_name,
+        })),
+    );
+  }, [assets, settingsDraft.deleted_worker_ids]);
+
+  const editingWorker = useMemo(
+    () => visibleWorkers.find((worker) => worker.id === editingWorkerId) ?? null,
+    [editingWorkerId, visibleWorkers],
+  );
 
   const totals = useMemo(() => {
     const workers = visibleWorkers;
@@ -268,6 +348,53 @@ export function TradingPage() {
     );
   }, [visibleWorkers]);
 
+  const coordinatorMode = useMemo(() => {
+    if (!assets.length) {
+      return "N/A";
+    }
+    const uniqueModes = new Set(assets.map((asset) => asset.coordinator.mode.toUpperCase()));
+    return uniqueModes.size === 1 ? Array.from(uniqueModes)[0] : "MIXED";
+  }, [assets]);
+
+  const summaryCards = [
+    {
+      label: "Coordinator",
+      value: coordinatorMode,
+      detail: diagnostics?.mode || "emit",
+      tone: null as string | null,
+    },
+    {
+      label: "Diagnostics",
+      value: diagnostics?.diagnostics_stale ? "STALE" : "LIVE",
+      detail: diagnostics ? `${diagnostics.diagnostics_age_seconds ?? 0}s ago` : "unknown",
+      tone: diagnostics?.diagnostics_stale ? "custom-lean-risk" : "custom-lean-good",
+    },
+    {
+      label: "Total trades",
+      value: totals.totalTrades,
+      detail: `${visibleWorkers.length} visible workers`,
+      tone: null as string | null,
+    },
+    {
+      label: "Trades today",
+      value: totals.todayTrades,
+      detail: "All regular workers",
+      tone: null as string | null,
+    },
+    {
+      label: "Total PnL",
+      value: formatUsd(totals.pnlUsd),
+      detail: formatR(totals.pnlR),
+      tone: totals.pnlUsd >= 0 ? "custom-lean-good" : "custom-lean-risk",
+    },
+    {
+      label: "Today PnL",
+      value: formatUsd(totals.todayPnl),
+      detail: "All regular workers",
+      tone: totals.todayPnl >= 0 ? "custom-lean-good" : "custom-lean-risk",
+    },
+  ];
+
   if (loading) {
     return <div className="loading-screen">Loading...</div>;
   }
@@ -279,10 +406,10 @@ export function TradingPage() {
       <section className="panel custom-lean-hero">
         <div>
           <span className="custom-lean-eyebrow">Nautilus coordinator</span>
-          <h2>Asset Workers</h2>
+          <h2>All Workers</h2>
           <p>
-            Trading Strategies is hidden for now. This screen shows only the regular worker model
-            per asset, with each worker keeping its own stats and controls.
+            Trading Strategies is hidden for now. This screen shows all regular workers in one list,
+            with each worker keeping its own stats and controls.
           </p>
         </div>
         <button className="button-secondary" onClick={() => setSettingsOpen((value) => !value)}>
@@ -310,26 +437,6 @@ export function TradingPage() {
           </div>
 
           <form className="custom-lean-settings__form" onSubmit={submitSettings}>
-            <label>
-              <span>Min risk USD</span>
-              <input
-                type="number"
-                min="1"
-                step="0.01"
-                value={settingsDraft.risk_usd_min}
-                onChange={(event) => updateSettingsDraft({ risk_usd_min: Number(event.target.value) })}
-              />
-            </label>
-            <label>
-              <span>Max risk USD</span>
-              <input
-                type="number"
-                min="1"
-                step="0.01"
-                value={settingsDraft.risk_usd_max}
-                onChange={(event) => updateSettingsDraft({ risk_usd_max: Number(event.target.value) })}
-              />
-            </label>
             <label>
               <span>Each worker max open trades</span>
               <input
@@ -366,6 +473,10 @@ export function TradingPage() {
               </small>
             </div>
 
+            <p className="custom-lean-settings__message">
+              Worker risk and confidence are now managed per worker row below. The old shared values remain only as a fallback.
+            </p>
+
             <button className="button-secondary custom-lean-save" type="submit" disabled={savingSettings}>
               {savingSettings ? "Saving..." : "Save settings"}
             </button>
@@ -374,55 +485,22 @@ export function TradingPage() {
           {settingsMessage ? <p className="custom-lean-settings__message">{settingsMessage}</p> : null}
         </section>
       ) : null}
-      <section className="panel custom-lean-assets">
-        <div className="custom-lean-assets__tabs">
-          {assets.map((asset) => (
-            <button
-              key={asset.asset}
-              className={asset.asset === activeAsset?.asset ? "custom-lean-assets__tab custom-lean-assets__tab--active" : "custom-lean-assets__tab"}
-              onClick={() => setSelectedAsset(asset.asset)}
-            >
-              {asset.display_name}
-            </button>
-          ))}
-        </div>
 
-        {activeAsset ? (
+      <RuntimeDiagnosticsPanel
+        title="Worker Runtime"
+        summary={diagnostics}
+        extra={diagnostics ? (
+          <div>
+            <span>Missing runtimes</span>
+            <strong>{diagnostics.missing_runnable_worker_ids.length}</strong>
+          </div>
+        ) : null}
+      />
+
+      <section className="panel custom-lean-assets">
+        {assets.length ? (
           <>
-            <div className="custom-lean-summary">
-              <div>
-                <span>Coordinator</span>
-                <strong>{activeAsset.coordinator.mode.toUpperCase()}</strong>
-              </div>
-              <div>
-                <span>Diagnostics</span>
-                <strong className={diagnostics?.diagnostics_stale ? "custom-lean-risk" : "custom-lean-good"}>
-                  {diagnostics?.diagnostics_stale ? "STALE" : "LIVE"}
-                </strong>
-                <small>{diagnostics?.diagnostics_age_seconds ?? 0}s ago</small>
-              </div>
-              <div>
-                <span>Total trades</span>
-                <strong>{totals.totalTrades}</strong>
-              </div>
-              <div>
-                <span>Trades today</span>
-                <strong>{totals.todayTrades}</strong>
-              </div>
-              <div>
-                <span>Total PnL</span>
-                <strong className={totals.pnlUsd >= 0 ? "custom-lean-good" : "custom-lean-risk"}>
-                  {formatUsd(totals.pnlUsd)}
-                </strong>
-                <small>{formatR(totals.pnlR)}</small>
-              </div>
-              <div>
-                <span>Today PnL</span>
-                <strong className={totals.todayPnl >= 0 ? "custom-lean-good" : "custom-lean-risk"}>
-                  {formatUsd(totals.todayPnl)}
-                </strong>
-              </div>
-            </div>
+            <RuntimeSummaryCards cards={summaryCards} />
 
             <div className="custom-lean-workers">
               <div className="custom-lean-workers__header">
@@ -440,8 +518,9 @@ export function TradingPage() {
                   <WorkerRow
                     key={worker.id}
                     worker={worker}
+                    assetLabel={worker.displayAsset}
                     saving={savingWorkerId === worker.id}
-                    onToggle={toggleWorker}
+                    onEdit={(selectedWorker) => setEditingWorkerId(selectedWorker.id)}
                     onDelete={deleteWorker}
                   />
                 ))
@@ -466,6 +545,43 @@ export function TradingPage() {
           <p className="custom-lean-empty">No Nautilus assets configured yet.</p>
         )}
       </section>
+
+      <ExecutionControlsModal
+        open={Boolean(editingWorker)}
+        title={editingWorker?.name || "Worker"}
+        subtitle={editingWorker ? `${editingWorker.displayAsset} · ${editingWorker.role}` : ""}
+        enabledLabel="Worker"
+        enabled={editingWorker?.enabled !== false}
+        riskDraft={editingWorker ? workerRiskDraft(editingWorker) : { risk_usd_min: settings.risk_usd_min, risk_usd_max: settings.risk_usd_max }}
+        confidenceDraft={editingWorker ? workerConfidenceDraft(editingWorker) : { min_confidence: 85 }}
+        saving={editingWorker ? savingWorkerId === editingWorker.id : false}
+        onClose={() => setEditingWorkerId(null)}
+        onToggleEnabled={() => {
+          if (editingWorker) {
+            void toggleWorker(editingWorker);
+          }
+        }}
+        onRiskChange={(patch) => {
+          if (editingWorker) {
+            updateWorkerRiskDraft(editingWorker, patch);
+          }
+        }}
+        onConfidenceChange={(patch) => {
+          if (editingWorker) {
+            updateWorkerConfidenceDraft(editingWorker, patch);
+          }
+        }}
+        onSave={() => {
+          if (editingWorker) {
+            saveWorkerRisk(editingWorker).then(() => setEditingWorkerId(null));
+          }
+        }}
+        onDelete={() => {
+          if (editingWorker) {
+            deleteWorker(editingWorker).then(() => setEditingWorkerId(null));
+          }
+        }}
+      />
     </div>
   );
 }

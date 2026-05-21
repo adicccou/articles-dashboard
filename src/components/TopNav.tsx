@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import logoMark from "../assets/my-logo.svg";
 import styles from "../styles/topnav.module.css";
 
@@ -23,6 +23,7 @@ export const TopNav: React.FC<TopNavProps> = ({
   onOpenSettings,
   onLogout,
 }) => {
+  const activeNavRef = useRef<HTMLButtonElement | null>(null);
   const navItems: Array<{ label: string; view: NavView }> = [
     { label: "Articles", view: "articles" },
     { label: "Social Agents", view: "reddit" },
@@ -32,8 +33,18 @@ export const TopNav: React.FC<TopNavProps> = ({
     { label: "Statistics", view: "statistics" },
   ];
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!window.matchMedia("(max-width: 768px)").matches) return;
+    activeNavRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+      inline: "center",
+    });
+  }, [currentView]);
+
   return (
-    <nav className={styles.topnav}>
+    <nav className={styles.topnav} aria-label="Dashboard navigation">
       <div className={styles.container}>
         <div className={styles.logo} aria-label="BlogPoster logo">
           <img src={logoMark} alt="BlogPoster" className={styles.logoImage} />
@@ -47,6 +58,12 @@ export const TopNav: React.FC<TopNavProps> = ({
                 currentView === view ? styles.active : ""
               }`}
               onClick={() => onNavigate(view)}
+              ref={(node) => {
+                if (currentView === view) {
+                  activeNavRef.current = node;
+                }
+              }}
+              aria-current={currentView === view ? "page" : undefined}
             >
               {label}
             </button>

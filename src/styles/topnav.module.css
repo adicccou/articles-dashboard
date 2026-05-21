@@ -117,14 +117,21 @@
 }
 
 @media (max-width: 768px) {
+  .topnav {
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  }
+
   .container {
     align-items: center;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
     height: auto;
-    padding: 10px 16px 8px;
+    padding: 10px 12px 12px;
+    row-gap: 10px;
   }
 
   .logo {
+    grid-column: 1;
     margin-right: 0;
   }
 
@@ -133,38 +140,77 @@
   }
 
   .navItems {
-    gap: 4px;
-    order: 3;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+    gap: 6px;
+    grid-column: 1 / -1;
     overflow-x: auto;
-    padding-bottom: 2px;
-    scrollbar-width: thin;
+    padding: 5px;
+    scroll-padding: 12px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
     width: 100%;
+  }
+
+  .navItems::-webkit-scrollbar {
+    display: none;
   }
 
   .navItem {
     flex: 0 0 auto;
-    padding: 6px 12px;
+    min-height: 40px;
+    padding: 0 14px;
+    border-radius: 999px;
     font-size: 13px;
+    font-weight: 650;
+    scroll-snap-align: center;
+  }
+
+  .navItem.active {
+    background: #0f172a;
+    border-bottom: 0;
+    color: #ffffff;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.16);
+  }
+
+  .navItem:hover {
+    background-color: #eef2f7;
+  }
+
+  .navItem.active:hover {
+    background-color: #0f172a;
+    color: #ffffff;
   }
 
   .userMenu {
+    grid-column: 2;
+    justify-self: end;
     gap: 8px;
   }
 
+  .settingsBtn {
+    height: 38px;
+    width: 38px;
+  }
+
   .logoutBtn {
-    padding: 6px 12px;
+    min-height: 38px;
+    padding: 0 12px;
     font-size: 13px;
   }
 }
 
 @media (max-width: 420px) {
   .container {
-    gap: 10px;
-    padding-inline: 12px;
+    padding-inline: 10px;
+    row-gap: 9px;
   }
 
   .logoImage {
-    max-width: 132px;
+    height: 26px;
+    max-width: 120px;
   }
 
   .settingsBtn {
@@ -173,6 +219,16 @@
   }
 
   .logoutBtn {
+    min-height: 36px;
     padding-inline: 10px;
+  }
+
+  .navItems {
+    border-radius: 18px;
+  }
+
+  .navItem {
+    min-height: 38px;
+    padding-inline: 12px;
   }
 }

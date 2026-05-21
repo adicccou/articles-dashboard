@@ -19,6 +19,8 @@ type StoredSettings = {
   custom_lean_active: string;
   custom_lean_risk_usd_min: string;
   custom_lean_risk_usd_max: string;
+  custom_lean_worker_risk_overrides: string;
+  custom_lean_worker_confidence_overrides: string;
   custom_lean_max_open_trades_per_worker: string;
   custom_lean_execution_mode: string;
   custom_lean_disabled_worker_ids: string;
@@ -26,6 +28,8 @@ type StoredSettings = {
   ml_trading_active: string;
   ml_trading_risk_usd_min: string;
   ml_trading_risk_usd_max: string;
+  ml_trading_asset_risk_overrides: string;
+  ml_trading_asset_confidence_overrides: string;
   ml_trading_enabled_assets: string;
   // Twitter/X
   twitter_api_key: string;
@@ -58,6 +62,8 @@ const DEFAULTS: StoredSettings = {
   custom_lean_active: "true",
   custom_lean_risk_usd_min: "8",
   custom_lean_risk_usd_max: "17",
+  custom_lean_worker_risk_overrides: "{}",
+  custom_lean_worker_confidence_overrides: "{}",
   custom_lean_max_open_trades_per_worker: "1",
   custom_lean_execution_mode: "demo",
   custom_lean_disabled_worker_ids: "",
@@ -65,7 +71,9 @@ const DEFAULTS: StoredSettings = {
   ml_trading_active: "false",
   ml_trading_risk_usd_min: "8",
   ml_trading_risk_usd_max: "17",
-  ml_trading_enabled_assets: "XAUUSD,US500,SOLUSD",
+  ml_trading_asset_risk_overrides: "{}",
+  ml_trading_asset_confidence_overrides: "{}",
+  ml_trading_enabled_assets: "XAUUSD,US500",
   twitter_api_key: "",
   twitter_api_secret: "",
   twitter_access_token: "",
@@ -178,9 +186,13 @@ function internalAgentSettings(
     custom_lean_active: customLean.active,
     custom_lean_max_open_trades_per_worker: customLean.max_open_trades_per_worker,
     custom_lean_disabled_worker_ids: customLean.disabled_worker_ids,
+    custom_lean_worker_risk_overrides: customLean.worker_risk_overrides,
+    custom_lean_worker_confidence_overrides: customLean.worker_confidence_overrides,
     ml_trading_active: mlTrading.active,
     ml_trading_risk_usd_min: mlTrading.risk_usd_min,
     ml_trading_risk_usd_max: mlTrading.risk_usd_max,
+    ml_trading_asset_risk_overrides: mlTrading.asset_risk_overrides,
+    ml_trading_asset_confidence_overrides: mlTrading.asset_confidence_overrides,
     ml_trading_enabled_assets: mlTrading.enabled_assets,
     ml_trading_execution_mode: "demo",
     ml_trading_selected_account_id: mlTrading.selected_account_id,
@@ -211,6 +223,159 @@ function parseNumber(value: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+type RiskOverride = {
+  risk_usd_min: number;
+  risk_usd_max: number;
+};
+
+type ConfidenceOverride = {
+  min_confidence: number;
+};
+
+function parseRiskOverrides(value: string | undefined): Record<string, RiskOverride> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    const normalized: Record<string, RiskOverride> = {};
+    for (const [rawKey, rawValue] of Object.entries(parsed)) {
+      if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+        continue;
+      }
+      const riskMin = Number((rawValue as { risk_usd_min?: unknown }).risk_usd_min);
+      const riskMax = Number((rawValue as { risk_usd_max?: unknown }).risk_usd_max);
+      if (!Number.isFinite(riskMin) || !Number.isFinite(riskMax) || riskMin <= 0 || riskMax <= 0 || riskMax < riskMin) {
+        continue;
+      }
+      normalized[String(rawKey).trim()] = {
+        risk_usd_min: riskMin,
+        risk_usd_max: riskMax,
+      };
+    }
+    return normalized;
+  } catch {
+    return {};
+  }
+}
+
+function normalizeWorkerRiskOverrides(value: unknown): Record<string, RiskOverride> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const normalized: Record<string, RiskOverride> = {};
+  for (const [rawKey, rawValue] of Object.entries(value as Record<string, unknown>)) {
+    const workerId = String(rawKey || "").trim();
+    if (!workerId || !rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+      continue;
+    }
+    const riskMin = Number((rawValue as { risk_usd_min?: unknown }).risk_usd_min);
+    const riskMax = Number((rawValue as { risk_usd_max?: unknown }).risk_usd_max);
+    if (!Number.isFinite(riskMin) || riskMin <= 0) {
+      throw new Error(`Worker ${workerId} min risk must be greater than 0.`);
+    }
+    if (!Number.isFinite(riskMax) || riskMax <= 0) {
+      throw new Error(`Worker ${workerId} max risk must be greater than 0.`);
+    }
+    if (riskMax < riskMin) {
+      throw new Error(`Worker ${workerId} max risk must be greater than or equal to min risk.`);
+    }
+    normalized[workerId] = { risk_usd_min: riskMin, risk_usd_max: riskMax };
+  }
+  return normalized;
+}
+
+function normalizeAssetRiskOverrides(value: unknown): Record<string, RiskOverride> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const normalized: Record<string, RiskOverride> = {};
+  for (const [rawKey, rawValue] of Object.entries(value as Record<string, unknown>)) {
+    const asset = String(rawKey || "").trim().toUpperCase().replaceAll("/", "");
+    if (!asset || !rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+      continue;
+    }
+    const riskMin = Number((rawValue as { risk_usd_min?: unknown }).risk_usd_min);
+    const riskMax = Number((rawValue as { risk_usd_max?: unknown }).risk_usd_max);
+    if (!Number.isFinite(riskMin) || riskMin <= 0) {
+      throw new Error(`ML asset ${asset} min risk must be greater than 0.`);
+    }
+    if (!Number.isFinite(riskMax) || riskMax <= 0) {
+      throw new Error(`ML asset ${asset} max risk must be greater than 0.`);
+    }
+    if (riskMax < riskMin) {
+      throw new Error(`ML asset ${asset} max risk must be greater than or equal to min risk.`);
+    }
+    normalized[asset] = { risk_usd_min: riskMin, risk_usd_max: riskMax };
+  }
+  return normalized;
+}
+
+function parseConfidenceOverrides(value: string | undefined): Record<string, ConfidenceOverride> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    const normalized: Record<string, ConfidenceOverride> = {};
+    for (const [rawKey, rawValue] of Object.entries(parsed)) {
+      if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+        continue;
+      }
+      const minConfidence = Number((rawValue as { min_confidence?: unknown }).min_confidence);
+      if (!Number.isFinite(minConfidence) || minConfidence < 1 || minConfidence > 99) {
+        continue;
+      }
+      normalized[String(rawKey).trim()] = {
+        min_confidence: Math.trunc(minConfidence),
+      };
+    }
+    return normalized;
+  } catch {
+    return {};
+  }
+}
+
+function normalizeWorkerConfidenceOverrides(value: unknown): Record<string, ConfidenceOverride> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const normalized: Record<string, ConfidenceOverride> = {};
+  for (const [rawKey, rawValue] of Object.entries(value as Record<string, unknown>)) {
+    const workerId = String(rawKey || "").trim();
+    if (!workerId || !rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+      continue;
+    }
+    const minConfidence = Number((rawValue as { min_confidence?: unknown }).min_confidence);
+    if (!Number.isFinite(minConfidence) || minConfidence < 1 || minConfidence > 99) {
+      throw new Error(`Worker ${workerId} confidence must be between 1 and 99.`);
+    }
+    normalized[workerId] = { min_confidence: Math.trunc(minConfidence) };
+  }
+  return normalized;
+}
+
+function normalizeAssetConfidenceOverrides(value: unknown): Record<string, ConfidenceOverride> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const normalized: Record<string, ConfidenceOverride> = {};
+  for (const [rawKey, rawValue] of Object.entries(value as Record<string, unknown>)) {
+    const asset = String(rawKey || "").trim().toUpperCase().replaceAll("/", "");
+    if (!asset || !rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+      continue;
+    }
+    const minConfidence = Number((rawValue as { min_confidence?: unknown }).min_confidence);
+    if (!Number.isFinite(minConfidence) || minConfidence < 1 || minConfidence > 99) {
+      throw new Error(`ML asset ${asset} confidence must be between 1 and 99.`);
+    }
+    normalized[asset] = { min_confidence: Math.trunc(minConfidence) };
+  }
+  return normalized;
+}
+
 function normalizeExecutionMode(value: string | undefined): "demo" | "live" {
   return String(value || "").trim().toLowerCase() === "live" ? "live" : "demo";
 }
@@ -233,6 +398,8 @@ function publicCustomLeanSettings(settings: StoredSettings) {
     execution_mode: executionMode,
     disabled_worker_ids: disabledWorkerIds,
     deleted_worker_ids: deletedWorkerIds,
+    worker_risk_overrides: parseRiskOverrides(settings.custom_lean_worker_risk_overrides),
+    worker_confidence_overrides: parseConfidenceOverrides(settings.custom_lean_worker_confidence_overrides),
     demo_account_id: settings.ctrader_demo_account_id,
     live_account_id: settings.ctrader_live_account_id,
     selected_account_id: resolveCtraderAccountId(settings, executionMode),
@@ -240,7 +407,7 @@ function publicCustomLeanSettings(settings: StoredSettings) {
 }
 
 function publicMlTradingSettings(settings: StoredSettings) {
-  const enabledAssets = String(settings.ml_trading_enabled_assets || "XAUUSD,US500,SOLUSD")
+  const enabledAssets = String(settings.ml_trading_enabled_assets || "XAUUSD,US500")
     .split(",")
     .map((value) => value.trim().toUpperCase().replaceAll("/", ""))
     .filter(Boolean);
@@ -251,7 +418,9 @@ function publicMlTradingSettings(settings: StoredSettings) {
     execution_mode: "demo" as const,
     demo_account_id: settings.ctrader_demo_account_id,
     selected_account_id: settings.ctrader_demo_account_id || settings.ctrader_account_id || "",
-    enabled_assets: Array.from(new Set(enabledAssets.length ? enabledAssets : ["XAUUSD", "US500", "SOLUSD"])),
+    asset_risk_overrides: parseRiskOverrides(settings.ml_trading_asset_risk_overrides),
+    asset_confidence_overrides: parseConfidenceOverrides(settings.ml_trading_asset_confidence_overrides),
+    enabled_assets: Array.from(new Set(enabledAssets.length ? enabledAssets : ["XAUUSD", "US500"])),
   };
 }
 
@@ -458,11 +627,13 @@ export async function updateAppSettings(env: Env, request: Request, dashboardOri
     await upsertSetting(env, "custom_lean_active", next.custom_lean_active, updatedAt);
     await upsertSetting(env, "custom_lean_risk_usd_min", next.custom_lean_risk_usd_min, updatedAt);
     await upsertSetting(env, "custom_lean_risk_usd_max", next.custom_lean_risk_usd_max, updatedAt);
+    await upsertSetting(env, "custom_lean_worker_risk_overrides", next.custom_lean_worker_risk_overrides, updatedAt);
     await upsertSetting(env, "custom_lean_max_open_trades_per_worker", next.custom_lean_max_open_trades_per_worker, updatedAt);
     await upsertSetting(env, "custom_lean_execution_mode", next.custom_lean_execution_mode, updatedAt);
     await upsertSetting(env, "ml_trading_active", next.ml_trading_active, updatedAt);
     await upsertSetting(env, "ml_trading_risk_usd_min", next.ml_trading_risk_usd_min, updatedAt);
     await upsertSetting(env, "ml_trading_risk_usd_max", next.ml_trading_risk_usd_max, updatedAt);
+    await upsertSetting(env, "ml_trading_asset_risk_overrides", next.ml_trading_asset_risk_overrides, updatedAt);
     await upsertSetting(env, "ml_trading_enabled_assets", next.ml_trading_enabled_assets, updatedAt);
     next.ctrader_account_id = resolveCtraderAccountId(next, normalizeExecutionMode(next.custom_lean_execution_mode));
     await upsertSetting(env, "ctrader_account_id", next.ctrader_account_id, updatedAt);
@@ -490,12 +661,14 @@ export async function updateAppSettings(env: Env, request: Request, dashboardOri
       payload.custom_lean_active !== undefined ||
       payload.custom_lean_risk_usd_min !== undefined ||
       payload.custom_lean_risk_usd_max !== undefined ||
+      payload.custom_lean_worker_risk_overrides !== undefined ||
       payload.custom_lean_max_open_trades_per_worker !== undefined ||
       payload.custom_lean_execution_mode !== undefined ||
       payload.custom_lean_deleted_worker_ids !== undefined ||
       payload.ml_trading_active !== undefined ||
       payload.ml_trading_risk_usd_min !== undefined ||
       payload.ml_trading_risk_usd_max !== undefined ||
+      payload.ml_trading_asset_risk_overrides !== undefined ||
       payload.ml_trading_enabled_assets !== undefined ||
       payload.twitter_api_key !== undefined ||
       payload.twitter_api_secret !== undefined ||
@@ -543,6 +716,12 @@ function cleanCustomLeanSettingsPayload(payload: Record<string, unknown>, curren
       .split(",")
       .map((value) => value.trim())
       .filter(Boolean);
+  const workerRiskOverrides = normalizeWorkerRiskOverrides(
+    payload.worker_risk_overrides ?? parseRiskOverrides(current.custom_lean_worker_risk_overrides),
+  );
+  const workerConfidenceOverrides = normalizeWorkerConfidenceOverrides(
+    payload.worker_confidence_overrides ?? parseConfidenceOverrides(current.custom_lean_worker_confidence_overrides),
+  );
 
   if (!Number.isFinite(riskMin) || riskMin <= 0) {
     throw new Error("Min risk must be greater than 0.");
@@ -566,6 +745,8 @@ function cleanCustomLeanSettingsPayload(payload: Record<string, unknown>, curren
     custom_lean_execution_mode: executionMode,
     custom_lean_disabled_worker_ids: Array.from(new Set(disabledWorkerIds)).join(","),
     custom_lean_deleted_worker_ids: Array.from(new Set(deletedWorkerIds)).join(","),
+    custom_lean_worker_risk_overrides: JSON.stringify(workerRiskOverrides),
+    custom_lean_worker_confidence_overrides: JSON.stringify(workerConfidenceOverrides),
   };
   next.ctrader_account_id = resolveCtraderAccountId(next, executionMode);
   return next;
@@ -583,6 +764,12 @@ function cleanMlTradingSettingsPayload(payload: Record<string, unknown>, current
       .split(",")
       .map((value) => value.trim().toUpperCase().replaceAll("/", ""))
       .filter(Boolean);
+  const assetRiskOverrides = normalizeAssetRiskOverrides(
+    payload.asset_risk_overrides ?? parseRiskOverrides(current.ml_trading_asset_risk_overrides),
+  );
+  const assetConfidenceOverrides = normalizeAssetConfidenceOverrides(
+    payload.asset_confidence_overrides ?? parseConfidenceOverrides(current.ml_trading_asset_confidence_overrides),
+  );
 
   if (!Number.isFinite(riskMin) || riskMin <= 0) {
     throw new Error("ML Trading min risk must be greater than 0.");
@@ -599,7 +786,9 @@ function cleanMlTradingSettingsPayload(payload: Record<string, unknown>, current
     ml_trading_active: active ? "true" : "false",
     ml_trading_risk_usd_min: String(riskMin),
     ml_trading_risk_usd_max: String(riskMax),
-    ml_trading_enabled_assets: Array.from(new Set(enabledAssets.length ? enabledAssets : ["XAUUSD", "US500", "SOLUSD"])).join(","),
+    ml_trading_asset_risk_overrides: JSON.stringify(assetRiskOverrides),
+    ml_trading_asset_confidence_overrides: JSON.stringify(assetConfidenceOverrides),
+    ml_trading_enabled_assets: Array.from(new Set(enabledAssets.length ? enabledAssets : ["XAUUSD", "US500"])).join(","),
   };
 }
 
@@ -636,6 +825,8 @@ export async function updateCustomLeanSettings(
     await upsertSetting(env, "custom_lean_active", next.custom_lean_active, updatedAt);
     await upsertSetting(env, "custom_lean_risk_usd_min", next.custom_lean_risk_usd_min, updatedAt);
     await upsertSetting(env, "custom_lean_risk_usd_max", next.custom_lean_risk_usd_max, updatedAt);
+    await upsertSetting(env, "custom_lean_worker_risk_overrides", next.custom_lean_worker_risk_overrides, updatedAt);
+    await upsertSetting(env, "custom_lean_worker_confidence_overrides", next.custom_lean_worker_confidence_overrides, updatedAt);
     await upsertSetting(env, "custom_lean_max_open_trades_per_worker", next.custom_lean_max_open_trades_per_worker, updatedAt);
     await upsertSetting(env, "custom_lean_execution_mode", next.custom_lean_execution_mode, updatedAt);
     await upsertSetting(env, "custom_lean_disabled_worker_ids", next.custom_lean_disabled_worker_ids, updatedAt);
@@ -676,6 +867,8 @@ export async function updateMlTradingSettings(
     await upsertSetting(env, "ml_trading_active", next.ml_trading_active, updatedAt);
     await upsertSetting(env, "ml_trading_risk_usd_min", next.ml_trading_risk_usd_min, updatedAt);
     await upsertSetting(env, "ml_trading_risk_usd_max", next.ml_trading_risk_usd_max, updatedAt);
+    await upsertSetting(env, "ml_trading_asset_risk_overrides", next.ml_trading_asset_risk_overrides, updatedAt);
+    await upsertSetting(env, "ml_trading_asset_confidence_overrides", next.ml_trading_asset_confidence_overrides, updatedAt);
     await upsertSetting(env, "ml_trading_enabled_assets", next.ml_trading_enabled_assets, updatedAt);
 
     let syncResult: { ok: boolean; message: string } | null = null;
@@ -876,15 +1069,35 @@ export async function getCustomLeanWorkers(env: Env): Promise<Response> {
     const customLeanSettings = publicCustomLeanSettings(settings);
     const disabledWorkerIds = new Set(customLeanSettings.disabled_worker_ids);
     const deletedWorkerIds = new Set(customLeanSettings.deleted_worker_ids);
+    const workerRiskOverrides = customLeanSettings.worker_risk_overrides;
+    const workerConfidenceOverrides = customLeanSettings.worker_confidence_overrides;
+    const globalRiskMin = customLeanSettings.risk_usd_min;
+    const globalRiskMax = customLeanSettings.risk_usd_max;
     const isMlTradingWorker = (worker: unknown) => {
       if (!worker || typeof worker !== "object") return false;
+      const workerId = String((worker as { id?: unknown }).id || "").trim().toLowerCase();
+      if (workerId === "xau_ultra_micro_continuation_4to1") {
+        return true;
+      }
       const probe = [
-        String((worker as { id?: unknown }).id || "").trim().toLowerCase(),
+        workerId,
         String((worker as { name?: unknown }).name || "").trim().toLowerCase(),
         String((worker as { role?: unknown }).role || "").trim().toLowerCase(),
       ].join(" ");
       return probe.includes("ml trading") || probe.includes("ml_trading") || probe.includes("ml_liquidity_fvg");
     };
+    const diagnosticsSummary =
+      data && typeof data === "object" && !Array.isArray(data) && typeof (data as { diagnostics?: unknown }).diagnostics === "object"
+        ? (data as { diagnostics: Record<string, unknown> }).diagnostics
+        : null;
+    const updatedAt =
+      data && typeof data === "object" && !Array.isArray(data)
+        ? String((data as { updated_at?: unknown }).updated_at || "")
+        : "";
+    const connected =
+      data && typeof data === "object" && !Array.isArray(data)
+        ? Boolean((data as { connected?: unknown }).connected ?? true)
+        : true;
     const normalizedAssets = assets.map((asset) => {
       if (!asset || typeof asset !== "object") return asset;
       const rawWorkers = (asset as { workers?: unknown }).workers;
@@ -897,9 +1110,20 @@ export async function getCustomLeanWorkers(env: Env): Promise<Response> {
             if (!worker || typeof worker !== "object") return worker;
             const workerId = String((worker as { id?: unknown }).id || "").trim();
             const enabled = workerId ? !disabledWorkerIds.has(workerId) : true;
+            const riskOverride = workerId ? workerRiskOverrides[workerId] : null;
+            const confidenceOverride = workerId ? workerConfidenceOverrides[workerId] : null;
+            const builtInRiskMin = Number((worker as { risk_usd_min?: unknown }).risk_usd_min ?? 0);
+            const builtInRiskMax = Number((worker as { risk_usd_max?: unknown }).risk_usd_max ?? 0);
+            const builtInConfidence = Number(
+              (worker as { config_overrides?: { min_confidence_score?: unknown } }).config_overrides?.min_confidence_score ?? 0,
+            );
             return {
               ...worker,
               enabled,
+              risk_usd_min: riskOverride?.risk_usd_min ?? (Number.isFinite(builtInRiskMin) && builtInRiskMin > 0 ? builtInRiskMin : globalRiskMin),
+              risk_usd_max: riskOverride?.risk_usd_max ?? (Number.isFinite(builtInRiskMax) && builtInRiskMax > 0 ? builtInRiskMax : globalRiskMax),
+              confidence_threshold: confidenceOverride?.min_confidence
+                ?? (Number.isFinite(builtInConfidence) && builtInConfidence > 0 ? builtInConfidence : 85),
               status: enabled ? String((worker as { status?: unknown }).status || "ready") : "paused",
             };
           })
@@ -920,7 +1144,18 @@ export async function getCustomLeanWorkers(env: Env): Promise<Response> {
       return count + (Array.isArray(workers) ? workers.length : 0);
     }, 0);
     console.info("trading.nautilus.workers.loaded", { assets: assets.length, worker_count: workerCount });
-    return jsonResponse(normalizedAssets);
+    return jsonResponse({
+      connected,
+      updated_at: updatedAt || new Date().toISOString(),
+      diagnostics: diagnosticsSummary ?? {
+        mode: "emit",
+        worker_count: workerCount,
+        status_counts: {},
+        event_counts: {},
+        blockers: [],
+      },
+      assets: normalizedAssets,
+    });
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Could not reach trading agent", 502);
   }
@@ -946,16 +1181,81 @@ export async function getMlTradingAssets(env: Env): Promise<Response> {
         ? (data as Record<string, unknown>).assets as unknown[]
         : [];
     const mlSettings = publicMlTradingSettings(settings);
+    const customLeanSettings = publicCustomLeanSettings(settings);
     const enabledAssets = new Set(mlSettings.enabled_assets);
+    const assetRiskOverrides = mlSettings.asset_risk_overrides;
+    const assetConfidenceOverrides = mlSettings.asset_confidence_overrides;
+    const globalRiskMin = mlSettings.risk_usd_min;
+    const globalRiskMax = mlSettings.risk_usd_max;
+    const disabledWorkerIds = new Set(customLeanSettings.disabled_worker_ids);
+    const deletedWorkerIds = new Set(customLeanSettings.deleted_worker_ids);
+    const workerRiskOverrides = customLeanSettings.worker_risk_overrides;
+    const workerConfidenceOverrides = customLeanSettings.worker_confidence_overrides;
+    const workerGlobalRiskMin = customLeanSettings.risk_usd_min;
+    const workerGlobalRiskMax = customLeanSettings.risk_usd_max;
+    const diagnosticsSummary =
+      data && typeof data === "object" && !Array.isArray(data) && typeof (data as { diagnostics?: unknown }).diagnostics === "object"
+        ? (data as { diagnostics: Record<string, unknown> }).diagnostics
+        : null;
+    const updatedAt =
+      data && typeof data === "object" && !Array.isArray(data)
+        ? String((data as { updated_at?: unknown }).updated_at || "")
+        : "";
+    const connected =
+      data && typeof data === "object" && !Array.isArray(data)
+        ? Boolean((data as { connected?: unknown }).connected ?? true)
+        : true;
     const normalizedAssets = assets.map((asset) => {
       if (!asset || typeof asset !== "object") return asset;
       const symbol = String((asset as { asset?: unknown }).asset || "").trim().toUpperCase();
+      const controlFamily = String((asset as { control_family?: unknown }).control_family || "ml_asset").trim().toLowerCase();
+      const controlKey = String((asset as { control_key?: unknown }).control_key || "").trim();
+      const builtInConfidence = Number((asset as { confidence_threshold?: unknown }).confidence_threshold ?? 0);
+      if (controlFamily === "worker" && controlKey) {
+        const riskOverride = workerRiskOverrides[controlKey];
+        const confidenceOverride = workerConfidenceOverrides[controlKey];
+        return {
+          ...asset,
+          enabled: !disabledWorkerIds.has(controlKey) && !deletedWorkerIds.has(controlKey),
+          risk_usd_min: riskOverride?.risk_usd_min ?? Number((asset as { risk_usd_min?: unknown }).risk_usd_min ?? workerGlobalRiskMin),
+          risk_usd_max: riskOverride?.risk_usd_max ?? Number((asset as { risk_usd_max?: unknown }).risk_usd_max ?? workerGlobalRiskMax),
+          confidence_threshold: confidenceOverride?.min_confidence
+            ?? (Number.isFinite(builtInConfidence) && builtInConfidence > 0 ? builtInConfidence : 60),
+        };
+      }
+      const riskOverride = symbol ? assetRiskOverrides[symbol] : null;
+      const confidenceOverride = symbol ? assetConfidenceOverrides[symbol] : null;
       return {
         ...asset,
         enabled: symbol ? enabledAssets.has(symbol) : false,
+        risk_usd_min: riskOverride?.risk_usd_min ?? globalRiskMin,
+        risk_usd_max: riskOverride?.risk_usd_max ?? globalRiskMax,
+        confidence_threshold: confidenceOverride?.min_confidence
+          ?? (Number.isFinite(builtInConfidence) && builtInConfidence > 0 ? builtInConfidence : 60),
       };
     });
-    return jsonResponse(normalizedAssets);
+    return jsonResponse({
+      connected,
+      updated_at: updatedAt || new Date().toISOString(),
+      diagnostics: diagnosticsSummary ?? {
+        connected,
+        updated_at: updatedAt || null,
+        status_counts: {},
+        event_counts: {},
+        blockers: [],
+      },
+      assets: normalizedAssets,
+    });
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Could not reach trading agent", 502);
+  }
+}
+
+export async function getMlTradingDiagnostics(env: Env): Promise<Response> {
+  const settings = await readSettings(env);
+  try {
+    const data = await fetchTradingAgentJson(settings, "/ml-trading/diagnostics");
+    return jsonResponse(data);
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Could not reach trading agent", 502);
   }
