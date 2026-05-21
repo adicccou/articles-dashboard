@@ -37,26 +37,55 @@ type SocialPostSchemaCapabilities = {
   hasReplyToId: boolean;
 };
 
-function extractImageUrl(value: unknown): string | undefined {
+function extractImageUrls(value: unknown): string[] {
   if (typeof value === "string") {
     const trimmed = value.trim();
-    return trimmed || undefined;
+    if (!trimmed) return [];
+    if (trimmed.startsWith("[")) {
+      try {
+        return extractImageUrls(JSON.parse(trimmed));
+      } catch {
+        return [trimmed];
+      }
+    }
+    return [trimmed];
   }
   if (Array.isArray(value)) {
+    const urls: string[] = [];
     for (const item of value) {
-      const extracted = extractImageUrl(item);
-      if (extracted) return extracted;
+      urls.push(...extractImageUrls(item));
     }
-    return undefined;
+    return dedupeImageUrls(urls);
   }
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
+    const urls: string[] = [];
     for (const key of IMAGE_URL_ALIASES) {
-      const extracted = extractImageUrl(record[key]);
-      if (extracted) return extracted;
+      urls.push(...extractImageUrls(record[key]));
     }
+    urls.push(...extractImageUrls(record.urls));
+    return dedupeImageUrls(urls);
   }
-  return undefined;
+  return [];
+}
+
+function dedupeImageUrls(urls: string[]): string[] {
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+  for (const url of urls) {
+    const value = String(url || "").trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    deduped.push(value);
+  }
+  return deduped;
+}
+
+function formatImageUrlValue(value: unknown): string | undefined {
+  const urls = extractImageUrls(value);
+  if (urls.length === 0) return undefined;
+  if (urls.length === 1) return urls[0];
+  return JSON.stringify(urls);
 }
 
 async function upsertSetting(env: Env, key: string, value: string, updatedAt: string): Promise<void> {
@@ -252,14 +281,25 @@ export async function createSocialPost(env: Env, platform: string, request: Requ
     const payload = await parseJson<{
       content?: string;
       scheduled_at?: string;
-      image_url?: string;
+      image_url?: unknown;
+      imageUrl?: unknown;
+      imageURL?: unknown;
+      image?: unknown;
+      photo?: unknown;
+      picture?: unknown;
+      media?: unknown;
+      media_url?: unknown;
+      mediaUrl?: unknown;
+      media_urls?: unknown;
+      mediaUrls?: unknown;
+      url?: unknown;
       title?: string;
       subreddit?: string;
       account_id?: number | null;
       reply_to_id?: string | null;
     }>(request);
     const content = payload.content?.trim() ?? "";
-    const imageUrl = payload.image_url?.trim() ?? "";
+    const imageUrl = formatImageUrlValue(payload.image_url ?? payload) ?? "";
     const title = payload.title?.trim() ?? "";
     const subreddit = payload.subreddit?.trim().replace(/^r\//i, "") ?? "";
     const capabilities = await getSocialPostSchemaCapabilities(env);
@@ -326,18 +366,18 @@ export async function updateSocialPost(env: Env, postId: string, request: Reques
     if (isNaN(id)) return errorResponse("Invalid post ID", 400);
     const payload = await parseJson<{
       content?: string;
-      image_url?: string | null;
-      imageUrl?: string | null;
-      imageURL?: string | null;
+      image_url?: unknown;
+      imageUrl?: unknown;
+      imageURL?: unknown;
       image?: unknown;
       photo?: unknown;
       picture?: unknown;
       media?: unknown;
-      media_url?: string | null;
-      mediaUrl?: string | null;
+      media_url?: unknown;
+      mediaUrl?: unknown;
       media_urls?: unknown;
       mediaUrls?: unknown;
-      url?: string | null;
+      url?: unknown;
       status?: string;
       scheduled_at?: string;
       scheduledAt?: string;
@@ -351,9 +391,11 @@ export async function updateSocialPost(env: Env, postId: string, request: Reques
 
     const updates: string[] = [];
     const values: unknown[] = [];
-    let imageUrl: string | null | undefined = payload.image_url;
+    let imageUrl: string | null | undefined = payload.image_url === null ? null : formatImageUrlValue(payload.image_url);
     if (imageUrl === undefined) {
-      imageUrl = extractImageUrl(payload);
+      imageUrl = formatImageUrlValue(payload);
+    } else if (imageUrl !== null) {
+      imageUrl = formatImageUrlValue(imageUrl) ?? "";
     }
     const scheduledAt = payload.scheduled_at ?? payload.scheduledAt;
 
