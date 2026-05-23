@@ -119,6 +119,7 @@ export function App() {
     return (
       <div className="login-screen">
         <LoginCard
+          surface={surface}
           onSubmit={async (username, password, remember) => {
             const nextAuth = await api.login(username, password, remember);
             setAuth(nextAuth);

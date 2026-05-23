@@ -1,10 +1,12 @@
 import { useState } from "react";
+import type { DashboardSurface } from "../lib/surface";
 
 type LoginCardProps = {
+  surface?: DashboardSurface;
   onSubmit: (username: string, password: string, remember: boolean) => Promise<void>;
 };
 
-export function LoginCard({ onSubmit }: LoginCardProps) {
+export function LoginCard({ surface = "marketing", onSubmit }: LoginCardProps) {
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
@@ -26,10 +28,12 @@ export function LoginCard({ onSubmit }: LoginCardProps) {
 
   return (
     <div className="login-card">
-      <p className="eyebrow">Editorial System</p>
-      <h1>Article Dashboard</h1>
+      <p className="eyebrow">{surface === "trading" ? "Trading System" : "Marketing System"}</p>
+      <h1>{surface === "trading" ? "Trading Dashboard" : "Marketing Dashboard"}</h1>
       <p className="muted">
-        Sign in to manage content across multiple sites from one place.
+        {surface === "trading"
+          ? "Sign in to manage trading workers, AI settings, platform access, and agent sync."
+          : "Sign in to manage articles, social agents, Studio campaigns, scheduling, and statistics."}
       </p>
       <form className="stack" onSubmit={handleSubmit}>
         <label>
