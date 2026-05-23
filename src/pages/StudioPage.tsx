@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
-import type { StudioAccount, StudioApp, StudioCampaign, StudioCrawlerRun, StudioStrategistPost, StudioSummary } from "../lib/types";
+import type { StudioAccount, StudioApp, StudioStrategistPost, StudioSummary } from "../lib/types";
 import { formatDisplayDateTime } from "../lib/datetime";
 import "../styles/studio-page.css";
 
@@ -30,15 +30,6 @@ type CampaignForm = {
   instructions: string;
 };
 
-type CrawlerForm = {
-  campaign_id: string;
-  app_id: string;
-  campaign_type: "post" | "reply";
-  platforms: Platform[];
-  account_refs: string[];
-  instructions: string;
-};
-
 const PLATFORMS: Array<{ id: Platform; label: string }> = [
   { id: "twitter", label: "Twitter/X" },
   { id: "threads", label: "Threads" },
@@ -63,17 +54,6 @@ function emptyCampaignForm(): CampaignForm {
     app_id: "",
     account_refs: [],
     platforms: ["threads"],
-    instructions: "",
-  };
-}
-
-function emptyCrawlerForm(): CrawlerForm {
-  return {
-    campaign_id: "",
-    app_id: "",
-    campaign_type: "post",
-    platforms: ["threads"],
-    account_refs: [],
     instructions: "",
   };
 }
@@ -124,7 +104,6 @@ export function StudioPage({ onUpload }: StudioPageProps) {
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [appForm, setAppForm] = useState<AppForm>(emptyAppForm);
   const [campaignForm, setCampaignForm] = useState<CampaignForm>(emptyCampaignForm);
-  const [crawlerForm, setCrawlerForm] = useState<CrawlerForm>(emptyCrawlerForm);
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [uploadingPostId, setUploadingPostId] = useState<number | null>(null);
   const [schedulingPostId, setSchedulingPostId] = useState<number | null>(null);
@@ -163,11 +142,6 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     if (latestCompleted) setSelectedRunId(latestCompleted.id);
   }, [selectedRunId, summary.crawler_runs]);
 
-  const selectedCampaign = useMemo(
-    () => summary.campaigns.find((campaign) => campaign.id === Number(crawlerForm.campaign_id)) ?? null,
-    [crawlerForm.campaign_id, summary.campaigns],
-  );
-
   const strategistRuns = useMemo(
     () => summary.crawler_runs.filter((run) => run.status === "completed" || run.status === "failed" || run.status === "running"),
     [summary.crawler_runs],
@@ -188,11 +162,6 @@ export function StudioPage({ onUpload }: StudioPageProps) {
   const campaignAccounts = useMemo(
     () => summary.accounts.filter((account) => accountMatchesPlatforms(account, campaignForm.platforms)),
     [campaignForm.platforms, summary.accounts],
-  );
-
-  const crawlerAccounts = useMemo(
-    () => summary.accounts.filter((account) => accountMatchesPlatforms(account, crawlerForm.platforms)),
-    [crawlerForm.platforms, summary.accounts],
   );
 
   function openCampaignModal() {
@@ -269,9 +238,13 @@ export function StudioPage({ onUpload }: StudioPageProps) {
       setError("Select at least one connected account.");
       return;
     }
+    if (!campaignForm.instructions.trim()) {
+      setError("Pain Crawler instructions are required.");
+      return;
+    }
     try {
       setSaving(true);
-      await api.createStudioCampaign({
+      const campaign = await api.createStudioCampaign({
         name: campaignForm.name.trim(),
         app_id: Number(campaignForm.app_id),
         campaign_type: campaignForm.campaign_type,
@@ -279,52 +252,17 @@ export function StudioPage({ onUpload }: StudioPageProps) {
         platforms: campaignForm.platforms,
         instructions: campaignForm.instructions.trim(),
       });
-      setCampaignModalOpen(false);
-      setFeedback("Campaign created.");
-      await load({ silent: true });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create campaign");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function runCrawler(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const appId = selectedCampaign?.app_id ?? Number(crawlerForm.app_id);
-    const campaignType = selectedCampaign?.campaign_type ?? crawlerForm.campaign_type;
-    const platforms = selectedCampaign?.platforms ?? crawlerForm.platforms;
-    const accountRefs = selectedCampaign?.account_refs ?? crawlerForm.account_refs;
-    const instructions = (crawlerForm.instructions || selectedCampaign?.instructions || "").trim();
-    if (!appId) {
-      setError("App selection is required.");
-      return;
-    }
-    if (platforms.length === 0) {
-      setError("Select at least one social platform.");
-      return;
-    }
-    if (!instructions) {
-      setError("Crawler instructions are required.");
-      return;
-    }
-    try {
-      setSaving(true);
       const run = await api.createStudioCrawlerRun({
-        campaign_id: selectedCampaign?.id ?? null,
-        app_id: appId,
-        campaign_type: campaignType,
-        account_refs: accountRefs,
-        platforms,
-        instructions,
+        campaign_id: campaign.id,
       });
       setSelectedRunId(run.id);
       setTab("strategist");
-      setFeedback(`${studioId("CR", run.id)} queued.`);
-      setCrawlerForm(emptyCrawlerForm());
+      setCampaignModalOpen(false);
+      setCampaignForm(emptyCampaignForm());
+      setFeedback(`${studioId("CMP", campaign.id)} created and ${studioId("CR", run.id)} queued.`);
       await load({ silent: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to queue crawler");
+      setError(err instanceof Error ? err.message : "Failed to create campaign");
     } finally {
       setSaving(false);
     }
@@ -433,132 +371,34 @@ export function StudioPage({ onUpload }: StudioPageProps) {
       </section>
 
       {tab === "crawler" ? (
-        <section className="studio-section-grid">
-          <form className="panel studio-form" onSubmit={runCrawler}>
-            <div className="panel__title-row">
-              <h2>Pain Crawler</h2>
-            </div>
-            <label>
-              Campaign
-              <select
-                value={crawlerForm.campaign_id}
-                onChange={(event) => {
-                  const campaign = summary.campaigns.find((item) => item.id === Number(event.target.value));
-                  setCrawlerForm((current) => ({
-                    ...current,
-                    campaign_id: event.target.value,
-                    app_id: campaign ? String(campaign.app_id) : current.app_id,
-                    campaign_type: campaign?.campaign_type ?? current.campaign_type,
-                    platforms: campaign?.platforms ?? current.platforms,
-                    account_refs: campaign?.account_refs ?? current.account_refs,
-                    instructions: campaign?.instructions ?? current.instructions,
-                  }));
-                }}
-              >
-                <option value="">No campaign</option>
-                {summary.campaigns.map((campaign) => (
-                  <option key={campaign.id} value={campaign.id}>
-                    {studioId("CMP", campaign.id)} · {campaign.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              App
-              <select
-                value={crawlerForm.app_id}
-                onChange={(event) => setCrawlerForm((current) => ({ ...current, app_id: event.target.value }))}
-                disabled={Boolean(selectedCampaign)}
-                required={!selectedCampaign}
-              >
-                <option value="">Select app</option>
-                {summary.apps.map((app) => (
-                  <option key={app.id} value={app.id}>{app.name}</option>
-                ))}
-              </select>
-            </label>
-            {!selectedCampaign ? (
-              <div className="studio-choice-row" role="group" aria-label="Crawler campaign type">
-                {(["post", "reply"] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    className={`studio-choice ${crawlerForm.campaign_type === mode ? "studio-choice--active" : ""}`}
-                    onClick={() => setCrawlerForm((current) => ({ ...current, campaign_type: mode }))}
-                  >
-                    {mode === "post" ? "Post" : "Reply"}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            <div className="studio-check-grid">
-              {PLATFORMS.map((platform) => (
-                <label className="studio-check" key={platform.id}>
-                  <input
-                    type="checkbox"
-                    checked={crawlerForm.platforms.includes(platform.id)}
-                    disabled={Boolean(selectedCampaign)}
-                    onChange={() => setCrawlerForm((current) => ({
-                      ...current,
-                      platforms: toggleArrayValue(current.platforms, platform.id),
-                      account_refs: current.account_refs.filter((ref) => {
-                        const account = summary.accounts.find((item) => item.ref === ref);
-                        return account ? toggleArrayValue(current.platforms, platform.id).includes(account.platform) : false;
-                      }),
-                    }))}
-                  />
-                  <span>{platform.label}</span>
-                </label>
-              ))}
-            </div>
-            <div className="studio-check-list">
-              {crawlerAccounts.map((account) => (
-                <label className="studio-check" key={account.ref}>
-                  <input
-                    type="checkbox"
-                    checked={crawlerForm.account_refs.includes(account.ref)}
-                    disabled={Boolean(selectedCampaign)}
-                    onChange={() => setCrawlerForm((current) => ({
-                      ...current,
-                      account_refs: toggleArrayValue(current.account_refs, account.ref),
-                    }))}
-                  />
-                  <span>{account.label}</span>
-                </label>
-              ))}
-            </div>
-            <label>
-              Instructions
-              <textarea
-                rows={6}
-                value={crawlerForm.instructions}
-                onChange={(event) => setCrawlerForm((current) => ({ ...current, instructions: event.target.value }))}
-                required
-              />
-            </label>
-            <button type="submit" disabled={saving}>
-              {saving ? "Queueing..." : "Run crawler"}
-            </button>
-          </form>
-
-          <div className="studio-card-grid">
-            {summary.crawler_runs.map((run) => (
-              <article className="studio-card" key={run.id}>
-                <div className="studio-card__header">
-                  <span className="studio-id">{studioId("CR", run.id)}</span>
-                  <span className={`studio-pill studio-pill--${statusTone(run.status)}`}>{run.status}</span>
-                </div>
-                <h2>{run.campaign_name || run.app_name || `App #${run.app_id}`}</h2>
-                <div className="studio-chip-row">
-                  {run.platforms.map((platform) => (
-                    <span className="studio-chip" key={platform}>{platformLabel(platform)}</span>
-                  ))}
-                </div>
-                <p className="studio-card__copy">{run.crawler_summary || run.instructions}</p>
-                {run.error_message ? <p className="error">{run.error_message}</p> : null}
-              </article>
-            ))}
+        <section className="panel studio-crawler-panel">
+          <div className="panel__title-row">
+            <h2>Pain Crawler</h2>
+            <span className="studio-count">{summary.crawler_runs.length}</span>
           </div>
+          {summary.crawler_runs.length === 0 ? (
+            <div className="studio-empty">No crawler runs yet. Create a campaign to queue the first run.</div>
+          ) : (
+            <div className="studio-card-grid">
+              {summary.crawler_runs.map((run) => (
+                <article className="studio-card" key={run.id}>
+                  <div className="studio-card__header">
+                    <span className="studio-id">{studioId("CR", run.id)}</span>
+                    <span className={`studio-pill studio-pill--${statusTone(run.status)}`}>{run.status}</span>
+                  </div>
+                  <h2>{run.campaign_name || run.app_name || `App #${run.app_id}`}</h2>
+                  <div className="studio-chip-row">
+                    <span className="studio-chip">{run.campaign_type === "reply" ? "Reply" : "Post"}</span>
+                    {run.platforms.map((platform) => (
+                      <span className="studio-chip" key={platform}>{platformLabel(platform)}</span>
+                    ))}
+                  </div>
+                  <p className="studio-card__copy">{run.crawler_summary || run.instructions}</p>
+                  {run.error_message ? <p className="error">{run.error_message}</p> : null}
+                </article>
+              ))}
+            </div>
+          )}
         </section>
       ) : null}
 
@@ -787,6 +627,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
               <div>
                 <p className="eyebrow">Campaign</p>
                 <h2>Create campaign</h2>
+                <p className="studio-muted">Set the campaign target and queue the Pain Crawler from here.</p>
               </div>
               <button className="button-secondary" type="button" onClick={() => setCampaignModalOpen(false)}>
                 Close
@@ -858,7 +699,12 @@ export function StudioPage({ onUpload }: StudioPageProps) {
             </div>
             <label>
               Instructions
-              <textarea rows={5} value={campaignForm.instructions} onChange={(event) => setCampaignForm((current) => ({ ...current, instructions: event.target.value }))} />
+              <textarea
+                rows={5}
+                value={campaignForm.instructions}
+                onChange={(event) => setCampaignForm((current) => ({ ...current, instructions: event.target.value }))}
+                required
+              />
             </label>
             <div className="studio-modal__actions">
               <button className="button-secondary" type="button" onClick={() => setCampaignModalOpen(false)}>
