@@ -249,35 +249,30 @@ export function StudioPage({ onUpload }: StudioPageProps) {
       {error ? <p className="error panel">{error}</p> : null}
       {feedback ? <p className="studio-feedback panel">{feedback}</p> : null}
 
-      <section className="studio-topbar panel">
-        <div>
-          <p className="eyebrow">Studio</p>
-          <h1>Marketing Automation</h1>
+      <section className="panel studio-tabs">
+        <div className="studio-tabs__list">
+          {[
+            { id: "signals" as const, label: `Signals (${summary.signals.length})` },
+            { id: "strategist" as const, label: `Strategist (${summary.strategist_posts.length})` },
+          ].map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`studio-tab ${tab === item.id ? "studio-tab--active" : ""}`}
+              onClick={() => setTab(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
-        <div className="studio-topbar__actions">
+        <div className="studio-tabs__actions">
           <button type="button" onClick={openCampaignModal}>
             Create campaign
           </button>
           <button className="button-secondary" type="button" disabled={refreshing} onClick={() => void load({ silent: true })}>
-            Refresh
+            {refreshing ? "Refreshing..." : "Refresh"}
           </button>
         </div>
-      </section>
-
-      <section className="panel studio-tabs">
-        {[
-          { id: "signals" as const, label: `Signals (${summary.signals.length})` },
-          { id: "strategist" as const, label: `Strategist (${summary.strategist_posts.length})` },
-        ].map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={`studio-tab ${tab === item.id ? "studio-tab--active" : ""}`}
-            onClick={() => setTab(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
       </section>
 
       <section className="panel studio-campaigns">
