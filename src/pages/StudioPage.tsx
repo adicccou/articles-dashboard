@@ -386,6 +386,22 @@ export function StudioPage({ onUpload }: StudioPageProps) {
         </div>
       </section>
 
+      <section className="panel studio-tabs">
+        {[
+          { id: "crawler" as const, label: `Pain Crawler (${summary.crawler_runs.length})` },
+          { id: "strategist" as const, label: `Strategist (${summary.strategist_posts.length})` },
+        ].map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={`studio-tab ${tab === item.id ? "studio-tab--active" : ""}`}
+            onClick={() => setTab(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </section>
+
       <section className="panel studio-campaigns">
         <div className="panel__title-row">
           <h2>Campaigns</h2>
@@ -414,22 +430,6 @@ export function StudioPage({ onUpload }: StudioPageProps) {
             ))}
           </div>
         )}
-      </section>
-
-      <section className="panel studio-tabs">
-        {[
-          { id: "crawler" as const, label: `Pain Crawler (${summary.crawler_runs.length})` },
-          { id: "strategist" as const, label: `Strategist (${summary.strategist_posts.length})` },
-        ].map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={`studio-tab ${tab === item.id ? "studio-tab--active" : ""}`}
-            onClick={() => setTab(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
       </section>
 
       {tab === "crawler" ? (
