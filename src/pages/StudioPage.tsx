@@ -370,38 +370,6 @@ export function StudioPage({ onUpload }: StudioPageProps) {
         )}
       </section>
 
-      {tab === "crawler" ? (
-        <section className="panel studio-crawler-panel">
-          <div className="panel__title-row">
-            <h2>Pain Crawler</h2>
-            <span className="studio-count">{summary.crawler_runs.length}</span>
-          </div>
-          {summary.crawler_runs.length === 0 ? (
-            <div className="studio-empty">No crawler runs yet. Create a campaign to queue the first run.</div>
-          ) : (
-            <div className="studio-card-grid">
-              {summary.crawler_runs.map((run) => (
-                <article className="studio-card" key={run.id}>
-                  <div className="studio-card__header">
-                    <span className="studio-id">{studioId("CR", run.id)}</span>
-                    <span className={`studio-pill studio-pill--${statusTone(run.status)}`}>{run.status}</span>
-                  </div>
-                  <h2>{run.campaign_name || run.app_name || `App #${run.app_id}`}</h2>
-                  <div className="studio-chip-row">
-                    <span className="studio-chip">{run.campaign_type === "reply" ? "Reply" : "Post"}</span>
-                    {run.platforms.map((platform) => (
-                      <span className="studio-chip" key={platform}>{platformLabel(platform)}</span>
-                    ))}
-                  </div>
-                  <p className="studio-card__copy">{run.crawler_summary || run.instructions}</p>
-                  {run.error_message ? <p className="error">{run.error_message}</p> : null}
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
-      ) : null}
-
       {tab === "strategist" ? (
         <section className="studio-strategist-layout">
           <aside className="panel studio-run-list">
