@@ -19,6 +19,27 @@
   justify-content: flex-end;
 }
 
+.studio-icon-button {
+  align-items: center;
+  aspect-ratio: 1;
+  background: #fff;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  color: #0f172a;
+  display: inline-flex;
+  font-size: 1rem;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0;
+  width: 44px;
+}
+
+.studio-icon-button:hover {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
 .studio-feedback {
   background: #ecfdf5;
   border-color: #bbf7d0;
@@ -375,9 +396,35 @@
   width: min(720px, 100%);
 }
 
+.studio-modal--wide {
+  width: min(1080px, 100%);
+}
+
+.studio-app-settings {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(300px, 0.38fr) minmax(0, 1fr);
+  align-items: start;
+}
+
+.studio-settings-form {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  position: static;
+  padding: 14px;
+}
+
+.studio-app-list {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
 @media (max-width: 980px) {
   .studio-section-grid,
-  .studio-strategist-layout {
+  .studio-strategist-layout,
+  .studio-app-settings {
     grid-template-columns: 1fr;
   }
 

@@ -4,7 +4,7 @@ import type { StudioAccount, StudioApp, StudioCampaign, StudioCrawlerRun, Studio
 import { formatDisplayDateTime } from "../lib/datetime";
 import "../styles/studio-page.css";
 
-type StudioTab = "apps" | "crawler" | "strategist";
+type StudioTab = "crawler" | "strategist";
 type Platform = "twitter" | "threads" | "reddit";
 
 type StudioPageProps = {
@@ -114,13 +114,14 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     crawler_runs: [],
     strategist_posts: [],
   });
-  const [tab, setTab] = useState<StudioTab>("apps");
+  const [tab, setTab] = useState<StudioTab>("crawler");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [campaignModalOpen, setCampaignModalOpen] = useState(false);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [appForm, setAppForm] = useState<AppForm>(emptyAppForm);
   const [campaignForm, setCampaignForm] = useState<CampaignForm>(emptyCampaignForm);
   const [crawlerForm, setCrawlerForm] = useState<CrawlerForm>(emptyCrawlerForm);
@@ -201,6 +202,12 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     setError(null);
   }
 
+  function openSettingsModal() {
+    setSettingsModalOpen(true);
+    setFeedback(null);
+    setError(null);
+  }
+
   async function saveApp(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!appForm.name.trim()) {
@@ -228,6 +235,21 @@ export function StudioPage({ onUpload }: StudioPageProps) {
       await load({ silent: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save app");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteApp(app: StudioApp) {
+    if (!confirm(`Delete ${app.name}?`)) return;
+    try {
+      setSaving(true);
+      await api.deleteStudioApp(app.id);
+      if (appForm.id === app.id) setAppForm(emptyAppForm());
+      setFeedback("App deleted.");
+      await load({ silent: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete app");
     } finally {
       setSaving(false);
     }
@@ -352,6 +374,9 @@ export function StudioPage({ onUpload }: StudioPageProps) {
           <h1>Marketing Automation</h1>
         </div>
         <div className="studio-topbar__actions">
+          <button className="studio-icon-button" type="button" onClick={openSettingsModal} aria-label="Open Studio settings" title="Apps settings">
+            ⚙
+          </button>
           <button type="button" onClick={openCampaignModal}>
             Create campaign
           </button>
@@ -393,7 +418,6 @@ export function StudioPage({ onUpload }: StudioPageProps) {
 
       <section className="panel studio-tabs">
         {[
-          { id: "apps" as const, label: `Apps (${summary.apps.length})` },
           { id: "crawler" as const, label: `Pain Crawler (${summary.crawler_runs.length})` },
           { id: "strategist" as const, label: `Strategist (${summary.strategist_posts.length})` },
         ].map((item) => (
@@ -407,88 +431,6 @@ export function StudioPage({ onUpload }: StudioPageProps) {
           </button>
         ))}
       </section>
-
-      {tab === "apps" ? (
-        <section className="studio-section-grid">
-          <form className="panel studio-form" onSubmit={saveApp}>
-            <div className="panel__title-row">
-              <h2>{appForm.id ? "Edit app" : "Add app"}</h2>
-              {appForm.id ? (
-                <button className="button-secondary" type="button" onClick={() => setAppForm(emptyAppForm())}>
-                  Cancel
-                </button>
-              ) : null}
-            </div>
-            <label>
-              App name
-              <input value={appForm.name} onChange={(event) => setAppForm((current) => ({ ...current, name: event.target.value }))} required />
-            </label>
-            <div className="grid-two">
-              <label>
-                Website
-                <input value={appForm.website_url} onChange={(event) => setAppForm((current) => ({ ...current, website_url: event.target.value }))} />
-              </label>
-              <label>
-                App store URL
-                <input value={appForm.app_store_url} onChange={(event) => setAppForm((current) => ({ ...current, app_store_url: event.target.value }))} />
-              </label>
-            </div>
-            <label>
-              App info
-              <textarea rows={4} value={appForm.description} onChange={(event) => setAppForm((current) => ({ ...current, description: event.target.value }))} />
-            </label>
-            <label>
-              AI context
-              <textarea rows={5} value={appForm.ai_context} onChange={(event) => setAppForm((current) => ({ ...current, ai_context: event.target.value }))} />
-            </label>
-            <button type="submit" disabled={saving}>
-              {saving ? "Saving..." : appForm.id ? "Save app" : "Add app"}
-            </button>
-          </form>
-
-          <div className="studio-card-grid">
-            {summary.apps.map((app) => (
-              <article className="studio-card" key={app.id}>
-                <div className="studio-card__header">
-                  <span className="studio-id">{studioId("APP", app.id)}</span>
-                  <span className={`studio-pill studio-pill--${statusTone(app.status)}`}>{app.status}</span>
-                </div>
-                <h2>{app.name}</h2>
-                <p className="studio-card__copy">{app.description || "No app info yet."}</p>
-                {app.ai_context ? <p className="studio-muted">{app.ai_context}</p> : null}
-                <div className="studio-card__actions">
-                  <button
-                    className="button-secondary"
-                    type="button"
-                    onClick={() => setAppForm({
-                      id: app.id,
-                      name: app.name,
-                      website_url: app.website_url || "",
-                      app_store_url: app.app_store_url || "",
-                      description: app.description || "",
-                      ai_context: app.ai_context || "",
-                      status: app.status,
-                    })}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    className="button-secondary studio-danger-button"
-                    type="button"
-                    onClick={async () => {
-                      if (!confirm(`Delete ${app.name}?`)) return;
-                      await api.deleteStudioApp(app.id);
-                      await load({ silent: true });
-                    }}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      ) : null}
 
       {tab === "crawler" ? (
         <section className="studio-section-grid">
@@ -733,6 +675,109 @@ export function StudioPage({ onUpload }: StudioPageProps) {
             )}
           </section>
         </section>
+      ) : null}
+
+      {settingsModalOpen ? (
+        <div className="studio-modal-backdrop">
+          <section className="studio-modal studio-modal--wide panel">
+            <div className="panel__title-row">
+              <div>
+                <p className="eyebrow">Studio settings</p>
+                <h2>Apps</h2>
+              </div>
+              <button className="button-secondary" type="button" onClick={() => setSettingsModalOpen(false)}>
+                Close
+              </button>
+            </div>
+
+            <div className="studio-app-settings">
+              <form className="studio-form studio-settings-form" onSubmit={saveApp}>
+                <div className="panel__title-row">
+                  <h2>{appForm.id ? "Edit app" : "Add app"}</h2>
+                  {appForm.id ? (
+                    <button className="button-secondary" type="button" onClick={() => setAppForm(emptyAppForm())}>
+                      Cancel edit
+                    </button>
+                  ) : null}
+                </div>
+                <label>
+                  App name
+                  <input value={appForm.name} onChange={(event) => setAppForm((current) => ({ ...current, name: event.target.value }))} required />
+                </label>
+                <div className="grid-two">
+                  <label>
+                    Website
+                    <input value={appForm.website_url} onChange={(event) => setAppForm((current) => ({ ...current, website_url: event.target.value }))} />
+                  </label>
+                  <label>
+                    App store URL
+                    <input value={appForm.app_store_url} onChange={(event) => setAppForm((current) => ({ ...current, app_store_url: event.target.value }))} />
+                  </label>
+                </div>
+                <label>
+                  App info
+                  <textarea rows={4} value={appForm.description} onChange={(event) => setAppForm((current) => ({ ...current, description: event.target.value }))} />
+                </label>
+                <label>
+                  AI context
+                  <textarea rows={5} value={appForm.ai_context} onChange={(event) => setAppForm((current) => ({ ...current, ai_context: event.target.value }))} />
+                </label>
+                <button type="submit" disabled={saving}>
+                  {saving ? "Saving..." : appForm.id ? "Save app" : "Add app"}
+                </button>
+              </form>
+
+              <div className="studio-app-list">
+                <div className="panel__title-row">
+                  <h2>App list</h2>
+                  <span className="studio-count">{summary.apps.length}</span>
+                </div>
+                {summary.apps.length === 0 ? (
+                  <div className="studio-empty">No apps yet.</div>
+                ) : (
+                  <div className="studio-card-grid">
+                    {summary.apps.map((app) => (
+                      <article className="studio-card" key={app.id}>
+                        <div className="studio-card__header">
+                          <span className="studio-id">{studioId("APP", app.id)}</span>
+                          <span className={`studio-pill studio-pill--${statusTone(app.status)}`}>{app.status}</span>
+                        </div>
+                        <h2>{app.name}</h2>
+                        <p className="studio-card__copy">{app.description || "No app info yet."}</p>
+                        {app.ai_context ? <p className="studio-muted">{app.ai_context}</p> : null}
+                        <div className="studio-card__actions">
+                          <button
+                            className="button-secondary"
+                            type="button"
+                            onClick={() => setAppForm({
+                              id: app.id,
+                              name: app.name,
+                              website_url: app.website_url || "",
+                              app_store_url: app.app_store_url || "",
+                              description: app.description || "",
+                              ai_context: app.ai_context || "",
+                              status: app.status,
+                            })}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="button-secondary studio-danger-button"
+                            type="button"
+                            disabled={saving}
+                            onClick={() => void deleteApp(app)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+        </div>
       ) : null}
 
       {campaignModalOpen ? (
