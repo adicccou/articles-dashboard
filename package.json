@@ -8,6 +8,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "deploy": "wrangler deploy",
+    "deploy:marketing": "wrangler deploy",
+    "deploy:trading": "wrangler deploy --name trading",
     "cf:typegen": "wrangler types ./worker/env.d.ts",
     "db:migrate:local": "wrangler d1 migrations apply article_dashboard --local",
     "db:migrate:remote": "wrangler d1 migrations apply article_dashboard --remote"

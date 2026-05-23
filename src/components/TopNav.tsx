@@ -1,5 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import logoMark from "../assets/my-logo.svg";
+import type { DashboardSurface } from "../lib/surface";
+import { getSurfaceViews } from "../lib/surface";
 import styles from "../styles/topnav.module.css";
 
 export type NavView =
@@ -12,6 +14,7 @@ export type NavView =
 
 interface TopNavProps {
   currentView: NavView;
+  surface: DashboardSurface;
   onNavigate: (view: NavView) => void;
   onOpenSettings: () => void;
   onLogout: () => void;
@@ -19,12 +22,13 @@ interface TopNavProps {
 
 export const TopNav: React.FC<TopNavProps> = ({
   currentView,
+  surface,
   onNavigate,
   onOpenSettings,
   onLogout,
 }) => {
   const activeNavRef = useRef<HTMLButtonElement | null>(null);
-  const navItems: Array<{ label: string; view: NavView }> = [
+  const allNavItems: Array<{ label: string; view: NavView }> = [
     { label: "Trading", view: "trading" },
     { label: "Articles", view: "articles" },
     { label: "Social Agents", view: "reddit" },
@@ -32,6 +36,8 @@ export const TopNav: React.FC<TopNavProps> = ({
     { label: "Scheduler", view: "planner" },
     { label: "Statistics", view: "statistics" },
   ];
+  const allowedViews = getSurfaceViews(surface);
+  const navItems = allNavItems.filter((item) => allowedViews.includes(item.view));
 
   useEffect(() => {
     if (typeof window === "undefined") return;

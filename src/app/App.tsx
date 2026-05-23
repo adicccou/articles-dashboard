@@ -6,25 +6,38 @@ import { LoginCard } from "../components/LoginCard";
 import { SettingsModal } from "../components/SettingsModal";
 import { TopNav, type NavView } from "../components/TopNav";
 import { DashboardPage } from "../pages/DashboardPage";
+import {
+  getDashboardSurface,
+  getDefaultView,
+  isViewAllowedForSurface,
+  normalizeStoredView,
+  type DashboardSurface,
+} from "../lib/surface";
 import "../styles/app.css";
 
-const DASHBOARD_VIEW_STORAGE_KEY = "dashboard:last-view";
+const DASHBOARD_VIEW_STORAGE_KEY_PREFIX = "dashboard:last-view";
 
-function readStoredView(): NavView {
-  if (typeof window === "undefined") return "articles";
-  const stored = window.localStorage.getItem(DASHBOARD_VIEW_STORAGE_KEY);
-  if (stored === "ml-trading") return "trading";
-  return stored === "articles" || stored === "reddit" || stored === "studio" || stored === "trading" || stored === "planner" || stored === "statistics"
-    ? stored
-    : "articles";
+function readStoredView(surface: DashboardSurface): NavView {
+  if (typeof window === "undefined") return getDefaultView(surface);
+
+  const params = new URLSearchParams(window.location.search);
+  const queryView = normalizeStoredView(params.get("view"));
+  if (queryView && isViewAllowedForSurface(queryView, surface)) {
+    return queryView;
+  }
+
+  const storageKey = `${DASHBOARD_VIEW_STORAGE_KEY_PREFIX}:${surface}`;
+  const stored = normalizeStoredView(window.localStorage.getItem(storageKey));
+  return stored && isViewAllowedForSurface(stored, surface) ? stored : getDefaultView(surface);
 }
 
 export function App() {
+  const [surface] = useState<DashboardSurface>(() => getDashboardSurface());
   const [auth, setAuth] = useState<AuthState>({ authenticated: false });
   const [sites, setSites] = useState<Site[]>([]);
   const [articles, setArticles] = useState<ArticleRecord[]>([]);
   const [categories, setCategories] = useState<ArticleCategory[]>([]);
-  const [view, setView] = useState<NavView>(readStoredView);
+  const [view, setView] = useState<NavView>(() => readStoredView(surface));
   const [selectedArticle, setSelectedArticle] = useState<ArticleRecord | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -79,8 +92,12 @@ export function App() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(DASHBOARD_VIEW_STORAGE_KEY, view);
-  }, [view]);
+    if (!isViewAllowedForSurface(view, surface)) {
+      setView(getDefaultView(surface));
+      return;
+    }
+    window.localStorage.setItem(`${DASHBOARD_VIEW_STORAGE_KEY_PREFIX}:${surface}`, view);
+  }, [surface, view]);
 
   async function saveSettings(payload: AppSettingsInput) {
     const next = await api.updateSettings(payload);
@@ -116,6 +133,7 @@ export function App() {
     <div className="app-layout">
       <TopNav
         currentView={view}
+        surface={surface}
         onNavigate={setView}
         onOpenSettings={() => setSettingsOpen(true)}
         onLogout={async () => {
@@ -153,6 +171,7 @@ export function App() {
 
       {settingsOpen ? (
         <SettingsModal
+          surface={surface}
           settings={appSettings}
           syncMessage={settingsMessage}
           onClose={() => setSettingsOpen(false)}

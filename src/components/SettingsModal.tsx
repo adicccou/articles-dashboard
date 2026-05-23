@@ -1,8 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { APIConnectionPanel, type SettingsTabId } from "./APIConnectionPanel";
+import type { DashboardSurface } from "../lib/surface";
 import type { AppSettingsInput } from "../lib/types";
 
 type SettingsModalProps = {
+  surface: DashboardSurface;
   settings: {
     ai_api_connected: boolean;
     gemini_api_connected?: boolean;
@@ -29,51 +31,66 @@ type SettingsModalProps = {
 };
 
 export function SettingsModal({
+  surface,
   settings,
   syncMessage,
   onClose,
   onSave,
   onSyncAgent,
 }: SettingsModalProps) {
-  const [activeTab, setActiveTab] = useState<SettingsTabId>("ai");
+  const [activeTab, setActiveTab] = useState<SettingsTabId>("general");
 
   const tabs = useMemo(
-    () => [
-      {
-        id: "ai" as const,
-        label: "AI",
-        eyebrow: "AI API",
-        status: settings.ai_api_connected ? "Connected" : "Needs setup",
-        tone: settings.ai_api_connected ? "connected" : "disconnected",
-      },
-      {
-        id: "rules" as const,
-        label: "Rules",
-        eyebrow: "AI context",
-        status: settings.global_ai_rules || settings.social_agent_rules ? "Configured" : "Empty",
-        tone: settings.global_ai_rules || settings.social_agent_rules ? "connected" : "disconnected",
-      },
-      {
-        id: "trading" as const,
-        label: "Trading Platform",
-        eyebrow: "cTrader access",
-        status: settings.ctrader_connected ? "Connected" : "Needs setup",
-        tone: settings.ctrader_connected ? "connected" : "disconnected",
-      },
-      {
-        id: "agent" as const,
-        label: "Agent Sync",
-        eyebrow: "Droplet bridge",
-        status: settings.trading_agent_connected ? "Connected" : "Needs setup",
-        tone: settings.trading_agent_connected ? "connected" : "disconnected",
-      },
-    ],
+    () => {
+      const allTabs = [
+        {
+          id: "general" as const,
+          label: "General",
+          eyebrow: "Workspace",
+          status: settings.workspace_timezone ? settings.workspace_timezone : "Needs setup",
+          tone: settings.workspace_timezone ? "connected" : "disconnected",
+        },
+        {
+          id: "ai" as const,
+          label: "AI API",
+          eyebrow: "AI API",
+          status: settings.ai_api_connected ? "Connected" : "Needs setup",
+          tone: settings.ai_api_connected ? "connected" : "disconnected",
+        },
+        {
+          id: "rules" as const,
+          label: "Rules",
+          eyebrow: "AI context",
+          status: settings.global_ai_rules || settings.social_agent_rules ? "Configured" : "Empty",
+          tone: settings.global_ai_rules || settings.social_agent_rules ? "connected" : "disconnected",
+        },
+        {
+          id: "trading" as const,
+          label: "Trading Platform",
+          eyebrow: "cTrader access",
+          status: settings.ctrader_connected ? "Connected" : "Needs setup",
+          tone: settings.ctrader_connected ? "connected" : "disconnected",
+        },
+        {
+          id: "agent" as const,
+          label: "Agent Sync",
+          eyebrow: "Droplet bridge",
+          status: settings.trading_agent_connected ? "Connected" : "Needs setup",
+          tone: settings.trading_agent_connected ? "connected" : "disconnected",
+        },
+      ];
+      const allowedTabs: SettingsTabId[] =
+        surface === "trading" ? ["general", "ai", "trading", "agent"] : ["general", "ai", "rules"];
+      return allTabs.filter((tab) => allowedTabs.includes(tab.id));
+    },
     [
       settings.ai_api_connected,
       settings.ctrader_connected,
       settings.global_ai_rules,
       settings.social_agent_rules,
       settings.trading_agent_connected,
+      settings.workspace_timezone,
+      surface,
     ],
   );
 
@@ -90,7 +107,12 @@ export function SettingsModal({
           </button>
         </div>
 
-        <div className="settings-modal__tabs" role="tablist" aria-label="Settings sections">
+        <div
+          className="settings-modal__tabs"
+          role="tablist"
+          aria-label="Settings sections"
+          style={{ "--settings-tab-count": tabs.length } as CSSProperties}
+        >
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -109,6 +131,7 @@ export function SettingsModal({
 
         <APIConnectionPanel
           activeTab={activeTab}
+          surface={surface}
           aiApiConnected={settings.ai_api_connected}
           geminiApiConnected={settings.gemini_api_connected}
           geminiFlashModel={settings.gemini_flash_model}

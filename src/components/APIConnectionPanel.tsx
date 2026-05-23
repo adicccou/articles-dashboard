@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
+import type { DashboardSurface } from "../lib/surface";
 import "../styles/api-connection-panel.css";
 
-export type SettingsTabId = "ai" | "rules" | "trading" | "agent";
+export type SettingsTabId = "general" | "ai" | "rules" | "trading" | "agent";
 
 interface APIConnectionPanelProps {
   activeTab?: SettingsTabId;
+  surface?: DashboardSurface;
   aiApiConnected?: boolean;
   geminiApiConnected?: boolean;
   geminiFlashModel?: string;
@@ -45,7 +47,8 @@ interface APIConnectionPanelProps {
 }
 
 export function APIConnectionPanel({
-  activeTab = "ai",
+  activeTab = "general",
+  surface = "marketing",
   aiApiConnected,
   geminiApiConnected,
   geminiFlashModel = "",
@@ -86,6 +89,7 @@ export function APIConnectionPanel({
   const [testingConnection, setTestingConnection] = useState<string | null>(null);
   const [savingAgent, setSavingAgent] = useState(false);
   const [savingCtrader, setSavingCtrader] = useState(false);
+  const [savingGeneral, setSavingGeneral] = useState(false);
   const [savingRules, setSavingRules] = useState(false);
 
   useEffect(() => {
@@ -162,9 +166,19 @@ export function APIConnectionPanel({
     geminiKey.trim().length > 0;
 
   const tabMeta: Record<SettingsTabId, { title: string; description: string }> = {
+    general: {
+      title: "General Settings",
+      description:
+        surface === "trading"
+          ? "Set the trading workspace defaults used by the agent, sync flow, and time-based reports."
+          : "Set the marketing workspace defaults used by Social Agents, Studio, Scheduler, and notifications.",
+    },
     ai: {
       title: "AI API Connection",
-      description: "Connect the shared Gemini models used for trading and social reasoning.",
+      description:
+        surface === "trading"
+          ? "Connect the Gemini models used for trading reasoning, diagnostics, and agent decisions."
+          : "Connect the Gemini models used for Social Agents, Studio strategy, and scheduling decisions.",
     },
     rules: {
       title: "AI Operating Rules",
@@ -186,6 +200,46 @@ export function APIConnectionPanel({
     <div className="api-panel">
       <h3 className="api-panel__title">{currentTab?.title ?? title}</h3>
       <p className="api-panel__description">{currentTab?.description ?? description}</p>
+
+      <div className={`api-panel__section ${activeTab === "general" ? "" : "api-panel__section--hidden"}`}>
+        <div className="api-panel__header">
+          <h4>Workspace Defaults</h4>
+        </div>
+        <div className="api-panel__inputs">
+          <label className="api-panel__field">
+            <span className="api-panel__field-label">Workspace Timezone</span>
+            <input
+              type="text"
+              placeholder="Asia/Kuala_Lumpur"
+              value={timezoneValue}
+              onChange={(e) => setTimezoneValue(e.target.value)}
+              className="api-panel__input"
+            />
+          </label>
+          <p className="api-panel__helper">
+            Use an IANA timezone like Asia/Kuala_Lumpur, Europe/London, or America/New_York. Planning, reports, and relative times follow this setting.
+          </p>
+          <div className="api-panel__button-row">
+            <button
+              onClick={async () => {
+                setSavingGeneral(true);
+                try {
+                  await onSave?.({
+                    workspace_timezone: timezoneValue.trim() || "Asia/Kuala_Lumpur",
+                  });
+                } finally {
+                  setSavingGeneral(false);
+                }
+              }}
+              disabled={savingGeneral}
+              className="api-panel__button"
+            >
+              {savingGeneral ? "Saving..." : "Save General Settings"}
+            </button>
+          </div>
+          {syncMessage ? <p className="api-panel__helper">{syncMessage}</p> : null}
+        </div>
+      </div>
 
       <div className={`api-panel__section ${activeTab === "ai" ? "" : "api-panel__section--hidden"}`}>
         <div className="api-panel__header">
@@ -232,7 +286,9 @@ export function APIConnectionPanel({
           </button>
         </div>
         <p className="api-panel__helper">
-          Gemini Flash-Lite handles low-cost scan triage, while Gemini Pro handles deeper reasoning for trading and social tasks.
+          {surface === "trading"
+            ? "Gemini Flash-Lite handles low-cost diagnostics, while Gemini Pro handles deeper trading reasoning."
+            : "Gemini Flash-Lite handles low-cost scan triage, while Gemini Pro handles deeper marketing and social reasoning."}
         </p>
         <p className="api-panel__helper">
           Current status: Gemini {geminiApiConnected ? "connected" : "not connected"}.
@@ -264,19 +320,6 @@ export function APIConnectionPanel({
               rows={6}
             />
           </label>
-          <label className="api-panel__field">
-            <span className="api-panel__field-label">Workspace Timezone</span>
-            <input
-              type="text"
-              placeholder="Asia/Kuala_Lumpur"
-              value={timezoneValue}
-              onChange={(e) => setTimezoneValue(e.target.value)}
-              className="api-panel__input"
-            />
-          </label>
-          <p className="api-panel__helper">
-            Use an IANA timezone like `Asia/Kuala_Lumpur`, `Europe/London`, or `America/New_York`. Telegram AI scheduling and relative times will follow this setting.
-          </p>
           <p className="api-panel__helper">
             These rules are stored at the workspace level so the dashboard assistant can follow them whenever it writes, plans, or reviews AI-driven work.
           </p>
@@ -288,7 +331,6 @@ export function APIConnectionPanel({
                   await onSave?.({
                     global_ai_rules: globalRules,
                     social_agent_rules: socialRules,
-                    workspace_timezone: timezoneValue,
                   });
                 } finally {
                   setSavingRules(false);
