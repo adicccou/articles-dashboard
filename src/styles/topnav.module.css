@@ -54,6 +54,10 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+.navItemRightStart {
+  margin-left: auto;
+}
+
 .navItem:hover {
   background-color: #f3f4f6;
   color: #1f2937;
@@ -166,6 +170,10 @@
     font-size: 13px;
     font-weight: 650;
     scroll-snap-align: center;
+  }
+
+  .navItemRightStart {
+    margin-left: 0;
   }
 
   .navItem.active {

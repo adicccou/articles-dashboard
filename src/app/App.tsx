@@ -13,7 +13,8 @@ const DASHBOARD_VIEW_STORAGE_KEY = "dashboard:last-view";
 function readStoredView(): NavView {
   if (typeof window === "undefined") return "articles";
   const stored = window.localStorage.getItem(DASHBOARD_VIEW_STORAGE_KEY);
-  return stored === "articles" || stored === "reddit" || stored === "studio" || stored === "trading" || stored === "ml-trading" || stored === "planner" || stored === "statistics"
+  if (stored === "ml-trading") return "trading";
+  return stored === "articles" || stored === "reddit" || stored === "studio" || stored === "trading" || stored === "planner" || stored === "statistics"
     ? stored
     : "articles";
 }
