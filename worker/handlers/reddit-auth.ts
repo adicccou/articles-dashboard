@@ -223,6 +223,57 @@ export async function listRedditAccounts(env: Env): Promise<Response> {
   }
 }
 
+export async function updateRedditAccount(
+  env: Env,
+  accountId: string,
+  request: Request,
+): Promise<Response> {
+  try {
+    const id = Number(accountId);
+    if (isNaN(id)) {
+      return errorResponse("Invalid account ID", 400);
+    }
+
+    const existing = await env.DB.prepare("SELECT id FROM reddit_accounts WHERE id = ?")
+      .bind(id)
+      .first<{ id: number }>();
+    if (!existing) return errorResponse("Reddit account not found", 404);
+
+    const payload = await parseJson<{ name?: string; status?: "active" | "inactive" }>(request);
+    const updates: string[] = [];
+    const values: unknown[] = [];
+
+    if (payload.name !== undefined) {
+      const name = payload.name.trim();
+      if (!name) return errorResponse("Account name is required", 400);
+      updates.push("name = ?");
+      values.push(name);
+    }
+    if (payload.status !== undefined) {
+      if (payload.status !== "active" && payload.status !== "inactive") {
+        return errorResponse("Invalid account status", 400);
+      }
+      updates.push("status = ?");
+      values.push(payload.status);
+    }
+
+    if (updates.length === 0) {
+      return errorResponse("No account fields to update", 400);
+    }
+
+    const now = new Date().toISOString();
+    updates.push("updated_at = ?");
+    values.push(now, id);
+    await env.DB.prepare(`UPDATE reddit_accounts SET ${updates.join(", ")} WHERE id = ?`)
+      .bind(...values)
+      .run();
+
+    return jsonResponse({ success: true, updated_at: now });
+  } catch {
+    return errorResponse("Failed to update Reddit account", 500);
+  }
+}
+
 export async function deleteRedditAccount(
   env: Env,
   accountId: string,

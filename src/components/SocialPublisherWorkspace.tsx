@@ -61,6 +61,7 @@ type SocialPublisherWorkspaceProps = {
   connectAccountRequiredFieldKeys?: string[];
   knowledgeBaseContent?: React.ReactNode;
   accountInputHint?: string;
+  showAccountManagement?: boolean;
   onCreateCampaign?: () => void;
 };
 
@@ -329,6 +330,7 @@ export function SocialPublisherWorkspace({
   connectAccountRequiredFieldKeys,
   knowledgeBaseContent,
   accountInputHint = "Add another account with the credentials this platform requires.",
+  showAccountManagement = false,
   onCreateCampaign,
 }: SocialPublisherWorkspaceProps) {
   const tabStorageKey = useMemo(
@@ -410,19 +412,21 @@ export function SocialPublisherWorkspace({
               + Campaign
             </button>
           ) : null}
-          <button
-            aria-label="Manage accounts and setup"
-            className={`button-secondary social-icon-button ${isSetupOpen ? "social-utility-button--active" : ""}`}
-            title="Manage"
-            type="button"
-            onClick={() => {
-              setSetupTab("accounts");
-              setIsSetupOpen(true);
-            }}
-          >
-            ⚙
-            <span className="social-toolbar-badge">{accounts.length}</span>
-          </button>
+          {showAccountManagement ? (
+            <button
+              aria-label="Manage accounts and setup"
+              className={`button-secondary social-icon-button ${isSetupOpen ? "social-utility-button--active" : ""}`}
+              title="Manage"
+              type="button"
+              onClick={() => {
+                setSetupTab("accounts");
+                setIsSetupOpen(true);
+              }}
+            >
+              ⚙
+              <span className="social-toolbar-badge">{accounts.length}</span>
+            </button>
+          ) : null}
           <button
             aria-label="Refresh"
             className="button-secondary social-icon-button"
@@ -514,7 +518,7 @@ export function SocialPublisherWorkspace({
         ) : null}
       </section>
 
-      {isSetupOpen ? (
+      {showAccountManagement && isSetupOpen ? (
         <div className="social-connections-modal-backdrop">
           <div className="social-connections-modal panel" onClick={(event) => event.stopPropagation()}>
             <div className="panel__title-row">

@@ -2,7 +2,7 @@ import type { NavView } from "../components/TopNav";
 
 export type DashboardSurface = "marketing" | "trading";
 
-export const MARKETING_VIEWS: NavView[] = ["articles", "reddit", "studio", "planner", "statistics"];
+export const MARKETING_VIEWS: NavView[] = ["articles", "reddit", "studio", "config", "planner", "statistics"];
 export const TRADING_VIEWS: NavView[] = ["trading"];
 
 export function getDashboardSurface(): DashboardSurface {
@@ -34,6 +34,7 @@ export function normalizeStoredView(value: string | null): NavView | null {
   return normalized === "articles" ||
     normalized === "reddit" ||
     normalized === "studio" ||
+    normalized === "config" ||
     normalized === "trading" ||
     normalized === "planner" ||
     normalized === "statistics"

@@ -1,0 +1,232 @@
+.config-page {
+  min-width: 0;
+}
+
+.config-topbar {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.config-topbar h1 {
+  color: #0f172a;
+  font-size: clamp(2rem, 4vw, 3rem);
+  line-height: 1;
+  margin: 6px 0 0;
+}
+
+.config-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px;
+}
+
+.config-tab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--text-soft);
+  padding: 0.62rem 0.95rem;
+}
+
+.config-tab:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.config-tab--active,
+.config-tab--active:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.config-layout {
+  align-items: start;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(320px, 0.38fr) minmax(0, 1fr);
+}
+
+.config-form {
+  display: grid;
+  gap: 14px;
+  position: sticky;
+  top: 82px;
+}
+
+.config-list {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.config-card-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+}
+
+.config-card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px;
+}
+
+.config-card h2,
+.config-card p,
+.config-card small {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.config-card h2 {
+  color: #0f172a;
+  font-size: 1.05rem;
+  line-height: 1.25;
+}
+
+.config-card p,
+.config-card small,
+.config-hint {
+  color: #64748b;
+}
+
+.config-card__header,
+.config-card__actions,
+.config-link-row,
+.config-account-group__title {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.config-card__actions {
+  justify-content: flex-start;
+  margin-top: 4px;
+}
+
+.config-id {
+  color: #64748b;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.config-pill,
+.config-count {
+  align-items: center;
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 800;
+  justify-content: center;
+  padding: 4px 10px;
+}
+
+.config-count {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+  min-width: 32px;
+}
+
+.config-pill--success {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.config-pill--danger {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.config-pill--neutral {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.config-danger-button {
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.config-danger-button:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #991b1b;
+}
+
+.config-empty {
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  color: #52657f;
+  padding: 22px;
+}
+
+.config-feedback {
+  background: #ecfdf5;
+  border-color: #bbf7d0;
+  color: #166534;
+}
+
+.config-account-groups {
+  display: grid;
+  gap: 18px;
+}
+
+.config-account-group {
+  display: grid;
+  gap: 10px;
+}
+
+.config-account-group__title h3 {
+  margin: 0;
+}
+
+.config-link-row {
+  justify-content: flex-start;
+}
+
+.config-link-row a {
+  color: #2563eb;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.config-link-row a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 900px) {
+  .config-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .config-form {
+    position: static;
+  }
+}
+
+@media (max-width: 640px) {
+  .config-topbar,
+  .config-card__header,
+  .config-card__actions,
+  .config-account-group__title {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .config-topbar button,
+  .config-card__actions button {
+    width: 100%;
+  }
+}

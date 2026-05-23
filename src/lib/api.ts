@@ -196,6 +196,16 @@ export const api = {
       method: "DELETE",
     }),
   listRedditAccounts: () => request<RedditAccount[]>("/api/reddit/accounts"),
+  startRedditOAuth: (account_name: string) =>
+    request<{ auth_url: string }>("/api/reddit/auth/authorize", {
+      method: "POST",
+      body: JSON.stringify({ account_name }),
+    }),
+  updateRedditAccount: (id: number, payload: { name?: string; status?: "active" | "inactive" }) =>
+    request<{ success: boolean; updated_at: string }>(`/api/reddit/accounts/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
   deleteRedditAccount: (id: number) =>
     request<{ success: boolean }>(`/api/reddit/accounts/${id}`, {
       method: "DELETE",
@@ -324,6 +334,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  updateTwitterAccount: (id: number, payload: SocialAccountInput & { status?: "active" | "inactive" }) =>
+    request<{ success: boolean; updated_at: string }>(`/api/social/twitter/accounts/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
   deleteTwitterAccount: (id: number) =>
     request<{ success: boolean }>(`/api/social/twitter/accounts/${id}`, {
       method: "DELETE",
@@ -334,6 +349,11 @@ export const api = {
   addThreadsAccount: (payload: SocialAccountInput) =>
     request<SocialAccount>("/api/social/threads/accounts", {
       method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateThreadsAccount: (id: number, payload: SocialAccountInput & { status?: "active" | "inactive" }) =>
+    request<{ success: boolean; updated_at: string }>(`/api/social/threads/accounts/${id}`, {
+      method: "PUT",
       body: JSON.stringify(payload),
     }),
   startThreadsOAuth: (payload: SocialAccountInput) =>

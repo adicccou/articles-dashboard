@@ -5,6 +5,7 @@ import { ArticleEditor } from "../components/ArticleEditor";
 import { SiteForm } from "../components/SiteForm";
 import { SocialAgentsPage } from "./SocialAgentsPage";
 import { StudioPage } from "./StudioPage";
+import { ConfigPage } from "./ConfigPage";
 import { TradingHubPage } from "./TradingHubPage";
 import { PlannerPage } from "./PlannerPage";
 import { ViewErrorBoundary } from "../components/ViewErrorBoundary";
@@ -90,6 +91,10 @@ export function DashboardPage({
 
     if (view === "studio") {
       return <StudioPage onUpload={onUpload} />;
+    }
+
+    if (view === "config") {
+      return <ConfigPage />;
     }
 
     if (view === "trading") {

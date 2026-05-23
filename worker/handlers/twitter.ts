@@ -11,6 +11,10 @@ type TwitterAccountPayload = {
   access_secret: string;
 };
 
+type TwitterAccountUpdatePayload = Partial<TwitterAccountPayload> & {
+  status?: "active" | "inactive";
+};
+
 type TwitterCredentials = {
   apiKey: string;
   apiSecret: string;
@@ -773,6 +777,68 @@ export async function addTwitterAccount(env: Env, request: Request): Promise<Res
     );
   } catch {
     return errorResponse("Failed to add account", 500);
+  }
+}
+
+export async function updateTwitterAccount(env: Env, accountId: string, request: Request): Promise<Response> {
+  try {
+    const id = Number(accountId);
+    if (isNaN(id)) return errorResponse("Invalid account ID", 400);
+
+    const existing = await env.DB.prepare("SELECT id FROM social_accounts WHERE id = ? AND platform = 'twitter'")
+      .bind(id)
+      .first<{ id: number }>();
+    if (!existing) return errorResponse("Twitter/X account not found", 404);
+
+    const payload = await parseJson<TwitterAccountUpdatePayload>(request);
+    const now = new Date().toISOString();
+    const accountUpdates: string[] = [];
+    const accountValues: unknown[] = [];
+
+    if (payload.username !== undefined) {
+      const username = payload.username.trim().replace(/^@+/, "");
+      if (!username) return errorResponse("username is required", 400);
+      accountUpdates.push("username = ?");
+      accountValues.push(username);
+    }
+    if (payload.status !== undefined) {
+      if (payload.status !== "active" && payload.status !== "inactive") {
+        return errorResponse("Invalid account status", 400);
+      }
+      accountUpdates.push("status = ?");
+      accountValues.push(payload.status);
+    }
+
+    const credentialUpdates: Array<[string, string]> = [];
+    if (payload.api_key?.trim()) credentialUpdates.push(["twitter_api_key", payload.api_key.trim()]);
+    if (payload.api_secret?.trim()) credentialUpdates.push(["twitter_api_secret", payload.api_secret.trim()]);
+    if (payload.access_token?.trim()) credentialUpdates.push(["twitter_access_token", payload.access_token.trim()]);
+    if (payload.access_secret?.trim()) credentialUpdates.push(["twitter_access_secret", payload.access_secret.trim()]);
+
+    if (accountUpdates.length === 0 && credentialUpdates.length === 0) {
+      return errorResponse("No account fields to update", 400);
+    }
+
+    if (accountUpdates.length > 0) {
+      accountUpdates.push("updated_at = ?");
+      accountValues.push(now, id);
+      await env.DB.prepare(`UPDATE social_accounts SET ${accountUpdates.join(", ")} WHERE id = ? AND platform = 'twitter'`)
+        .bind(...accountValues)
+        .run();
+    } else {
+      await env.DB.prepare("UPDATE social_accounts SET updated_at = ? WHERE id = ? AND platform = 'twitter'")
+        .bind(now, id)
+        .run();
+    }
+
+    await Promise.all(credentialUpdates.flatMap(([key, value]) => [
+      upsertSetting(env, `social_account:${id}:${key}`, value, now),
+      upsertSetting(env, key, value, now),
+    ]));
+
+    return jsonResponse({ success: true, updated_at: now });
+  } catch {
+    return errorResponse("Failed to update Twitter/X account", 500);
   }
 }
 

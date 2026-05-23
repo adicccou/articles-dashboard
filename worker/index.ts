@@ -13,7 +13,7 @@ import {
   searchRedditPosts,
   createRedditReply,
 } from "./handlers/reddit";
-import { handleAuthorizeRequest, handleOAuthCallback, listRedditAccounts, deleteRedditAccount } from "./handlers/reddit-auth";
+import { handleAuthorizeRequest, handleOAuthCallback, listRedditAccounts, updateRedditAccount, deleteRedditAccount } from "./handlers/reddit-auth";
 import { getKnowledgeBase, saveKnowledgeBase, getVersions, getVersion } from "./handlers/knowledge-base";
 import { listStrategies, getStrategy, createStrategy, updateStrategy, activateStrategy, deactivateStrategy, deleteStrategy, getStrategyStats, getStrategyExecutions, getActiveStrategyInternal } from "./handlers/trading";
 import { chatWithAssistant } from "./handlers/assistant";
@@ -37,6 +37,7 @@ import {
   publishTwitterPost,
   listTwitterAccounts,
   addTwitterAccount,
+  updateTwitterAccount,
   deleteTwitterAccount,
   getSocialPostSchemaCapabilities,
   listTwitterComments,
@@ -45,6 +46,7 @@ import {
 import {
   listThreadsAccounts,
   addThreadsAccount,
+  updateThreadsAccount,
   deleteThreadsAccount,
   authorizeThreadsAccount,
   handleThreadsOAuthCallback,
@@ -1268,6 +1270,13 @@ export default {
       return await listRedditAccounts(env);
     }
 
+    if (url.pathname.startsWith("/api/reddit/accounts/") && request.method === "PUT") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      return await updateRedditAccount(env, id, request);
+    }
+
     if (url.pathname.startsWith("/api/reddit/accounts/") && request.method === "DELETE") {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
@@ -1639,6 +1648,13 @@ export default {
       return await addTwitterAccount(env, request);
     }
 
+    if (url.pathname.startsWith("/api/social/twitter/accounts/") && request.method === "PUT") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[5];
+      return await updateTwitterAccount(env, id, request);
+    }
+
     if (url.pathname.startsWith("/api/social/twitter/accounts/") && request.method === "DELETE") {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
@@ -1667,6 +1683,13 @@ export default {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
       return await addThreadsAccount(env, request);
+    }
+
+    if (url.pathname.startsWith("/api/social/threads/accounts/") && request.method === "PUT") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[5];
+      return await updateThreadsAccount(env, id, request);
     }
 
     if (url.pathname.startsWith("/api/social/threads/accounts/") && request.method === "DELETE") {

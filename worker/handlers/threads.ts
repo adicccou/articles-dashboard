@@ -17,6 +17,10 @@ type ThreadsAccountPayload = {
   user_id: string;
 };
 
+type ThreadsAccountUpdatePayload = Partial<ThreadsAccountPayload> & {
+  status?: "active" | "inactive";
+};
+
 type PendingThreadsOAuth = Omit<ThreadsAccountPayload, "access_token" | "user_id">;
 
 const THREADS_AUTHORIZE_URL = "https://threads.net/oauth/authorize";
@@ -219,7 +223,7 @@ function validateThreadsAppPayload(payload: PendingThreadsOAuth): string | null 
 export async function listThreadsAccounts(env: Env): Promise<Response> {
   try {
     const rows = await env.DB.prepare(
-      "SELECT id, username, status, created_at FROM social_accounts WHERE platform = 'threads'",
+      "SELECT id, username, status, created_at, updated_at FROM social_accounts WHERE platform = 'threads' ORDER BY created_at DESC",
     ).all();
     return jsonResponse(rows.results ?? []);
   } catch {
@@ -543,6 +547,73 @@ export async function handleThreadsOAuthCallback(env: Env, url: URL): Promise<Re
       status: 500,
       headers: { "Content-Type": "text/html" },
     });
+  }
+}
+
+export async function updateThreadsAccount(env: Env, accountId: string, request: Request): Promise<Response> {
+  try {
+    const id = Number(accountId);
+    if (isNaN(id)) return errorResponse("Invalid account ID", 400);
+
+    const existing = await env.DB.prepare("SELECT id FROM social_accounts WHERE id = ? AND platform = 'threads'")
+      .bind(id)
+      .first<{ id: number }>();
+    if (!existing) return errorResponse("Threads account not found", 404);
+
+    const payload = await parseJson<ThreadsAccountUpdatePayload>(request);
+    const now = new Date().toISOString();
+    const accountUpdates: string[] = [];
+    const accountValues: unknown[] = [];
+
+    if (payload.username !== undefined) {
+      const username = payload.username.trim().replace(/^@+/, "");
+      if (!username) return errorResponse("username is required", 400);
+      accountUpdates.push("username = ?");
+      accountValues.push(username);
+    }
+    if (payload.status !== undefined) {
+      if (payload.status !== "active" && payload.status !== "inactive") {
+        return errorResponse("Invalid account status", 400);
+      }
+      accountUpdates.push("status = ?");
+      accountValues.push(payload.status);
+    }
+
+    const settingUpdates: Array<[string, string]> = [];
+    if (payload.client_id?.trim()) settingUpdates.push(["threads_client_id", payload.client_id.trim()]);
+    if (payload.client_secret?.trim()) settingUpdates.push(["threads_client_secret", payload.client_secret.trim()]);
+    if (payload.redirect_uri?.trim()) settingUpdates.push(["threads_redirect_uri", payload.redirect_uri.trim()]);
+    if (payload.scopes?.trim()) settingUpdates.push(["threads_scopes", payload.scopes.trim()]);
+    if (payload.access_token?.trim()) settingUpdates.push(["threads_access_token", payload.access_token.trim()]);
+    if (payload.user_id?.trim()) settingUpdates.push(["threads_user_id", payload.user_id.trim()]);
+
+    if (accountUpdates.length === 0 && settingUpdates.length === 0) {
+      return errorResponse("No account fields to update", 400);
+    }
+
+    if (accountUpdates.length > 0) {
+      accountUpdates.push("updated_at = ?");
+      accountValues.push(now, id);
+      await env.DB.prepare(`UPDATE social_accounts SET ${accountUpdates.join(", ")} WHERE id = ? AND platform = 'threads'`)
+        .bind(...accountValues)
+        .run();
+    } else {
+      await env.DB.prepare("UPDATE social_accounts SET updated_at = ? WHERE id = ? AND platform = 'threads'")
+        .bind(now, id)
+        .run();
+    }
+
+    await Promise.all(settingUpdates.flatMap(([key, value]) => {
+      const updates = [upsertSetting(env, `social_account:${id}:${key}`, value, now)];
+      if (key === "threads_access_token" || key === "threads_user_id") {
+        updates.push(upsertSetting(env, key, value, now));
+      }
+      return updates;
+    }));
+
+    return jsonResponse({ success: true, updated_at: now });
+  } catch {
+    return errorResponse("Failed to update Threads account", 500);
   }
 }
 
