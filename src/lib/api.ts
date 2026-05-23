@@ -1,4 +1,4 @@
-import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialAccountInput, SocialPost, StudioApp, StudioCampaign, StudioCrawlerRun, StudioStrategistPost, StudioSummary, ThreadsCampaignResult, ThreadsMediaResponse, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorkersResponse, MlTradingAssetsResponse, MlTradingDiagnostics, MlTradingSettings } from "./types";
+import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialAccountInput, SocialPost, StudioApp, StudioCampaign, StudioCrawlerRun, StudioSignal, StudioStrategistPost, StudioSummary, ThreadsCampaignResult, ThreadsMediaResponse, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorkersResponse, MlTradingAssetsResponse, MlTradingDiagnostics, MlTradingSettings } from "./types";
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -299,6 +299,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  listStudioSignals: (crawlerRunId?: number) =>
+    request<StudioSignal[]>(
+      `/api/studio/signals${crawlerRunId ? `?crawler_run_id=${encodeURIComponent(String(crawlerRunId))}` : ""}`,
+    ),
   updateStudioStrategistPost: (id: number, payload: Partial<StudioStrategistPost>) =>
     request<{ success: boolean; updated_at: string }>(`/api/studio/strategist-posts/${id}`, {
       method: "PUT",

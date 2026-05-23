@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
-import type { StudioAccount, StudioApp, StudioStrategistPost, StudioSummary } from "../lib/types";
+import type { StudioAccount, StudioApp, StudioSignal, StudioStrategistPost, StudioSummary } from "../lib/types";
 import { formatDisplayDateTime } from "../lib/datetime";
 import "../styles/studio-page.css";
 
-type StudioTab = "crawler" | "strategist";
+type StudioTab = "signals" | "strategist";
 type Platform = "twitter" | "threads" | "reddit";
 
 type StudioPageProps = {
@@ -71,9 +71,31 @@ function platformLabel(platform: string) {
 
 function statusTone(status: string) {
   if (["active", "completed", "scheduled", "posted"].includes(status)) return "success";
-  if (["pending", "running", "suggested", "asset_needed"].includes(status)) return "info";
-  if (["failed", "archived"].includes(status)) return "danger";
+  if (["pending", "running", "suggested", "asset_needed", "candidate", "filtered"].includes(status)) return "info";
+  if (["failed", "archived", "rejected"].includes(status)) return "danger";
   return "neutral";
+}
+
+function scoreTone(score: number) {
+  if (score >= 80) return "strong";
+  if (score >= 55) return "medium";
+  return "soft";
+}
+
+function extractSearchQueries(run: StudioSummary["crawler_runs"][number] | null): string[] {
+  const raw = run?.raw_data;
+  if (!raw || typeof raw !== "object") return [];
+  const data = raw as Record<string, unknown>;
+  const querySource = Array.isArray(data.search_queries)
+    ? data.search_queries
+    : Array.isArray(data.queries)
+      ? data.queries
+      : [];
+  return querySource.map((query) => String(query ?? "").trim()).filter(Boolean).slice(0, 8);
+}
+
+function pipelineCount(runSignals: StudioSignal[], status: StudioSignal["status"]) {
+  return runSignals.filter((signal) => signal.status === status).length;
 }
 
 function toggleArrayValue<T extends string>(values: T[], value: T): T[] {
@@ -92,9 +114,10 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     apps: [],
     campaigns: [],
     crawler_runs: [],
+    signals: [],
     strategist_posts: [],
   });
-  const [tab, setTab] = useState<StudioTab>("crawler");
+  const [tab, setTab] = useState<StudioTab>("signals");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -121,6 +144,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
         apps: Array.isArray(next.apps) ? next.apps : [],
         campaigns: Array.isArray(next.campaigns) ? next.campaigns : [],
         crawler_runs: Array.isArray(next.crawler_runs) ? next.crawler_runs : [],
+        signals: Array.isArray(next.signals) ? next.signals : [],
         strategist_posts: Array.isArray(next.strategist_posts) ? next.strategist_posts : [],
       });
       setError(null);
@@ -158,6 +182,15 @@ export function StudioPage({ onUpload }: StudioPageProps) {
       : [],
     [selectedRun, summary.strategist_posts],
   );
+
+  const selectedRunSignals = useMemo(
+    () => selectedRun
+      ? summary.signals.filter((signal) => signal.crawler_run_id === selectedRun.id)
+      : [],
+    [selectedRun, summary.signals],
+  );
+
+  const selectedRunQueries = useMemo(() => extractSearchQueries(selectedRun), [selectedRun]);
 
   const campaignAccounts = useMemo(
     () => summary.accounts.filter((account) => accountMatchesPlatforms(account, campaignForm.platforms)),
@@ -256,7 +289,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
         campaign_id: campaign.id,
       });
       setSelectedRunId(run.id);
-      setTab("strategist");
+      setTab("signals");
       setCampaignModalOpen(false);
       setCampaignForm(emptyCampaignForm());
       setFeedback(`${studioId("CMP", campaign.id)} created and ${studioId("CR", run.id)} queued.`);
@@ -326,7 +359,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
 
       <section className="panel studio-tabs">
         {[
-          { id: "crawler" as const, label: `Pain Crawler (${summary.crawler_runs.length})` },
+          { id: "signals" as const, label: `Signals (${summary.signals.length})` },
           { id: "strategist" as const, label: `Strategist (${summary.strategist_posts.length})` },
         ].map((item) => (
           <button
@@ -370,6 +403,111 @@ export function StudioPage({ onUpload }: StudioPageProps) {
         )}
       </section>
 
+      {tab === "signals" ? (
+        <section className="studio-signals-layout">
+          <aside className="panel studio-run-list">
+            <div className="panel__title-row">
+              <h2>Crawler runs</h2>
+              <span className="studio-count">{summary.crawler_runs.length}</span>
+            </div>
+            {summary.crawler_runs.length === 0 ? (
+              <p className="studio-muted">No runs yet.</p>
+            ) : summary.crawler_runs.map((run) => (
+              <button
+                className={`studio-run-button ${selectedRun?.id === run.id ? "studio-run-button--active" : ""}`}
+                key={run.id}
+                type="button"
+                onClick={() => setSelectedRunId(run.id)}
+              >
+                <span>{studioId("CR", run.id)}</span>
+                <small>{run.campaign_name || run.app_name || run.status}</small>
+                <small>{run.status}</small>
+              </button>
+            ))}
+          </aside>
+
+          <section className="panel studio-signals-panel">
+            {selectedRun ? (
+              <>
+                <div className="panel__title-row">
+                  <div>
+                    <p className="eyebrow">{studioId("CR", selectedRun.id)}</p>
+                    <h2>Signals</h2>
+                  </div>
+                  <span className={`studio-pill studio-pill--${statusTone(selectedRun.status)}`}>{selectedRun.status}</span>
+                </div>
+
+                <div className="studio-pipeline">
+                  {[
+                    { label: "AI queries", value: selectedRunQueries.length || "—" },
+                    { label: "Fetched", value: selectedRunSignals.length || "—" },
+                    { label: "Filtered", value: pipelineCount(selectedRunSignals, "filtered") },
+                    { label: "Pain points", value: selectedRunSignals.filter((signal) => signal.pain_point).length },
+                    {
+                      label: "Top score",
+                      value: selectedRunSignals.length
+                        ? Math.max(...selectedRunSignals.map((signal) => signal.opportunity_score))
+                        : "—",
+                    },
+                  ].map((step) => (
+                    <div className="studio-pipeline-step" key={step.label}>
+                      <span>{step.label}</span>
+                      <strong>{step.value}</strong>
+                    </div>
+                  ))}
+                </div>
+
+                {selectedRunQueries.length > 0 ? (
+                  <div className="studio-query-list">
+                    {selectedRunQueries.map((query) => (
+                      <span className="studio-chip" key={query}>{query}</span>
+                    ))}
+                  </div>
+                ) : null}
+
+                {selectedRun.crawler_summary ? <p className="studio-card__copy">{selectedRun.crawler_summary}</p> : null}
+                {selectedRun.error_message ? <p className="error">{selectedRun.error_message}</p> : null}
+
+                {selectedRunSignals.length === 0 ? (
+                  <div className="studio-empty">No signals yet.</div>
+                ) : (
+                  <div className="studio-signal-grid">
+                    {selectedRunSignals.map((signal) => (
+                      <article className="studio-signal-card" key={signal.id}>
+                        <div className="studio-card__header">
+                          <span className="studio-id">{studioId("SIG", signal.id)}</span>
+                          <span className={`studio-pill studio-pill--${statusTone(signal.status)}`}>{signal.status}</span>
+                        </div>
+                        <div className="studio-signal-card__score">
+                          <span className={`studio-score studio-score--${scoreTone(signal.opportunity_score)}`}>
+                            {signal.opportunity_score}
+                          </span>
+                          <span>{platformLabel(signal.platform)}</span>
+                          {signal.source ? <span>{signal.source}</span> : null}
+                        </div>
+                        <h2>{signal.pain_point || signal.title || "Untitled signal"}</h2>
+                        {signal.evidence || signal.snippet ? (
+                          <p className="studio-card__copy">{signal.evidence || signal.snippet}</p>
+                        ) : null}
+                        {signal.audience ? <p className="studio-muted">{signal.audience}</p> : null}
+                        {signal.query ? <span className="studio-chip">{signal.query}</span> : null}
+                        {signal.url ? (
+                          <a className="studio-source-link" href={signal.url} target="_blank" rel="noreferrer">
+                            Source
+                          </a>
+                        ) : null}
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="studio-empty">No crawler run selected.</div>
+            )}
+          </section>
+        </section>
+      ) : null}
+
       {tab === "strategist" ? (
         <section className="studio-strategist-layout">
           <aside className="panel studio-run-list">
@@ -402,6 +540,18 @@ export function StudioPage({ onUpload }: StudioPageProps) {
                   <span className={`studio-pill studio-pill--${statusTone(selectedRun.status)}`}>{selectedRun.status}</span>
                 </div>
                 {selectedRun.crawler_summary ? <p className="studio-card__copy">{selectedRun.crawler_summary}</p> : null}
+                {selectedRunSignals.length > 0 ? (
+                  <div className="studio-strategist-signals">
+                    {selectedRunSignals.slice(0, 6).map((signal) => (
+                      <div className="studio-strategist-signal" key={signal.id}>
+                        <span className={`studio-score studio-score--${scoreTone(signal.opportunity_score)}`}>
+                          {signal.opportunity_score}
+                        </span>
+                        <span>{signal.pain_point || signal.title || signal.snippet}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 {selectedRun.error_message ? <p className="error">{selectedRun.error_message}</p> : null}
                 {selectedRunPosts.length === 0 ? (
                   <div className="studio-empty">Strategist posts will appear here after the crawler finishes.</div>

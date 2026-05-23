@@ -64,6 +64,7 @@ import {
   createStudioApp,
   createStudioCampaign,
   createStudioCrawlerRun,
+  createStudioSignals,
   createStudioStrategistPosts,
   deleteStudioApp,
   deleteStudioCampaign,
@@ -73,6 +74,7 @@ import {
   listStudioCampaigns,
   listStudioCrawlerRuns,
   listStudioNotifications,
+  listStudioSignals,
   listStudioStrategistPosts,
   scheduleStudioStrategistPost,
   updateStudioApp,
@@ -1002,6 +1004,18 @@ export default {
       return await updateStudioCrawlerRun(env, id, request);
     }
 
+    if (url.pathname === "/api/internal/studio/signals" && request.method === "GET") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await listStudioSignals(env, url);
+    }
+
+    if (url.pathname === "/api/internal/studio/signals/bulk" && request.method === "POST") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await createStudioSignals(env, request);
+    }
+
     if (url.pathname === "/api/internal/studio/strategist-posts/bulk" && request.method === "POST") {
       const unauthorized = await requireAgentAuth(request, env);
       if (unauthorized) return unauthorized;
@@ -1108,6 +1122,12 @@ export default {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
       return await createStudioCrawlerRun(env, request);
+    }
+
+    if (url.pathname === "/api/studio/signals" && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await listStudioSignals(env, url);
     }
 
     if (url.pathname === "/api/studio/strategist-posts" && request.method === "GET") {

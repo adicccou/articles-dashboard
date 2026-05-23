@@ -8,6 +8,7 @@ type StudioCampaignType = "post" | "reply";
 type StudioCampaignStatus = "active" | "paused" | "archived";
 type StudioCrawlerStatus = "pending" | "running" | "completed" | "failed";
 type StudioPostStatus = "suggested" | "asset_needed" | "scheduled" | "posted" | "dismissed";
+type StudioSignalStatus = "candidate" | "filtered" | "signal" | "rejected";
 
 type StudioAppPayload = {
   name?: string;
@@ -38,9 +39,36 @@ type StudioCrawlerPayload = {
   status?: StudioCrawlerStatus;
   crawler_summary?: string | null;
   raw_data?: unknown;
+  signals?: StudioSignalPayload[];
   error_message?: string | null;
   started_at?: string | null;
   finished_at?: string | null;
+};
+
+type StudioSignalPayload = {
+  platform?: string;
+  source?: string;
+  query?: string;
+  title?: string;
+  url?: string | null;
+  author?: string | null;
+  snippet?: string;
+  pain_point?: string;
+  audience?: string;
+  evidence?: string;
+  opportunity_score?: number;
+  noise_reason?: string | null;
+  status?: StudioSignalStatus;
+  raw_data?: unknown;
+};
+
+type StudioSignalsBulkPayload = {
+  crawler_run_id?: number;
+  signals?: StudioSignalPayload[];
+  replace_existing?: boolean;
+  crawler_summary?: string | null;
+  raw_data?: unknown;
+  status?: StudioCrawlerStatus;
 };
 
 type StudioStrategistPostPayload = {
@@ -146,6 +174,16 @@ function cleanText(value: unknown): string {
   return String(value ?? "").trim();
 }
 
+function normalizeSignalStatus(value: unknown): StudioSignalStatus {
+  return value === "candidate" || value === "filtered" || value === "rejected" ? value : "signal";
+}
+
+function normalizeOpportunityScore(value: unknown): number {
+  const score = Number(value ?? 0);
+  if (!Number.isFinite(score)) return 0;
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
 function accountIdForPlatform(accountRefs: string[], platform: string): number | null {
   const prefix = `${normalizePlatform(platform)}:`;
   const ref = accountRefs.find((value) => value.startsWith(prefix));
@@ -192,6 +230,25 @@ function mapCrawlerRun(row: Record<string, unknown>) {
   };
 }
 
+function mapSignal(row: Record<string, unknown>) {
+  return {
+    ...row,
+    platform: normalizePlatform(row.platform),
+    source: row.source ?? "",
+    query: row.query ?? "",
+    title: row.title ?? "",
+    url: row.url ?? "",
+    author: row.author ?? "",
+    snippet: row.snippet ?? "",
+    pain_point: row.pain_point ?? "",
+    audience: row.audience ?? "",
+    evidence: row.evidence ?? "",
+    opportunity_score: normalizeOpportunityScore(row.opportunity_score),
+    noise_reason: row.noise_reason ?? "",
+    raw_data: safeParseJson(row.raw_data, null),
+  };
+}
+
 function mapStrategistPost(row: Record<string, unknown>) {
   return {
     ...row,
@@ -201,6 +258,64 @@ function mapStrategistPost(row: Record<string, unknown>) {
     target_author: row.target_author ?? "",
     target_text: row.target_text ?? "",
   };
+}
+
+async function replaceSignalsForRun(
+  env: Env,
+  run: Record<string, unknown>,
+  signals: StudioSignalPayload[],
+  now: string,
+  replaceExisting = true,
+): Promise<number[]> {
+  const runId = Number(run.id);
+  const campaignId = run.campaign_id ?? null;
+  const appId = Number(run.app_id);
+  const runPlatforms = decodeList(run.platforms);
+  const createdIds: number[] = [];
+  if (replaceExisting) {
+    await env.DB.prepare("DELETE FROM studio_signals WHERE crawler_run_id = ?").bind(runId).run();
+  }
+  for (const signal of signals.slice(0, 100)) {
+    const platform = normalizePlatform(signal.platform) || runPlatforms[0] || "threads";
+    if (!["twitter", "threads", "reddit"].includes(platform)) continue;
+    const title = cleanText(signal.title);
+    const snippet = cleanText(signal.snippet);
+    const painPoint = cleanText(signal.pain_point);
+    const evidence = cleanText(signal.evidence);
+    if (!title && !snippet && !painPoint && !evidence) continue;
+    const result = await env.DB.prepare(
+      `INSERT INTO studio_signals (
+        crawler_run_id, campaign_id, app_id, platform, source, query, title, url, author,
+        snippet, pain_point, audience, evidence, opportunity_score, noise_reason, status,
+        raw_data, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(
+        runId,
+        campaignId,
+        appId,
+        platform,
+        cleanText(signal.source),
+        cleanText(signal.query),
+        title,
+        cleanText(signal.url) || null,
+        cleanText(signal.author) || null,
+        snippet,
+        painPoint,
+        cleanText(signal.audience),
+        evidence,
+        normalizeOpportunityScore(signal.opportunity_score),
+        cleanText(signal.noise_reason) || null,
+        normalizeSignalStatus(signal.status),
+        signal.raw_data === undefined ? null : JSON.stringify(signal.raw_data),
+        now,
+        now,
+      )
+      .run() as { meta: { last_row_id: number } };
+    createdIds.push(result.meta.last_row_id);
+  }
+  return createdIds;
 }
 
 async function readWorkspaceTimeZone(env: Env): Promise<string> {
@@ -619,14 +734,92 @@ export async function updateStudioCrawlerRun(env: Env, runId: string, request: R
     if (payload.error_message !== undefined) updates.push("error_message = ?"), values.push(cleanText(payload.error_message) || null);
     if (payload.started_at !== undefined) updates.push("started_at = ?"), values.push(payload.started_at);
     if (payload.finished_at !== undefined) updates.push("finished_at = ?"), values.push(payload.finished_at);
-    if (updates.length === 0) return errorResponse("No crawler fields to update", 400);
+    if (updates.length === 0 && payload.signals === undefined) return errorResponse("No crawler fields to update", 400);
     const now = nowIso();
-    updates.push("updated_at = ?");
-    values.push(now, id);
-    await env.DB.prepare(`UPDATE studio_crawler_runs SET ${updates.join(", ")} WHERE id = ?`).bind(...values).run();
-    return jsonResponse({ success: true, updated_at: now });
+    if (updates.length > 0) {
+      updates.push("updated_at = ?");
+      values.push(now, id);
+      await env.DB.prepare(`UPDATE studio_crawler_runs SET ${updates.join(", ")} WHERE id = ?`).bind(...values).run();
+    }
+    let signalIds: number[] = [];
+    if (payload.signals !== undefined) {
+      const run = await env.DB.prepare("SELECT * FROM studio_crawler_runs WHERE id = ?")
+        .bind(id)
+        .first<Record<string, unknown>>();
+      if (!run) return errorResponse("Crawler run not found", 404);
+      signalIds = await replaceSignalsForRun(env, run, Array.isArray(payload.signals) ? payload.signals : [], now);
+    }
+    return jsonResponse({ success: true, updated_at: now, signal_count: signalIds.length, signal_ids: signalIds });
   } catch {
     return errorResponse("Failed to update Studio crawler run", 500);
+  }
+}
+
+export async function listStudioSignals(env: Env, url?: URL): Promise<Response> {
+  try {
+    const filters: string[] = [];
+    const values: unknown[] = [];
+    const runId = url?.searchParams.get("crawler_run_id");
+    const campaignId = url?.searchParams.get("campaign_id");
+    const status = url?.searchParams.get("status");
+    if (runId) filters.push("ss.crawler_run_id = ?"), values.push(Number(runId));
+    if (campaignId) filters.push("ss.campaign_id = ?"), values.push(Number(campaignId));
+    if (status) filters.push("ss.status = ?"), values.push(status);
+    const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+    const signals = await env.DB.prepare(
+      `SELECT ss.*, sa.name AS app_name, sc.name AS campaign_name, scr.status AS crawler_status
+       FROM studio_signals ss
+       JOIN studio_apps sa ON sa.id = ss.app_id
+       LEFT JOIN studio_campaigns sc ON sc.id = ss.campaign_id
+       LEFT JOIN studio_crawler_runs scr ON scr.id = ss.crawler_run_id
+       ${where}
+       ORDER BY ss.opportunity_score DESC, ss.created_at DESC, ss.id DESC
+       LIMIT 200`,
+    )
+      .bind(...values)
+      .all<Record<string, unknown>>();
+    return jsonResponse((signals.results ?? []).map(mapSignal));
+  } catch {
+    return errorResponse("Failed to load Studio signals", 500);
+  }
+}
+
+export async function createStudioSignals(env: Env, request: Request): Promise<Response> {
+  try {
+    const payload = await parseJson<StudioSignalsBulkPayload>(request);
+    const runId = Number(payload.crawler_run_id);
+    if (!Number.isFinite(runId) || runId <= 0) return errorResponse("Crawler run ID is required", 400);
+    const run = await env.DB.prepare("SELECT * FROM studio_crawler_runs WHERE id = ?")
+      .bind(runId)
+      .first<Record<string, unknown>>();
+    if (!run) return errorResponse("Crawler run not found", 404);
+    const now = nowIso();
+    const signalIds = await replaceSignalsForRun(
+      env,
+      run,
+      Array.isArray(payload.signals) ? payload.signals : [],
+      now,
+      payload.replace_existing !== false,
+    );
+    const updates: string[] = ["updated_at = ?"];
+    const values: unknown[] = [now];
+    const status = payload.status === "failed" ? "failed" : "completed";
+    updates.push("status = ?");
+    values.push(status);
+    if (payload.crawler_summary !== undefined) {
+      updates.push("crawler_summary = ?");
+      values.push(cleanText(payload.crawler_summary) || null);
+    }
+    if (payload.raw_data !== undefined) {
+      updates.push("raw_data = ?");
+      values.push(typeof payload.raw_data === "string" ? payload.raw_data : JSON.stringify(payload.raw_data));
+    }
+    updates.push("finished_at = COALESCE(finished_at, ?)");
+    values.push(now, runId);
+    await env.DB.prepare(`UPDATE studio_crawler_runs SET ${updates.join(", ")} WHERE id = ?`).bind(...values).run();
+    return jsonResponse({ success: true, count: signalIds.length, ids: signalIds });
+  } catch {
+    return errorResponse("Failed to save Studio signals", 500);
   }
 }
 
@@ -895,12 +1088,13 @@ export async function updateStudioNotification(env: Env, notificationId: string,
 }
 
 export async function getStudioSummary(env: Env): Promise<Response> {
-  const [accounts, apps, campaigns, crawlerRuns, posts] = await Promise.all([
+  const [accounts, apps, campaigns, crawlerRuns, signals, posts] = await Promise.all([
     listStudioAccounts(env).then((response) => response.json()),
     listStudioApps(env).then((response) => response.json()),
     listStudioCampaigns(env).then((response) => response.json()),
     listStudioCrawlerRuns(env).then((response) => response.json()),
+    listStudioSignals(env).then((response) => response.json()),
     listStudioStrategistPosts(env).then((response) => response.json()),
   ]);
-  return jsonResponse({ accounts, apps, campaigns, crawler_runs: crawlerRuns, strategist_posts: posts });
+  return jsonResponse({ accounts, apps, campaigns, crawler_runs: crawlerRuns, signals, strategist_posts: posts });
 }

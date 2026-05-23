@@ -763,6 +763,31 @@ export type StudioCrawlerRun = {
   updated_at: string;
 };
 
+export type StudioSignal = {
+  id: number;
+  crawler_run_id: number;
+  campaign_id?: number | null;
+  campaign_name?: string | null;
+  app_id: number;
+  app_name?: string | null;
+  platform: "twitter" | "threads" | "reddit";
+  source: string;
+  query: string;
+  title: string;
+  url?: string | null;
+  author?: string | null;
+  snippet: string;
+  pain_point: string;
+  audience: string;
+  evidence: string;
+  opportunity_score: number;
+  noise_reason?: string | null;
+  status: "candidate" | "filtered" | "signal" | "rejected";
+  raw_data?: unknown;
+  created_at: string;
+  updated_at: string;
+};
+
 export type StudioStrategistPost = {
   id: number;
   crawler_run_id: number;
@@ -793,6 +818,7 @@ export type StudioSummary = {
   apps: StudioApp[];
   campaigns: StudioCampaign[];
   crawler_runs: StudioCrawlerRun[];
+  signals: StudioSignal[];
   strategist_posts: StudioStrategistPost[];
 };
 
