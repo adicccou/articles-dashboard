@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import type { RedditAccount, SocialAccount, SocialAccountInput, StudioApp } from "../lib/types";
+import type { RedditAccount, SocialAccount, SocialAccountInput, StudioApp, StudioCampaign } from "../lib/types";
 import { api } from "../lib/api";
 import { formatDisplayDate } from "../lib/datetime";
 import "../styles/config-page.css";
@@ -7,6 +7,7 @@ import "../styles/config-page.css";
 type ConfigTab = "apps" | "accounts";
 type AccountPlatform = "twitter" | "threads" | "reddit";
 type AccountStatus = "active" | "inactive";
+type ConfigModal = "app" | "account" | null;
 
 type AppForm = {
   id?: number;
@@ -99,6 +100,14 @@ function platformLabel(platform: AccountPlatform) {
   return platformOptions.find((item) => item.id === platform)?.label ?? platform;
 }
 
+function accountRef(account: ManagedAccount) {
+  return `${account.platform}:${account.id}`;
+}
+
+function uniqueStrings(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
 function statusTone(status: string) {
   if (status === "active") return "success";
   if (status === "archived") return "danger";
@@ -149,9 +158,11 @@ function putIfFilled(payload: SocialAccountInput & { status?: AccountStatus }, k
 export function ConfigPage() {
   const [tab, setTab] = useState<ConfigTab>("apps");
   const [apps, setApps] = useState<StudioApp[]>([]);
+  const [campaigns, setCampaigns] = useState<StudioCampaign[]>([]);
   const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
   const [appForm, setAppForm] = useState<AppForm>(emptyAppForm);
   const [accountForm, setAccountForm] = useState<AccountForm>(emptyAccountForm);
+  const [activeModal, setActiveModal] = useState<ConfigModal>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -172,6 +183,7 @@ export function ConfigPage() {
         api.listRedditAccounts().catch(() => []),
       ]);
       setApps(Array.isArray(studio.apps) ? studio.apps : []);
+      setCampaigns(Array.isArray(studio.campaigns) ? studio.campaigns : []);
       setAccounts(normalizeAccounts(
         Array.isArray(twitter) ? twitter : [],
         Array.isArray(threads) ? threads : [],
@@ -190,13 +202,69 @@ export function ConfigPage() {
     void load();
   }, []);
 
-  const accountGroups = useMemo(
-    () => platformOptions.map((platform) => ({
-      ...platform,
-      accounts: accounts.filter((account) => account.platform === platform.id),
-    })),
+  const accountsByRef = useMemo(
+    () => new Map(accounts.map((account) => [accountRef(account), account])),
     [accounts],
   );
+
+  const appsById = useMemo(
+    () => new Map(apps.map((app) => [app.id, app])),
+    [apps],
+  );
+
+  const appRows = useMemo(() => apps.map((app) => {
+    const relatedCampaigns = campaigns.filter((campaign) => campaign.app_id === app.id && campaign.status !== "archived");
+    const refs = uniqueStrings(relatedCampaigns.flatMap((campaign) => campaign.account_refs));
+    const connectedAccounts = refs
+      .map((ref) => accountsByRef.get(ref))
+      .filter((account): account is ManagedAccount => Boolean(account));
+    const platforms = uniqueStrings([
+      ...relatedCampaigns.flatMap((campaign) => campaign.platforms),
+      ...connectedAccounts.map((account) => account.platform),
+    ]);
+    return { app, relatedCampaigns, connectedAccounts, platforms };
+  }), [accountsByRef, apps, campaigns]);
+
+  const accountRows = useMemo(() => accounts.map((account) => {
+    const ref = accountRef(account);
+    const relatedCampaigns = campaigns.filter((campaign) => campaign.account_refs.includes(ref) && campaign.status !== "archived");
+    const connectedApps = uniqueStrings(relatedCampaigns.map((campaign) => String(campaign.app_id)))
+      .map((id) => appsById.get(Number(id)))
+      .filter((app): app is StudioApp => Boolean(app));
+    return { account, relatedCampaigns, connectedApps };
+  }), [accounts, appsById, campaigns]);
+
+  function openAddApp() {
+    setTab("apps");
+    setAppForm(emptyAppForm());
+    setError(null);
+    setFeedback(null);
+    setActiveModal("app");
+  }
+
+  function openEditApp(app: StudioApp) {
+    setTab("apps");
+    setAppForm({
+      id: app.id,
+      name: app.name,
+      website_url: app.website_url || "",
+      app_store_url: app.app_store_url || "",
+      description: app.description || "",
+      ai_context: app.ai_context || "",
+      status: app.status,
+    });
+    setError(null);
+    setFeedback(null);
+    setActiveModal("app");
+  }
+
+  function openAddAccount(platform: AccountPlatform = "twitter") {
+    setTab("accounts");
+    setAccountForm(emptyAccountForm(platform));
+    setError(null);
+    setFeedback(null);
+    setActiveModal("account");
+  }
 
   async function saveApp(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -225,6 +293,7 @@ export function ConfigPage() {
         setFeedback("App added.");
       }
       setAppForm(emptyAppForm());
+      setActiveModal(null);
       await load({ silent: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save app");
@@ -266,6 +335,7 @@ export function ConfigPage() {
           await api.updateRedditAccount(accountForm.id, { name: username, status: accountForm.status });
           setFeedback("Reddit account updated.");
           setAccountForm(emptyAccountForm("reddit"));
+          setActiveModal(null);
           await load({ silent: true });
           return;
         }
@@ -294,6 +364,7 @@ export function ConfigPage() {
           setFeedback("Twitter/X account added.");
         }
         setAccountForm(emptyAccountForm("twitter"));
+        setActiveModal(null);
         await load({ silent: true });
         return;
       }
@@ -310,6 +381,7 @@ export function ConfigPage() {
         await api.updateThreadsAccount(accountForm.id, threadsPayload);
         setFeedback("Threads account updated.");
         setAccountForm(emptyAccountForm("threads"));
+        setActiveModal(null);
         await load({ silent: true });
         return;
       }
@@ -326,6 +398,7 @@ export function ConfigPage() {
         });
         setFeedback("Threads account added.");
         setAccountForm(emptyAccountForm("threads"));
+        setActiveModal(null);
         await load({ silent: true });
         return;
       }
@@ -359,6 +432,7 @@ export function ConfigPage() {
       }
       if (accountForm.id === account.id && accountForm.platform === account.platform) {
         setAccountForm(emptyAccountForm(account.platform));
+        setActiveModal(null);
       }
       setFeedback("Account deleted.");
       await load({ silent: true });
@@ -379,6 +453,7 @@ export function ConfigPage() {
       username: account.username,
       status: account.status,
     });
+    setActiveModal("account");
   }
 
   function accountSubmitLabel() {
@@ -397,47 +472,162 @@ export function ConfigPage() {
 
   return (
     <div className="config-page stack">
-      <section className="panel config-topbar">
-        <div>
-          <p className="eyebrow">Config</p>
-          <h1>Marketing Configuration</h1>
-        </div>
-        <button className="button-secondary" type="button" disabled={refreshing} onClick={() => void load({ silent: true })}>
-          {refreshing ? "Refreshing..." : "Refresh"}
-        </button>
-      </section>
-
       {error ? <p className="error panel">{error}</p> : null}
       {feedback ? <p className="panel config-feedback">{feedback}</p> : null}
 
       <section className="panel config-tabs">
-        <button
-          type="button"
-          className={`config-tab ${tab === "apps" ? "config-tab--active" : ""}`}
-          onClick={() => setTab("apps")}
-        >
-          Apps ({apps.length})
-        </button>
-        <button
-          type="button"
-          className={`config-tab ${tab === "accounts" ? "config-tab--active" : ""}`}
-          onClick={() => setTab("accounts")}
-        >
-          Social Media Accounts ({accounts.length})
-        </button>
+        <div className="config-tabs__list">
+          <button
+            type="button"
+            className={`config-tab ${tab === "apps" ? "config-tab--active" : ""}`}
+            onClick={() => setTab("apps")}
+          >
+            Apps ({apps.length})
+          </button>
+          <button
+            type="button"
+            className={`config-tab ${tab === "accounts" ? "config-tab--active" : ""}`}
+            onClick={() => setTab("accounts")}
+          >
+            Social Media Accounts ({accounts.length})
+          </button>
+        </div>
+        <div className="config-tabs__actions">
+          <button type="button" onClick={openAddApp}>
+            Add app
+          </button>
+          <button type="button" onClick={() => openAddAccount()}>
+            Add account
+          </button>
+          <button className="button-secondary" type="button" disabled={refreshing} onClick={() => void load({ silent: true })}>
+            {refreshing ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
       </section>
 
       {tab === "apps" ? (
-        <section className="config-layout">
-          <form className="panel config-form" onSubmit={saveApp}>
+        <section className="panel config-list">
             <div className="panel__title-row">
-              <h2>{appForm.id ? "Edit app" : "Add app"}</h2>
-              {appForm.id ? (
-                <button className="button-secondary" type="button" onClick={() => setAppForm(emptyAppForm())}>
-                  Cancel edit
-                </button>
-              ) : null}
+              <h2>Apps</h2>
+              <span className="config-count">{apps.length}</span>
             </div>
+            {apps.length === 0 ? (
+              <div className="config-empty">No apps yet.</div>
+            ) : (
+              <div className="config-table config-table--apps">
+                <div className="config-table__row config-table__row--header">
+                  <span>App</span>
+                  <span>Connected social media</span>
+                  <span>Campaigns</span>
+                  <span>Status</span>
+                  <span>Updated</span>
+                  <span>Actions</span>
+                </div>
+                {appRows.map(({ app, connectedAccounts, platforms, relatedCampaigns }) => (
+                  <article className="config-table__row" key={app.id}>
+                    <div className="config-main-cell">
+                      <span className="config-id">{appId(app.id)}</span>
+                      <strong>{app.name}</strong>
+                      <small>{app.description || "No app info yet."}</small>
+                    </div>
+                    <div className="config-chip-list">
+                      {connectedAccounts.length > 0 ? connectedAccounts.map((account) => (
+                        <span className="config-chip" key={accountRef(account)}>
+                          {platformLabel(account.platform)} {account.platform === "reddit" ? account.username : `@${account.username}`}
+                        </span>
+                      )) : platforms.length > 0 ? platforms.map((platform) => (
+                        <span className="config-chip" key={platform}>{platformLabel(platform as AccountPlatform)}</span>
+                      )) : (
+                        <span className="config-muted">No social media connected</span>
+                      )}
+                    </div>
+                    <div className="config-chip-list">
+                      {relatedCampaigns.length > 0 ? relatedCampaigns.map((campaign) => (
+                        <span className="config-chip" key={campaign.id}>{campaign.name}</span>
+                      )) : <span className="config-muted">No campaigns</span>}
+                    </div>
+                    <span className={`config-pill config-pill--${statusTone(app.status)}`}>{app.status}</span>
+                    <span className="config-muted">{formatDisplayDate(app.updated_at || app.created_at)}</span>
+                    <div className="config-row-actions">
+                      <button className="button-secondary" type="button" onClick={() => openEditApp(app)}>
+                        Edit
+                      </button>
+                      <button className="button-secondary config-danger-button" type="button" disabled={saving} onClick={() => void deleteApp(app)}>
+                        Delete
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+        </section>
+      ) : null}
+
+      {tab === "accounts" ? (
+        <section className="panel config-list">
+            <div className="panel__title-row">
+              <h2>Social media accounts</h2>
+              <span className="config-count">{accounts.length}</span>
+            </div>
+            {accounts.length === 0 ? (
+              <div className="config-empty">No social media accounts yet.</div>
+            ) : (
+              <div className="config-table config-table--accounts">
+                <div className="config-table__row config-table__row--header">
+                  <span>Account</span>
+                  <span>Connected apps</span>
+                  <span>Campaigns</span>
+                  <span>Status</span>
+                  <span>Added</span>
+                  <span>Actions</span>
+                </div>
+                {accountRows.map(({ account, connectedApps, relatedCampaigns }) => (
+                  <article className="config-table__row" key={`${account.platform}-${account.id}`}>
+                    <div className="config-main-cell">
+                      <span className="config-id">{accountId(account.platform, account.id)}</span>
+                      <strong>{account.platform === "reddit" ? account.username : `@${account.username}`}</strong>
+                      <small>{platformLabel(account.platform)}</small>
+                    </div>
+                    <div className="config-chip-list">
+                      {connectedApps.length > 0 ? connectedApps.map((app) => (
+                        <span className="config-chip" key={app.id}>{app.name}</span>
+                      )) : <span className="config-muted">No app connected</span>}
+                    </div>
+                    <div className="config-chip-list">
+                      {relatedCampaigns.length > 0 ? relatedCampaigns.map((campaign) => (
+                        <span className="config-chip" key={campaign.id}>{campaign.name}</span>
+                      )) : <span className="config-muted">No campaigns</span>}
+                    </div>
+                    <span className={`config-pill config-pill--${statusTone(account.status)}`}>{account.status}</span>
+                    <span className="config-muted">{formatDisplayDate(account.created_at)}</span>
+                    <div className="config-row-actions">
+                      <button className="button-secondary" type="button" onClick={() => editAccount(account)}>
+                        Edit
+                      </button>
+                      <button className="button-secondary config-danger-button" type="button" disabled={saving} onClick={() => void deleteAccount(account)}>
+                        Delete
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+        </section>
+      ) : null}
+
+      {activeModal === "app" ? (
+        <div className="config-modal-backdrop">
+          <form className="config-modal panel" onSubmit={saveApp}>
+            <div className="panel__title-row">
+              <div>
+                <p className="eyebrow">Apps</p>
+                <h2>{appForm.id ? "Edit app" : "Add app"}</h2>
+              </div>
+              <button className="button-secondary" type="button" onClick={() => setActiveModal(null)}>
+                Close
+              </button>
+            </div>
+            {error ? <p className="error-panel__message">{error}</p> : null}
             <label>
               App name
               <input value={appForm.name} onChange={(event) => setAppForm((current) => ({ ...current, name: event.target.value }))} required />
@@ -468,74 +658,31 @@ export function ConfigPage() {
               AI context
               <textarea rows={5} value={appForm.ai_context} onChange={(event) => setAppForm((current) => ({ ...current, ai_context: event.target.value }))} />
             </label>
-            <button type="submit" disabled={saving}>
-              {saving ? "Saving..." : appForm.id ? "Save app" : "Add app"}
-            </button>
-          </form>
-
-          <section className="panel config-list">
-            <div className="panel__title-row">
-              <h2>Apps</h2>
-              <span className="config-count">{apps.length}</span>
+            <div className="config-modal__actions">
+              <button className="button-secondary" type="button" onClick={() => setActiveModal(null)}>
+                Cancel
+              </button>
+              <button type="submit" disabled={saving}>
+                {saving ? "Saving..." : appForm.id ? "Save app" : "Add app"}
+              </button>
             </div>
-            {apps.length === 0 ? (
-              <div className="config-empty">No apps yet.</div>
-            ) : (
-              <div className="config-card-grid">
-                {apps.map((app) => (
-                  <article className="config-card" key={app.id}>
-                    <div className="config-card__header">
-                      <span className="config-id">{appId(app.id)}</span>
-                      <span className={`config-pill config-pill--${statusTone(app.status)}`}>{app.status}</span>
-                    </div>
-                    <h2>{app.name}</h2>
-                    <p>{app.description || "No app info yet."}</p>
-                    {app.ai_context ? <small>{app.ai_context}</small> : null}
-                    <div className="config-link-row">
-                      {app.website_url ? <a href={app.website_url} target="_blank" rel="noreferrer">Website</a> : null}
-                      {app.app_store_url ? <a href={app.app_store_url} target="_blank" rel="noreferrer">App store</a> : null}
-                    </div>
-                    <div className="config-card__actions">
-                      <button
-                        className="button-secondary"
-                        type="button"
-                        onClick={() => {
-                          setAppForm({
-                            id: app.id,
-                            name: app.name,
-                            website_url: app.website_url || "",
-                            app_store_url: app.app_store_url || "",
-                            description: app.description || "",
-                            ai_context: app.ai_context || "",
-                            status: app.status,
-                          });
-                        }}
-                      >
-                        Edit
-                      </button>
-                      <button className="button-secondary config-danger-button" type="button" disabled={saving} onClick={() => void deleteApp(app)}>
-                        Delete
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
-        </section>
+          </form>
+        </div>
       ) : null}
 
-      {tab === "accounts" ? (
-        <section className="config-layout">
-          <form className="panel config-form" onSubmit={saveAccount}>
+      {activeModal === "account" ? (
+        <div className="config-modal-backdrop">
+          <form className="config-modal panel" onSubmit={saveAccount}>
             <div className="panel__title-row">
-              <h2>{accountForm.id ? "Edit account" : "Add account"}</h2>
-              {accountForm.id ? (
-                <button className="button-secondary" type="button" onClick={() => setAccountForm(emptyAccountForm(accountForm.platform))}>
-                  Cancel edit
-                </button>
-              ) : null}
+              <div>
+                <p className="eyebrow">Social media</p>
+                <h2>{accountForm.id ? "Edit account" : "Add account"}</h2>
+              </div>
+              <button className="button-secondary" type="button" onClick={() => setActiveModal(null)}>
+                Close
+              </button>
             </div>
+            {error ? <p className="error-panel__message">{error}</p> : null}
             <label>
               Platform
               <select
@@ -622,60 +769,16 @@ export function ConfigPage() {
               <p className="config-hint">Leave credential fields blank to keep the saved values.</p>
             ) : null}
 
-            <button type="submit" disabled={saving}>
-              {accountSubmitLabel()}
-            </button>
+            <div className="config-modal__actions">
+              <button className="button-secondary" type="button" onClick={() => setActiveModal(null)}>
+                Cancel
+              </button>
+              <button type="submit" disabled={saving}>
+                {accountSubmitLabel()}
+              </button>
+            </div>
           </form>
-
-          <section className="panel config-list">
-            <div className="panel__title-row">
-              <h2>Social media accounts</h2>
-              <span className="config-count">{accounts.length}</span>
-            </div>
-            <div className="config-account-groups">
-              {accountGroups.map((group) => (
-                <section className="config-account-group" key={group.id}>
-                  <div className="config-account-group__title">
-                    <h3>{group.label}</h3>
-                    <span className="config-count">{group.accounts.length}</span>
-                  </div>
-                  {group.accounts.length === 0 ? (
-                    <div className="config-empty">No {group.label} accounts yet.</div>
-                  ) : (
-                    <div className="config-card-grid">
-                      {group.accounts.map((account) => (
-                        <article className="config-card" key={`${account.platform}-${account.id}`}>
-                          <div className="config-card__header">
-                            <span className="config-id">{accountId(account.platform, account.id)}</span>
-                            <span className={`config-pill config-pill--${statusTone(account.status)}`}>{account.status}</span>
-                          </div>
-                          <h2>{account.platform === "reddit" ? account.username : `@${account.username}`}</h2>
-                          <p>{platformLabel(account.platform)}</p>
-                          <small>
-                            {account.credentials_ready === undefined
-                              ? "OAuth account"
-                              : account.credentials_ready
-                                ? "Credentials ready"
-                                : "Credentials missing"}
-                          </small>
-                          <small>Added {formatDisplayDate(account.created_at)}</small>
-                          <div className="config-card__actions">
-                            <button className="button-secondary" type="button" onClick={() => editAccount(account)}>
-                              Edit
-                            </button>
-                            <button className="button-secondary config-danger-button" type="button" disabled={saving} onClick={() => void deleteAccount(account)}>
-                              Delete
-                            </button>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  )}
-                </section>
-              ))}
-            </div>
-          </section>
-        </section>
+        </div>
       ) : null}
     </div>
   );
