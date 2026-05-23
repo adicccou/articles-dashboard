@@ -24,11 +24,11 @@ export const TopNav: React.FC<TopNavProps> = ({
   onLogout,
 }) => {
   const activeNavRef = useRef<HTMLButtonElement | null>(null);
-  const navItems: Array<{ label: string; view: NavView; rightStart?: boolean }> = [
+  const navItems: Array<{ label: string; view: NavView }> = [
+    { label: "Trading", view: "trading" },
     { label: "Articles", view: "articles" },
     { label: "Social Agents", view: "reddit" },
     { label: "Studio", view: "studio" },
-    { label: "Trading", view: "trading", rightStart: true },
     { label: "Scheduler", view: "planner" },
     { label: "Statistics", view: "statistics" },
   ];
@@ -51,12 +51,12 @@ export const TopNav: React.FC<TopNavProps> = ({
         </div>
 
         <div className={styles.navItems}>
-          {navItems.map(({ label, view, rightStart }) => (
+          {navItems.map(({ label, view }) => (
             <button
               key={view}
               className={`${styles.navItem} ${
                 currentView === view ? styles.active : ""
-              } ${rightStart ? styles.navItemRightStart : ""}`}
+              }`}
               onClick={() => onNavigate(view)}
               ref={(node) => {
                 if (currentView === view) {
