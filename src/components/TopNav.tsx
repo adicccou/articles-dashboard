@@ -5,6 +5,7 @@ import styles from "../styles/topnav.module.css";
 export type NavView =
   | "articles"
   | "reddit"
+  | "studio"
   | "trading"
   | "ml-trading"
   | "planner"
@@ -27,6 +28,7 @@ export const TopNav: React.FC<TopNavProps> = ({
   const navItems: Array<{ label: string; view: NavView }> = [
     { label: "Articles", view: "articles" },
     { label: "Social Agents", view: "reddit" },
+    { label: "Studio", view: "studio" },
     { label: "Trading", view: "trading" },
     { label: "ML Trading", view: "ml-trading" },
     { label: "Scheduler", view: "planner" },

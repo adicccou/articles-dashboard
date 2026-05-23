@@ -1,4 +1,4 @@
-import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialAccountInput, SocialPost, ThreadsCampaignResult, ThreadsMediaResponse, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorkersResponse, MlTradingAssetsResponse, MlTradingDiagnostics, MlTradingSettings } from "./types";
+import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialAccountInput, SocialPost, StudioApp, StudioCampaign, StudioCrawlerRun, StudioStrategistPost, StudioSummary, ThreadsCampaignResult, ThreadsMediaResponse, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorkersResponse, MlTradingAssetsResponse, MlTradingDiagnostics, MlTradingSettings } from "./types";
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -249,6 +249,69 @@ export const api = {
       method: "POST",
       body: JSON.stringify({}),
     }),
+
+  // Studio
+  getStudio: () => request<StudioSummary>("/api/studio"),
+  createStudioApp: (payload: Omit<StudioApp, "id" | "created_at" | "updated_at">) =>
+    request<StudioApp>("/api/studio/apps", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateStudioApp: (id: number, payload: Partial<Omit<StudioApp, "id" | "created_at" | "updated_at">>) =>
+    request<{ success: boolean; updated_at: string }>(`/api/studio/apps/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  deleteStudioApp: (id: number) =>
+    request<{ success: boolean }>(`/api/studio/apps/${id}`, {
+      method: "DELETE",
+    }),
+  createStudioCampaign: (payload: {
+    app_id: number;
+    name: string;
+    campaign_type: "post" | "reply";
+    account_refs: string[];
+    platforms: string[];
+    instructions: string;
+  }) =>
+    request<StudioCampaign>("/api/studio/campaigns", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateStudioCampaign: (id: number, payload: Partial<StudioCampaign>) =>
+    request<{ success: boolean; updated_at: string }>(`/api/studio/campaigns/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  deleteStudioCampaign: (id: number) =>
+    request<{ success: boolean }>(`/api/studio/campaigns/${id}`, {
+      method: "DELETE",
+    }),
+  createStudioCrawlerRun: (payload: {
+    campaign_id?: number | null;
+    app_id?: number;
+    campaign_type?: "post" | "reply";
+    account_refs?: string[];
+    platforms?: string[];
+    instructions?: string;
+  }) =>
+    request<StudioCrawlerRun>("/api/studio/crawler-runs", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateStudioStrategistPost: (id: number, payload: Partial<StudioStrategistPost>) =>
+    request<{ success: boolean; updated_at: string }>(`/api/studio/strategist-posts/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  scheduleStudioStrategistPost: (id: number, payload: { scheduled_at?: string | null; media_url?: string | null }) =>
+    request<{ success: boolean; social_post_id: number; planner_item_id: number; scheduled_at: string }>(
+      `/api/studio/strategist-posts/${id}/schedule`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    ),
 
   // Twitter accounts
   listTwitterAccounts: () => request<SocialAccount[]>("/api/social/twitter/accounts"),

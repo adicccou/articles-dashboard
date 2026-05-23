@@ -706,6 +706,96 @@ export type SocialPost = {
   updated_at: string;
 };
 
+export type StudioAccount = {
+  id: number;
+  platform: "twitter" | "threads" | "reddit";
+  username: string;
+  status: "active" | "inactive";
+  ref: string;
+  label: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StudioApp = {
+  id: number;
+  name: string;
+  website_url?: string | null;
+  app_store_url?: string | null;
+  description: string;
+  ai_context: string;
+  status: "active" | "inactive" | "archived";
+  created_at: string;
+  updated_at: string;
+};
+
+export type StudioCampaign = {
+  id: number;
+  app_id: number;
+  app_name?: string | null;
+  name: string;
+  campaign_type: "post" | "reply";
+  account_refs: string[];
+  platforms: Array<"twitter" | "threads" | "reddit">;
+  instructions: string;
+  status: "active" | "paused" | "archived";
+  created_at: string;
+  updated_at: string;
+};
+
+export type StudioCrawlerRun = {
+  id: number;
+  campaign_id?: number | null;
+  campaign_name?: string | null;
+  app_id: number;
+  app_name?: string | null;
+  campaign_type: "post" | "reply";
+  account_refs: string[];
+  platforms: Array<"twitter" | "threads" | "reddit">;
+  instructions: string;
+  status: "pending" | "running" | "completed" | "failed";
+  crawler_summary?: string | null;
+  raw_data?: unknown;
+  error_message?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StudioStrategistPost = {
+  id: number;
+  crawler_run_id: number;
+  campaign_id?: number | null;
+  campaign_name?: string | null;
+  app_id: number;
+  app_name?: string | null;
+  platform: "twitter" | "threads" | "reddit";
+  post_text: string;
+  idea: string;
+  rationale: string;
+  target_url?: string | null;
+  target_external_id?: string | null;
+  target_author?: string | null;
+  target_text?: string | null;
+  media_type: "none" | "photo" | "video";
+  media_url?: string | null;
+  status: "suggested" | "asset_needed" | "scheduled" | "posted" | "dismissed";
+  social_post_id?: number | null;
+  planner_item_id?: number | null;
+  scheduled_at?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StudioSummary = {
+  accounts: StudioAccount[];
+  apps: StudioApp[];
+  campaigns: StudioCampaign[];
+  crawler_runs: StudioCrawlerRun[];
+  strategist_posts: StudioStrategistPost[];
+};
+
 export type ThreadsMedia = {
   id: string;
   media_product_type?: string;

@@ -1,6 +1,6 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
-import { listSocialPosts, createSocialPost, updateSocialPost, deleteSocialPost } from "./twitter";
+import { listSocialPosts, createSocialPost, updateSocialPost, deleteSocialPost, getSocialPostSchemaCapabilities } from "./twitter";
 
 // Re-export post handlers using the 'threads' platform
 export { listSocialPosts, createSocialPost, updateSocialPost, deleteSocialPost };
@@ -276,9 +276,12 @@ export async function publishThreadsPost(env: Env, postId: string): Promise<Resp
     const id = Number(postId);
     if (Number.isNaN(id)) return errorResponse("Invalid post ID", 400);
 
-    const post = await env.DB.prepare("SELECT id, content, image_url, status FROM social_posts WHERE id = ? AND platform = 'threads'")
+    const capabilities = await getSocialPostSchemaCapabilities(env);
+    const accountSelect = capabilities.hasAccountId ? "account_id" : "NULL AS account_id";
+    const replySelect = capabilities.hasReplyToId ? "reply_to_id" : "NULL AS reply_to_id";
+    const post = await env.DB.prepare(`SELECT id, content, image_url, status, ${accountSelect}, ${replySelect} FROM social_posts WHERE id = ? AND platform = 'threads'`)
       .bind(id)
-      .first<{ id: number; content: string; image_url: string | null; status: string }>();
+      .first<{ id: number; content: string; image_url: string | null; status: string; account_id: number | null; reply_to_id: string | null }>();
     if (!post) return errorResponse("Threads post not found", 404);
     if (!post.content?.trim() && !post.image_url?.trim()) return errorResponse("Post content is empty", 400);
     if (post.status === "posted") return errorResponse("Post is already published", 400);
@@ -287,6 +290,8 @@ export async function publishThreadsPost(env: Env, postId: string): Promise<Resp
     const published = await publishThreadsText(env, {
       text: post.content.trim(),
       imageUrl: post.image_url?.trim() || undefined,
+      replyToId: post.reply_to_id?.trim() || undefined,
+      accountId: post.account_id ?? undefined,
     });
     await env.DB.prepare(
       `UPDATE social_posts

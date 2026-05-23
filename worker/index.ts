@@ -60,6 +60,27 @@ import {
   upsertThreadsCampaignResults,
   updateThreadsCampaignResult,
 } from "./handlers/threads-campaigns";
+import {
+  createStudioApp,
+  createStudioCampaign,
+  createStudioCrawlerRun,
+  createStudioStrategistPosts,
+  deleteStudioApp,
+  deleteStudioCampaign,
+  getStudioSummary,
+  listStudioAccounts,
+  listStudioApps,
+  listStudioCampaigns,
+  listStudioCrawlerRuns,
+  listStudioNotifications,
+  listStudioStrategistPosts,
+  scheduleStudioStrategistPost,
+  updateStudioApp,
+  updateStudioCampaign,
+  updateStudioCrawlerRun,
+  updateStudioNotification,
+  updateStudioStrategistPost,
+} from "./handlers/studio";
 
 function withCors(response: Response): Response {
   const headers = new Headers(response.headers);
@@ -968,6 +989,38 @@ export default {
       return await upsertThreadsCampaignResults(env, request);
     }
 
+    if (url.pathname === "/api/internal/studio/crawler-runs" && request.method === "GET") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await listStudioCrawlerRuns(env, url);
+    }
+
+    if (url.pathname.startsWith("/api/internal/studio/crawler-runs/") && request.method === "PUT") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[5];
+      return await updateStudioCrawlerRun(env, id, request);
+    }
+
+    if (url.pathname === "/api/internal/studio/strategist-posts/bulk" && request.method === "POST") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await createStudioStrategistPosts(env, request);
+    }
+
+    if (url.pathname === "/api/internal/studio/notifications" && request.method === "GET") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await listStudioNotifications(env, url);
+    }
+
+    if (url.pathname.startsWith("/api/internal/studio/notifications/") && request.method === "PUT") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[5];
+      return await updateStudioNotification(env, id, request);
+    }
+
     if (url.pathname === "/api/internal/settings/ctrader/complete" && request.method === "POST") {
       const unauthorized = await requireAgentAuth(request, env);
       if (unauthorized) return unauthorized;
@@ -979,6 +1032,102 @@ export default {
       if (unauthorized) return unauthorized;
       const id = url.pathname.split("/")[6];
       return await updateThreadsCampaignResult(env, id, request);
+    }
+
+    if (url.pathname === "/api/studio" && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await getStudioSummary(env);
+    }
+
+    if (url.pathname === "/api/studio/accounts" && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await listStudioAccounts(env);
+    }
+
+    if (url.pathname === "/api/studio/apps" && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await listStudioApps(env);
+    }
+
+    if (url.pathname === "/api/studio/apps" && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await createStudioApp(env, request);
+    }
+
+    if (url.pathname.startsWith("/api/studio/apps/") && request.method === "PUT") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      return await updateStudioApp(env, id, request);
+    }
+
+    if (url.pathname.startsWith("/api/studio/apps/") && request.method === "DELETE") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      return await deleteStudioApp(env, id);
+    }
+
+    if (url.pathname === "/api/studio/campaigns" && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await listStudioCampaigns(env);
+    }
+
+    if (url.pathname === "/api/studio/campaigns" && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await createStudioCampaign(env, request);
+    }
+
+    if (url.pathname.startsWith("/api/studio/campaigns/") && request.method === "PUT") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      return await updateStudioCampaign(env, id, request);
+    }
+
+    if (url.pathname.startsWith("/api/studio/campaigns/") && request.method === "DELETE") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      return await deleteStudioCampaign(env, id);
+    }
+
+    if (url.pathname === "/api/studio/crawler-runs" && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await listStudioCrawlerRuns(env, url);
+    }
+
+    if (url.pathname === "/api/studio/crawler-runs" && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await createStudioCrawlerRun(env, request);
+    }
+
+    if (url.pathname === "/api/studio/strategist-posts" && request.method === "GET") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await listStudioStrategistPosts(env, url);
+    }
+
+    if (url.pathname.startsWith("/api/studio/strategist-posts/") && url.pathname.endsWith("/schedule") && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      return await scheduleStudioStrategistPost(env, id, request);
+    }
+
+    if (url.pathname.startsWith("/api/studio/strategist-posts/") && request.method === "PUT") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      return await updateStudioStrategistPost(env, id, request);
     }
 
     if (url.pathname === "/api/sites" && request.method === "GET") {

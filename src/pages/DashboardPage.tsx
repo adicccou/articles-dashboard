@@ -4,6 +4,7 @@ import type { NavView } from "../components/TopNav";
 import { ArticleEditor } from "../components/ArticleEditor";
 import { SiteForm } from "../components/SiteForm";
 import { SocialAgentsPage } from "./SocialAgentsPage";
+import { StudioPage } from "./StudioPage";
 import { TradingPage } from "./TradingPage";
 import { MlTradingPage } from "./MlTradingPage";
 import { PlannerPage } from "./PlannerPage";
@@ -86,6 +87,10 @@ export function DashboardPage({
 
     if (view === "reddit") {
       return <SocialAgentsPage />;
+    }
+
+    if (view === "studio") {
+      return <StudioPage onUpload={onUpload} />;
     }
 
     if (view === "trading") {

@@ -36,6 +36,7 @@ type RedditSocialPostRow = {
   status: string;
   external_id: string | null;
   account_id: number | null;
+  reply_to_id?: string | null;
 };
 
 type RedditApiThing = {
@@ -428,29 +429,37 @@ export async function publishRedditPost(env: Env, postId: string): Promise<Respo
 
     const id = Number(postId);
     if (Number.isNaN(id)) return errorResponse("Invalid post ID", 400);
+    const replySelect = capabilities.hasReplyToId ? "reply_to_id" : "NULL AS reply_to_id";
     const post = await env.DB.prepare(
-      "SELECT id, title, subreddit, content, status, external_id, account_id FROM social_posts WHERE id = ? AND platform = 'reddit'",
+      `SELECT id, title, subreddit, content, status, external_id, account_id, ${replySelect} FROM social_posts WHERE id = ? AND platform = 'reddit'`,
     ).bind(id).first<RedditSocialPostRow>();
     if (!post) return errorResponse("Reddit post not found", 404);
-    if (!post.title?.trim()) return errorResponse("Reddit posts need a title.", 400);
-    if (!post.subreddit?.trim()) return errorResponse("Reddit posts need a subreddit.", 400);
+    const isReply = Boolean(post.reply_to_id?.trim());
+    if (!isReply && !post.title?.trim()) return errorResponse("Reddit posts need a title.", 400);
+    if (!isReply && !post.subreddit?.trim()) return errorResponse("Reddit posts need a subreddit.", 400);
+    if (isReply && !post.content?.trim()) return errorResponse("Reddit replies need text.", 400);
     if (post.status === "posted") return errorResponse("Post is already published", 400);
 
-    const published = await submitRedditSelfPost(env, {
-      title: post.title.trim(),
-      subreddit: post.subreddit.trim(),
-      text: post.content?.trim() || "",
-      accountId: post.account_id,
-    });
+    const account = await getActiveRedditAccount(env, post.account_id ?? undefined);
+    if (!account) return errorResponse("No active Reddit account is connected.", 400);
+    const readyAccount = await ensureRedditAccessToken(env, account);
+    const externalId = isReply
+      ? await submitRedditReply(readyAccount, post.reply_to_id?.trim() || "", post.content?.trim() || "")
+      : (await submitRedditSelfPost(env, {
+        title: post.title?.trim() || "",
+        subreddit: post.subreddit?.trim() || "",
+        text: post.content?.trim() || "",
+        accountId: readyAccount.id,
+      })).externalId;
     const now = new Date().toISOString();
     await env.DB.prepare(
       `UPDATE social_posts
        SET status = 'posted', posted_at = ?, external_id = ?, account_id = ?, updated_at = ?
        WHERE id = ?`,
     )
-      .bind(now, published.externalId, published.accountId, now, id)
+      .bind(now, externalId, readyAccount.id, now, id)
       .run();
-    return jsonResponse({ success: true, external_id: published.externalId, posted_at: now, account_id: published.accountId });
+    return jsonResponse({ success: true, external_id: externalId, posted_at: now, account_id: readyAccount.id });
   } catch (error) {
     const id = Number(postId);
     if (!Number.isNaN(id)) {
