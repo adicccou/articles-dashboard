@@ -82,18 +82,6 @@ function scoreTone(score: number) {
   return "soft";
 }
 
-function extractSearchQueries(run: StudioSummary["crawler_runs"][number] | null): string[] {
-  const raw = run?.raw_data;
-  if (!raw || typeof raw !== "object") return [];
-  const data = raw as Record<string, unknown>;
-  const querySource = Array.isArray(data.search_queries)
-    ? data.search_queries
-    : Array.isArray(data.queries)
-      ? data.queries
-      : [];
-  return querySource.map((query) => String(query ?? "").trim()).filter(Boolean).slice(0, 8);
-}
-
 function pipelineCount(runSignals: StudioSignal[], status: StudioSignal["status"]) {
   return runSignals.filter((signal) => signal.status === status).length;
 }
@@ -189,8 +177,6 @@ export function StudioPage({ onUpload }: StudioPageProps) {
       : [],
     [selectedRun, summary.signals],
   );
-
-  const selectedRunQueries = useMemo(() => extractSearchQueries(selectedRun), [selectedRun]);
 
   const campaignAccounts = useMemo(
     () => summary.accounts.filter((account) => accountMatchesPlatforms(account, campaignForm.platforms)),
@@ -403,108 +389,56 @@ export function StudioPage({ onUpload }: StudioPageProps) {
         )}
       </section>
 
-      {tab === "signals" ? (
-        <section className="studio-signals-layout">
-          <aside className="panel studio-run-list">
-            <div className="panel__title-row">
-              <h2>Crawler runs</h2>
-              <span className="studio-count">{summary.crawler_runs.length}</span>
-            </div>
-            {summary.crawler_runs.length === 0 ? (
-              <p className="studio-muted">No runs yet.</p>
-            ) : summary.crawler_runs.map((run) => (
-              <button
-                className={`studio-run-button ${selectedRun?.id === run.id ? "studio-run-button--active" : ""}`}
-                key={run.id}
-                type="button"
-                onClick={() => setSelectedRunId(run.id)}
-              >
-                <span>{studioId("CR", run.id)}</span>
-                <small>{run.campaign_name || run.app_name || run.status}</small>
-                <small>{run.status}</small>
-              </button>
+      {tab === "signals" && summary.signals.length > 0 ? (
+        <section className="panel studio-signals-panel">
+          <div className="panel__title-row">
+            <h2>Signals</h2>
+            <span className="studio-count">{summary.signals.length}</span>
+          </div>
+          <div className="studio-pipeline">
+            {[
+              { label: "Fetched", value: summary.signals.length },
+              { label: "Filtered", value: pipelineCount(summary.signals, "filtered") },
+              { label: "Pain points", value: summary.signals.filter((signal) => signal.pain_point).length },
+              {
+                label: "Top score",
+                value: Math.max(...summary.signals.map((signal) => signal.opportunity_score)),
+              },
+            ].map((step) => (
+              <div className="studio-pipeline-step" key={step.label}>
+                <span>{step.label}</span>
+                <strong>{step.value}</strong>
+              </div>
             ))}
-          </aside>
-
-          <section className="panel studio-signals-panel">
-            {selectedRun ? (
-              <>
-                <div className="panel__title-row">
-                  <div>
-                    <p className="eyebrow">{studioId("CR", selectedRun.id)}</p>
-                    <h2>Signals</h2>
-                  </div>
-                  <span className={`studio-pill studio-pill--${statusTone(selectedRun.status)}`}>{selectedRun.status}</span>
+          </div>
+          <div className="studio-signal-grid">
+            {summary.signals.map((signal) => (
+              <article className="studio-signal-card" key={signal.id}>
+                <div className="studio-card__header">
+                  <span className="studio-id">{studioId("SIG", signal.id)}</span>
+                  <span className={`studio-pill studio-pill--${statusTone(signal.status)}`}>{signal.status}</span>
                 </div>
-
-                <div className="studio-pipeline">
-                  {[
-                    { label: "AI queries", value: selectedRunQueries.length || "—" },
-                    { label: "Fetched", value: selectedRunSignals.length || "—" },
-                    { label: "Filtered", value: pipelineCount(selectedRunSignals, "filtered") },
-                    { label: "Pain points", value: selectedRunSignals.filter((signal) => signal.pain_point).length },
-                    {
-                      label: "Top score",
-                      value: selectedRunSignals.length
-                        ? Math.max(...selectedRunSignals.map((signal) => signal.opportunity_score))
-                        : "—",
-                    },
-                  ].map((step) => (
-                    <div className="studio-pipeline-step" key={step.label}>
-                      <span>{step.label}</span>
-                      <strong>{step.value}</strong>
-                    </div>
-                  ))}
+                <div className="studio-signal-card__score">
+                  <span className={`studio-score studio-score--${scoreTone(signal.opportunity_score)}`}>
+                    {signal.opportunity_score}
+                  </span>
+                  <span>{platformLabel(signal.platform)}</span>
+                  {signal.source ? <span>{signal.source}</span> : null}
                 </div>
-
-                {selectedRunQueries.length > 0 ? (
-                  <div className="studio-query-list">
-                    {selectedRunQueries.map((query) => (
-                      <span className="studio-chip" key={query}>{query}</span>
-                    ))}
-                  </div>
+                <h2>{signal.pain_point || signal.title || "Untitled signal"}</h2>
+                {signal.evidence || signal.snippet ? (
+                  <p className="studio-card__copy">{signal.evidence || signal.snippet}</p>
                 ) : null}
-
-                {selectedRun.crawler_summary ? <p className="studio-card__copy">{selectedRun.crawler_summary}</p> : null}
-                {selectedRun.error_message ? <p className="error">{selectedRun.error_message}</p> : null}
-
-                {selectedRunSignals.length === 0 ? (
-                  <div className="studio-empty">No signals yet.</div>
-                ) : (
-                  <div className="studio-signal-grid">
-                    {selectedRunSignals.map((signal) => (
-                      <article className="studio-signal-card" key={signal.id}>
-                        <div className="studio-card__header">
-                          <span className="studio-id">{studioId("SIG", signal.id)}</span>
-                          <span className={`studio-pill studio-pill--${statusTone(signal.status)}`}>{signal.status}</span>
-                        </div>
-                        <div className="studio-signal-card__score">
-                          <span className={`studio-score studio-score--${scoreTone(signal.opportunity_score)}`}>
-                            {signal.opportunity_score}
-                          </span>
-                          <span>{platformLabel(signal.platform)}</span>
-                          {signal.source ? <span>{signal.source}</span> : null}
-                        </div>
-                        <h2>{signal.pain_point || signal.title || "Untitled signal"}</h2>
-                        {signal.evidence || signal.snippet ? (
-                          <p className="studio-card__copy">{signal.evidence || signal.snippet}</p>
-                        ) : null}
-                        {signal.audience ? <p className="studio-muted">{signal.audience}</p> : null}
-                        {signal.query ? <span className="studio-chip">{signal.query}</span> : null}
-                        {signal.url ? (
-                          <a className="studio-source-link" href={signal.url} target="_blank" rel="noreferrer">
-                            Source
-                          </a>
-                        ) : null}
-                      </article>
-                    ))}
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="studio-empty">No crawler run selected.</div>
-            )}
-          </section>
+                {signal.audience ? <p className="studio-muted">{signal.audience}</p> : null}
+                {signal.query ? <span className="studio-chip">{signal.query}</span> : null}
+                {signal.url ? (
+                  <a className="studio-source-link" href={signal.url} target="_blank" rel="noreferrer">
+                    Source
+                  </a>
+                ) : null}
+              </article>
+            ))}
+          </div>
         </section>
       ) : null}
 
