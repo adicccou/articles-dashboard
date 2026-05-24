@@ -102,6 +102,77 @@ function isLikelyContentUrl(platform: string, value: unknown) {
   }
 }
 
+function isPlatformUrl(platform: string, value: unknown) {
+  const url = normalizeExternalUrl(value);
+  if (!url) return "";
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    if (platform === "reddit") return host.endsWith("reddit.com") ? url : "";
+    if (platform === "threads") return host.endsWith("threads.net") ? url : "";
+    if (platform === "twitter") return host.endsWith("x.com") || host.endsWith("twitter.com") ? url : "";
+    return "";
+  } catch {
+    return "";
+  }
+}
+
+function isSocialNavigationUrl(platform: string, value: unknown) {
+  const url = isPlatformUrl(platform, value);
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    const path = parsed.pathname.toLowerCase();
+    if (platform === "twitter") {
+      return path === "/"
+        || path.startsWith("/i/jf/onboarding")
+        || path.startsWith("/login")
+        || path.startsWith("/search")
+        || path.startsWith("/home")
+        || path.startsWith("/explore");
+    }
+    if (platform === "threads") {
+      return path === "/" || path.startsWith("/login") || path.startsWith("/search");
+    }
+    if (platform === "reddit") {
+      return path === "/" || path.startsWith("/login") || path.startsWith("/search");
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+function authorFromSocialUrl(platform: string, value: unknown) {
+  const url = normalizeExternalUrl(value);
+  if (!url) return "";
+  try {
+    const parts = new URL(url).pathname.split("/").filter(Boolean);
+    if (platform === "threads") {
+      const handle = parts.find((part) => part.startsWith("@"));
+      return handle ? handle.replace(/^@+/, "") : "";
+    }
+    if (platform === "twitter") {
+      const first = parts[0] ?? "";
+      return first && !["i", "search", "home", "explore"].includes(first.toLowerCase()) ? first.replace(/^@+/, "") : "";
+    }
+    if (platform === "reddit") {
+      const userIndex = parts.findIndex((part) => ["user", "u"].includes(part.toLowerCase()));
+      return userIndex >= 0 && parts[userIndex + 1] ? parts[userIndex + 1] : "";
+    }
+  } catch {
+    return "";
+  }
+  return "";
+}
+
+function profileLinkForAuthor(platform: string, author: string) {
+  const cleanAuthor = author.replace(/^@+/, "").trim();
+  if (!cleanAuthor) return "";
+  if (platform === "reddit") return `https://www.reddit.com/user/${encodeURIComponent(cleanAuthor)}`;
+  if (platform === "threads") return `https://www.threads.net/@${encodeURIComponent(cleanAuthor)}`;
+  return `https://x.com/${encodeURIComponent(cleanAuthor)}`;
+}
+
 type StudioIconName = "edit" | "regenerate" | "save" | "cancel" | "delete";
 
 function StudioIcon({ name }: { name: StudioIconName }) {
@@ -163,6 +234,10 @@ export function StudioPage({ onUpload }: StudioPageProps) {
   const [campaignForm, setCampaignForm] = useState<CampaignForm>(emptyCampaignForm);
   const [uploadingPostId, setUploadingPostId] = useState<number | null>(null);
   const [schedulingPostId, setSchedulingPostId] = useState<number | null>(null);
+  const [editingPostId, setEditingPostId] = useState<number | null>(null);
+  const [editingPostText, setEditingPostText] = useState("");
+  const [savingPostId, setSavingPostId] = useState<number | null>(null);
+  const [regeneratingPostId, setRegeneratingPostId] = useState<number | null>(null);
   const [deletingSignalId, setDeletingSignalId] = useState<number | null>(null);
 
   async function load({ silent = false } = {}) {
@@ -408,6 +483,62 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     }
   }
 
+  async function saveSuggestionEdit(post: StudioStrategistPost) {
+    const postText = editingPostText.trim();
+    if (!postText) {
+      setError("Suggestion text is required.");
+      return;
+    }
+
+    try {
+      setSavingPostId(post.id);
+      setError(null);
+      const result = await api.updateStudioStrategistPost(post.id, { post_text: postText });
+      setSummary((current) => ({
+        ...current,
+        strategist_posts: current.strategist_posts.map((item) => item.id === post.id
+          ? {
+              ...item,
+              post_text: postText,
+              updated_at: result.updated_at,
+            }
+          : item),
+      }));
+      setEditingPostId(null);
+      setEditingPostText("");
+      setFeedback("Suggestion updated.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update suggestion");
+    } finally {
+      setSavingPostId(null);
+    }
+  }
+
+  async function regenerateSuggestion(post: StudioStrategistPost) {
+    const run = runsById.get(post.crawler_run_id);
+    const isReply = run?.campaign_type === "reply"
+      || Boolean(post.target_external_id || post.target_url || post.target_author || post.target_text);
+
+    try {
+      setRegeneratingPostId(post.id);
+      setError(null);
+      const updated = await api.regenerateStudioStrategistPost(post.id);
+      setSummary((current) => ({
+        ...current,
+        strategist_posts: current.strategist_posts.map((item) => item.id === post.id ? updated : item),
+      }));
+      if (editingPostId === post.id) {
+        setEditingPostId(null);
+        setEditingPostText("");
+      }
+      setFeedback(isReply ? "Reply suggestion updated." : "Post suggestion updated.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update suggestion");
+    } finally {
+      setRegeneratingPostId(null);
+    }
+  }
+
   async function deleteSignal(signal: StudioSignal) {
     const confirmed = window.confirm("Delete this crawler result?");
     if (!confirmed) return;
@@ -460,34 +591,90 @@ export function StudioPage({ onUpload }: StudioPageProps) {
   }
 
   function profileLinkForPost(post: StudioStrategistPost, signal?: StudioSignal | null) {
-    const rawProfileUrl = normalizeExternalUrl(rawString(signal?.raw_data, ["user_url", "profile_url", "account_url", "author_url"]));
+    const rawProfileUrl = normalizeExternalUrl(rawString(signal?.raw_data, [
+      "user_url",
+      "user_profile_url",
+      "profile_url",
+      "account_url",
+      "author_url",
+      "author_profile_url",
+    ]));
     if (rawProfileUrl) return rawProfileUrl;
-    const author = String(post.target_author ?? signal?.author ?? "").replace(/^@+/, "").trim();
-    if (!author) return "";
-    if (post.platform === "reddit") return `https://www.reddit.com/user/${encodeURIComponent(author)}`;
-    if (post.platform === "threads") return `https://www.threads.net/@${encodeURIComponent(author)}`;
-    return `https://x.com/${encodeURIComponent(author)}`;
+    const author = String(post.target_author ?? signal?.author ?? rawString(signal?.raw_data, [
+      "target_author",
+      "author_username",
+      "username",
+      "screen_name",
+      "handle",
+    ])).replace(/^@+/, "").trim()
+      || authorFromSocialUrl(post.platform, strategistCommentUrl(post, signal))
+      || authorFromSocialUrl(post.platform, strategistPostUrl(post, signal));
+    return profileLinkForAuthor(post.platform, author);
   }
 
   function profileLinkForSignal(signal: StudioSignal) {
-    const author = String(signal.author ?? "").replace(/^@+/, "").trim();
-    if (!author) return "";
-    if (signal.platform === "reddit") return `https://www.reddit.com/user/${encodeURIComponent(author)}`;
-    if (signal.platform === "threads") return `https://www.threads.net/@${encodeURIComponent(author)}`;
-    return `https://x.com/${encodeURIComponent(author)}`;
+    const rawProfileUrl = normalizeExternalUrl(rawString(signal.raw_data, [
+      "user_url",
+      "user_profile_url",
+      "profile_url",
+      "account_url",
+      "author_url",
+      "author_profile_url",
+    ]));
+    if (rawProfileUrl) return rawProfileUrl;
+    const author = String(signal.author ?? rawString(signal.raw_data, [
+      "target_author",
+      "author_username",
+      "username",
+      "screen_name",
+      "handle",
+    ])).replace(/^@+/, "").trim()
+      || authorFromSocialUrl(signal.platform, signalCommentUrl(signal))
+      || authorFromSocialUrl(signal.platform, signalPostUrl(signal));
+    return profileLinkForAuthor(signal.platform, author);
   }
 
-  function signalUrl(signal: StudioSignal, keys: string[]) {
-    const rawUrl = rawString(signal.raw_data, keys);
+  function signalRawUrl(signal: StudioSignal, keys: string[]) {
+    return normalizeExternalUrl(rawString(signal.raw_data, keys));
+  }
+
+  function signalSourceUrl(signal: StudioSignal) {
+    const rawUrl = signalRawUrl(signal, ["source_url", "url", "link", "href"]);
     return isLikelyContentUrl(signal.platform, rawUrl) || isLikelyContentUrl(signal.platform, signal.url);
   }
 
+  function signalUrl(signal: StudioSignal, keys: string[], allowSourceFallback = false) {
+    const rawUrl = signalRawUrl(signal, keys);
+    const explicitUrl = isSocialNavigationUrl(signal.platform, rawUrl) ? "" : isLikelyContentUrl(signal.platform, rawUrl);
+    return explicitUrl
+      || isLikelyContentUrl(signal.platform, signal.url)
+      || (allowSourceFallback ? signalSourceUrl(signal) : "");
+  }
+
   function signalCommentUrl(signal?: StudioSignal | null) {
-    return signal ? signalUrl(signal, ["comment_url", "reply_url", "target_url"]) : "";
+    return signal ? signalUrl(signal, [
+      "comment_url",
+      "comment_link",
+      "reply_url",
+      "reply_link",
+      "target_comment_url",
+      "target_url",
+      "permalink",
+    ], true) : "";
   }
 
   function signalPostUrl(signal?: StudioSignal | null) {
-    return signal ? signalUrl(signal, ["post_url", "source_post_url", "parent_post_url", "thread_url"]) : "";
+    if (!signal) return "";
+    return signalUrl(signal, [
+      "post_url",
+      "post_link",
+      "source_post_url",
+      "parent_post_url",
+      "thread_url",
+      "tweet_url",
+    ])
+      || parentPostUrl(signal.platform, signalCommentUrl(signal))
+      || signalSourceUrl(signal);
   }
 
   function matchingSignalForPost(post: StudioStrategistPost, fallbackIndex = 0) {
@@ -526,8 +713,8 @@ export function StudioPage({ onUpload }: StudioPageProps) {
 
   function renderSignal(signal: StudioSignal) {
     const profileUrl = profileLinkForSignal(signal);
-    const commentUrl = signalUrl(signal, ["comment_url", "reply_url", "target_url"]);
-    const postUrl = signalUrl(signal, ["post_url", "source_post_url", "parent_post_url", "thread_url"]);
+    const commentUrl = signalCommentUrl(signal);
+    const postUrl = signalPostUrl(signal);
     const commentText = signal.snippet || signal.evidence || signal.title || "No comment text saved.";
 
     return (
@@ -577,7 +764,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
 
         <div className="studio-reply-section studio-reply-suggestion">
           <div className="studio-reply-section__header">
-            <span className="studio-id">Suggestion reply</span>
+            <span className="studio-id">Reply suggestion</span>
             <div className="studio-row-actions">
               <button className="button-secondary studio-icon-button" type="button" aria-label="Edit suggestion" title="Edit suggestion" disabled>
                 <StudioIcon name="edit" />
@@ -595,6 +782,14 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     );
   }
 
+  function isVisibleSignal(signal: StudioSignal, campaign?: StudioCampaign | null) {
+    if (signal.status === "filtered" || signal.status === "rejected") return false;
+    if (campaign?.campaign_type === "reply") {
+      return Boolean(signalPostUrl(signal) && signalCommentUrl(signal) && profileLinkForSignal(signal));
+    }
+    return Boolean(signalPostUrl(signal) || signalCommentUrl(signal) || profileLinkForSignal(signal) || signal.snippet || signal.evidence);
+  }
+
   function renderStrategistPost(post: StudioStrategistPost, index = 0) {
     const run = runsById.get(post.crawler_run_id);
     const isReplyData = run?.campaign_type === "reply"
@@ -605,6 +800,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
       post.campaign_name,
       post.idea,
     ].filter(Boolean).join(" "));
+    const showSourceLinks = isReplyData;
     const needsMedia = post.media_type === "photo" || post.media_type === "video";
     const canSchedule = post.status !== "scheduled"
       && (!needsMedia || Boolean(post.media_url))
@@ -617,42 +813,116 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     const scheduledLabel = post.status === "scheduled" || post.scheduled_at
       ? formatScheduledLabel(post.scheduled_at)
       : null;
+    const canModifySuggestion = post.status !== "scheduled" && post.status !== "posted";
+    const isEditingSuggestion = editingPostId === post.id;
+    const suggestionLabel = isReplyData ? "Dashboard AI suggestion to reply" : "Post suggestion";
+    const updateTitle = isReplyData ? "Generate new reply suggestion" : "Generate new post suggestion";
 
     if (isCommentWorkflow) {
       return (
         <article className="studio-post-card studio-reply-card" key={post.id}>
-          <div className="studio-link-pill-row">
-            {postUrl ? (
-              <a className="studio-link-pill" href={postUrl} target="_blank" rel="noreferrer" title={postUrl}>
-                Post
-              </a>
-            ) : (
-              <span className="studio-link-pill studio-link-pill--muted" title="No real post link captured">No post</span>
-            )}
-            {commentUrl ? (
-              <a className="studio-link-pill" href={commentUrl} target="_blank" rel="noreferrer" title={commentUrl}>
-                Comment
-              </a>
-            ) : (
-              <span className="studio-link-pill studio-link-pill--muted" title="No real comment link captured">No comment</span>
-            )}
-            {profileUrl ? (
-              <a className="studio-link-pill" href={profileUrl} target="_blank" rel="noreferrer" title="Open user account">
-                User
-              </a>
-            ) : (
-              <span className="studio-link-pill studio-link-pill--muted" title="No user account link captured">No user</span>
-            )}
-          </div>
+          {showSourceLinks ? (
+            <div className="studio-link-pill-row">
+              {postUrl ? (
+                <a className="studio-link-pill" href={postUrl} target="_blank" rel="noreferrer" title={postUrl}>
+                  Post
+                </a>
+              ) : (
+                <span className="studio-link-pill studio-link-pill--muted" title="No real post link captured">No post</span>
+              )}
+              {commentUrl ? (
+                <a className="studio-link-pill" href={commentUrl} target="_blank" rel="noreferrer" title={commentUrl}>
+                  Comment
+                </a>
+              ) : (
+                <span className="studio-link-pill studio-link-pill--muted" title="No real comment link captured">No comment</span>
+              )}
+              {profileUrl ? (
+                <a className="studio-link-pill" href={profileUrl} target="_blank" rel="noreferrer" title="Open user account">
+                  User
+                </a>
+              ) : (
+                <span className="studio-link-pill studio-link-pill--muted" title="No user account link captured">No user</span>
+              )}
+            </div>
+          ) : null}
 
-          <div className="studio-reply-section">
-            <span className="studio-id">Comment crawled by instructions</span>
-            <p>{commentText}</p>
-          </div>
+          {isReplyData ? (
+            <div className="studio-reply-section">
+              <span className="studio-id">Comment crawled by instructions</span>
+              <p>{commentText}</p>
+            </div>
+          ) : null}
 
           <div className="studio-reply-section studio-reply-suggestion">
-            <span className="studio-id">Dashboard AI suggestion to reply</span>
-            <p>{post.post_text}</p>
+            <div className="studio-reply-section__header">
+              <span className="studio-id">{suggestionLabel}</span>
+              <div className="studio-row-actions">
+                {isEditingSuggestion ? (
+                  <>
+                    <button
+                      className="button-secondary studio-icon-button"
+                      type="button"
+                      aria-label={savingPostId === post.id ? "Saving suggestion" : "Save suggestion"}
+                      title={savingPostId === post.id ? "Saving suggestion" : "Save suggestion"}
+                      disabled={savingPostId === post.id}
+                      onClick={() => void saveSuggestionEdit(post)}
+                    >
+                      <StudioIcon name="save" />
+                    </button>
+                    <button
+                      className="button-secondary studio-icon-button"
+                      type="button"
+                      aria-label="Cancel edit"
+                      title="Cancel edit"
+                      disabled={savingPostId === post.id}
+                      onClick={() => {
+                        setEditingPostId(null);
+                        setEditingPostText("");
+                      }}
+                    >
+                      <StudioIcon name="cancel" />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      className="button-secondary studio-icon-button"
+                      type="button"
+                      aria-label="Edit suggestion text"
+                      title="Edit suggestion text"
+                      disabled={!canModifySuggestion}
+                      onClick={() => {
+                        setEditingPostId(post.id);
+                        setEditingPostText(post.post_text);
+                      }}
+                    >
+                      <StudioIcon name="edit" />
+                    </button>
+                    <button
+                      className="button-secondary studio-update-button"
+                      type="button"
+                      aria-label={updateTitle}
+                      title={updateTitle}
+                      disabled={!canModifySuggestion || regeneratingPostId === post.id}
+                      onClick={() => void regenerateSuggestion(post)}
+                    >
+                      <StudioIcon name="regenerate" />
+                      <span>{regeneratingPostId === post.id ? "Updating..." : "Update"}</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+            {isEditingSuggestion ? (
+              <textarea
+                rows={5}
+                value={editingPostText}
+                onChange={(event) => setEditingPostText(event.target.value)}
+              />
+            ) : (
+              <p>{post.post_text}</p>
+            )}
           </div>
 
           {scheduledLabel ? (
@@ -746,6 +1016,9 @@ export function StudioPage({ onUpload }: StudioPageProps) {
   const selectedCampaignResults = selectedCampaign
     ? campaignResultsById.get(selectedCampaign.id) ?? { runs: [], signals: [], posts: [] }
     : null;
+  const selectedVisibleSignals = selectedCampaign && selectedCampaignResults
+    ? selectedCampaignResults.signals.filter((signal) => isVisibleSignal(signal, selectedCampaign))
+    : [];
   const selectedCampaignResultLimit = selectedCampaign && selectedCampaignResults
     ? selectedCampaignResults.runs[0]?.result_limit ?? selectedCampaign.result_limit ?? DEFAULT_CAMPAIGN_RESULT_LIMIT
     : DEFAULT_CAMPAIGN_RESULT_LIMIT;
@@ -826,7 +1099,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
             <div className="panel__title-row">
               <div>
                 <p className="eyebrow">Strategist</p>
-                <h2>Suggestions</h2>
+                <h2>{selectedCampaign.campaign_type === "reply" ? "Reply suggestions" : "Post suggestions"}</h2>
               </div>
               <span className="studio-count">{selectedCampaignResults.posts.length}</span>
             </div>
@@ -836,11 +1109,11 @@ export function StudioPage({ onUpload }: StudioPageProps) {
               </div>
             ) : (
               <div className="studio-strategist-section">
-                {selectedCampaignResults.signals.length === 0 ? (
-                  <div className="studio-empty studio-empty--compact">No crawler results for this campaign yet.</div>
+                {selectedVisibleSignals.length === 0 ? (
+                  <div className="studio-empty studio-empty--compact">No linked crawler results for this campaign yet.</div>
                 ) : (
                   <div className="studio-signal-grid">
-                    {selectedCampaignResults.signals.map(renderSignal)}
+                    {selectedVisibleSignals.map(renderSignal)}
                   </div>
                 )}
               </div>

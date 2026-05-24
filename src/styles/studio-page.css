@@ -15,22 +15,47 @@
 .studio-icon-button {
   align-items: center;
   aspect-ratio: 1;
-  background: #fff;
-  border: 1px solid #bfdbfe;
+  background: transparent;
+  border: 0;
   border-radius: 999px;
   color: #0f172a;
   display: inline-flex;
   font-size: 1rem;
+  height: 32px;
   justify-content: center;
-  min-height: 44px;
+  min-height: 32px;
   padding: 0;
-  width: 44px;
+  width: 32px;
 }
 
 .studio-icon-button:hover {
-  background: #eff6ff;
-  border-color: #93c5fd;
+  background: #f1f5f9;
   color: #1d4ed8;
+}
+
+.button-secondary.studio-icon-button {
+  background: transparent;
+  border: 0;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  width: 32px;
+}
+
+.button-secondary.studio-icon-button:hover {
+  background: #f1f5f9;
+  color: #1d4ed8;
+}
+
+.studio-update-button {
+  align-items: center;
+  display: inline-flex;
+  gap: 7px;
+  justify-content: center;
+}
+
+.studio-update-button svg {
+  flex: 0 0 auto;
 }
 
 .studio-feedback {
@@ -170,6 +195,11 @@
 .studio-row-actions button {
   min-height: 38px;
   padding: 0 11px;
+}
+
+.studio-row-actions .studio-icon-button {
+  min-height: 32px;
+  padding: 0;
 }
 
 .studio-campaign-detail-card {
@@ -421,7 +451,7 @@
 }
 
 .studio-signal-links {
-  align-items: center;
+  align-items: flex-start;
   display: flex;
   gap: 10px;
   justify-content: space-between;
@@ -429,9 +459,16 @@
 
 .studio-link-pill-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 10px;
   min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.studio-link-pill-row::-webkit-scrollbar {
+  display: none;
 }
 
 .studio-link-pill {
@@ -441,6 +478,7 @@
   border-radius: 999px;
   color: #0f172a;
   display: inline-flex;
+  flex: 0 0 auto;
   font-size: 0.82rem;
   font-weight: 600;
   min-height: 34px;
@@ -670,8 +708,8 @@
   }
 
   .studio-signal-links {
-    align-items: stretch;
-    flex-direction: column;
+    align-items: center;
+    flex-direction: row;
   }
 
   .studio-detail-topbar {

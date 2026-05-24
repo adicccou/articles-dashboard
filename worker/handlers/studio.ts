@@ -259,6 +259,10 @@ function accountIdForPlatform(accountRefs: string[], platform: string): number |
   return Number.isFinite(id) && id > 0 ? id : null;
 }
 
+function accountIdForSocialPosts(platform: string, accountId: number | null): number | null {
+  return normalizePlatform(platform) === "reddit" ? accountId : null;
+}
+
 function extractSubreddit(value: unknown): string | null {
   const text = String(value ?? "");
   const prefixed = text.match(/\br\/([A-Za-z0-9_]{2,21})\b/i);
@@ -713,28 +717,32 @@ async function socialPostsHaveReplyTargets(env: Env): Promise<boolean> {
 async function chooseAutoSchedule(
   env: Env,
   accountId: number | null,
+  platform: string,
   campaignType: StudioCampaignType,
 ): Promise<string> {
   const timeZone = await readWorkspaceTimeZone(env);
   const now = new Date();
   const minLead = new Date(now.getTime() + 45 * 60 * 1000);
   const hasReplyToId = await socialPostsHaveReplyTargets(env);
-  const accountWhere = accountId ? "account_id = ?" : "account_id IS NULL";
+  const socialPostAccountId = accountIdForSocialPosts(platform, accountId);
+  const accountWhere = socialPostAccountId ? "account_id = ?" : "account_id IS NULL";
   const socialTypeWhere = hasReplyToId
     ? campaignType === "reply"
       ? "reply_to_id IS NOT NULL"
       : "reply_to_id IS NULL"
     : "1 = 1";
-  const activeSocialRows = accountId
-    ? await env.DB.prepare(
+  let activeSocialRows: { results?: Array<{ value: string }> } = { results: [] };
+  if (socialPostAccountId !== null) {
+    activeSocialRows = await env.DB.prepare(
       `SELECT scheduled_at AS value
        FROM social_posts
        WHERE scheduled_at IS NOT NULL
          AND status IN ('scheduled', 'approved')
          AND ${accountWhere}
          AND ${socialTypeWhere}`,
-    ).bind(accountId).all<{ value: string }>()
-    : await env.DB.prepare(
+    ).bind(socialPostAccountId).all<{ value: string }>();
+  } else if (accountId === null) {
+    activeSocialRows = await env.DB.prepare(
       `SELECT scheduled_at AS value
        FROM social_posts
        WHERE scheduled_at IS NOT NULL
@@ -742,7 +750,11 @@ async function chooseAutoSchedule(
          AND ${accountWhere}
          AND ${socialTypeWhere}`,
     ).all<{ value: string }>();
+  }
   const hasSocialPostLinks = await plannerHasSocialPostLinks(env);
+  const plannerSocialLinkFilter = hasSocialPostLinks && socialPostAccountId === accountId
+    ? "AND social_post_id IS NULL"
+    : "";
   const plannerRows = accountId
     ? await env.DB.prepare(
       `SELECT scheduled_for AS value
@@ -750,7 +762,7 @@ async function chooseAutoSchedule(
        WHERE scheduled_for IS NOT NULL
          AND status IN ('planned', 'drafting', 'approved')
          AND account_id = ?
-         ${hasSocialPostLinks ? "AND social_post_id IS NULL" : ""}`,
+         ${plannerSocialLinkFilter}`,
     ).bind(accountId).all<{ value: string }>()
     : await env.DB.prepare(
       `SELECT scheduled_for AS value
@@ -758,7 +770,7 @@ async function chooseAutoSchedule(
        WHERE scheduled_for IS NOT NULL
          AND status IN ('planned', 'drafting', 'approved')
          AND account_id IS NULL
-         ${hasSocialPostLinks ? "AND social_post_id IS NULL" : ""}`,
+         ${plannerSocialLinkFilter}`,
     ).all<{ value: string }>();
   const byDay = new Map<string, Date[]>();
   for (const row of [...(activeSocialRows.results ?? []), ...(plannerRows.results ?? [])]) {
@@ -1447,7 +1459,8 @@ export async function regenerateStudioStrategistPost(env: Env, postId: string): 
     if (!Number.isFinite(id)) return errorResponse("Invalid strategist post ID", 400);
     const post = await env.DB.prepare(
       `SELECT ssp.*, sa.name AS app_name, sa.description AS app_description, sa.ai_context AS app_ai_context,
-              sc.name AS campaign_name, sc.instructions AS campaign_instructions, scr.instructions AS crawler_instructions
+              sc.name AS campaign_name, sc.instructions AS campaign_instructions,
+              scr.instructions AS crawler_instructions, scr.campaign_type AS crawler_campaign_type
        FROM studio_strategist_posts ssp
        JOIN studio_apps sa ON sa.id = ssp.app_id
        LEFT JOIN studio_campaigns sc ON sc.id = ssp.campaign_id
@@ -1462,6 +1475,34 @@ export async function regenerateStudioStrategistPost(env: Env, postId: string): 
     const settings = await readStudioAiSettings(env);
     if (!settings.geminiApiKey) return errorResponse("No Gemini API key is configured", 500);
 
+    const campaignType: StudioCampaignType = post.crawler_campaign_type === "reply" ? "reply" : "post";
+    const isReply = campaignType === "reply"
+      || Boolean(cleanText(post.target_external_id) || cleanText(post.target_url) || cleanText(post.target_text));
+    const promptLines = isReply
+      ? [
+          `Platform: ${normalizePlatform(post.platform)}`,
+          `App: ${cleanText(post.app_name)}`,
+          `App description: ${cleanText(post.app_description) || "None"}`,
+          `App AI context: ${cleanText(post.app_ai_context) || "None"}`,
+          `Campaign: ${cleanText(post.campaign_name) || "Unknown"}`,
+          `Campaign instructions: ${cleanText(post.campaign_instructions) || cleanText(post.crawler_instructions) || "None"}`,
+          `Comment author: ${cleanText(post.target_author) || "Unknown"}`,
+          `Comment link: ${cleanText(post.target_url) || "Unknown"}`,
+          `Comment text: ${cleanText(post.target_text) || "Unknown"}`,
+          `Previous reply suggestion: ${cleanText(post.post_text) || "None"}`,
+          "Generate a stronger alternative reply suggestion.",
+        ]
+      : [
+          `Platform: ${normalizePlatform(post.platform)}`,
+          `App: ${cleanText(post.app_name)}`,
+          `App description: ${cleanText(post.app_description) || "None"}`,
+          `App AI context: ${cleanText(post.app_ai_context) || "None"}`,
+          `Campaign: ${cleanText(post.campaign_name) || "Unknown"}`,
+          `Campaign instructions: ${cleanText(post.campaign_instructions) || cleanText(post.crawler_instructions) || "None"}`,
+          `Previous post suggestion: ${cleanText(post.post_text) || "None"}`,
+          "Generate a stronger alternative post suggestion for this campaign.",
+        ];
+
     const responseText = await callAiText({
       apiKey: settings.geminiApiKey,
       model: settings.geminiProModel,
@@ -1469,8 +1510,12 @@ export async function regenerateStudioStrategistPost(env: Env, postId: string): 
       maxTokens: 700,
       system: [
         "You are a senior social media strategist.",
-        "Regenerate one better reply suggestion for the same target comment.",
-        "Keep it natural, useful, concise, non-spammy, and specific to the comment context.",
+        isReply
+          ? "Regenerate one better reply suggestion for the same target comment."
+          : "Regenerate one better social post suggestion for this campaign.",
+        isReply
+          ? "Keep it natural, useful, concise, non-spammy, and specific to the comment context."
+          : "Keep it natural, useful, concise, non-spammy, and specific to the campaign context.",
         "Do not mention that you are AI. Do not use hashtags unless the context clearly needs them.",
         "Return JSON only: {\"post_text\":\"...\",\"idea\":\"...\",\"rationale\":\"...\"}.",
         settings.globalAiRules ? `Global AI rules: ${settings.globalAiRules}` : "",
@@ -1478,25 +1523,13 @@ export async function regenerateStudioStrategistPost(env: Env, postId: string): 
       messages: [
         {
           role: "user",
-          content: [
-            `Platform: ${normalizePlatform(post.platform)}`,
-            `App: ${cleanText(post.app_name)}`,
-            `App description: ${cleanText(post.app_description) || "None"}`,
-            `App AI context: ${cleanText(post.app_ai_context) || "None"}`,
-            `Campaign: ${cleanText(post.campaign_name) || "Unknown"}`,
-            `Campaign instructions: ${cleanText(post.campaign_instructions) || cleanText(post.crawler_instructions) || "None"}`,
-            `Comment author: ${cleanText(post.target_author) || "Unknown"}`,
-            `Comment link: ${cleanText(post.target_url) || "Unknown"}`,
-            `Comment text: ${cleanText(post.target_text) || "Unknown"}`,
-            `Previous reply suggestion: ${cleanText(post.post_text) || "None"}`,
-            "Generate a stronger alternative reply suggestion.",
-          ].join("\n"),
+          content: promptLines.join("\n"),
         },
       ],
     });
     const parsed = safeParseJsonObject(responseText);
     const postText = cleanText(parsed?.post_text);
-    if (!postText) return errorResponse("AI did not return a valid reply suggestion", 502);
+    if (!postText) return errorResponse(`AI did not return a valid ${isReply ? "reply" : "post"} suggestion`, 502);
     const now = nowIso();
     await env.DB.prepare(
       `UPDATE studio_strategist_posts
@@ -1506,7 +1539,9 @@ export async function regenerateStudioStrategistPost(env: Env, postId: string): 
       .bind(
         postText,
         cleanText(parsed?.idea) || cleanText(post.idea),
-        cleanText(parsed?.rationale) || "Regenerated by AI for the same target comment.",
+        cleanText(parsed?.rationale) || (isReply
+          ? "Regenerated by AI for the same target comment."
+          : "Regenerated by AI for the post campaign."),
         post.media_type === "photo" || post.media_type === "video"
           ? cleanText(post.media_url) ? "suggested" : "asset_needed"
           : "suggested",
@@ -1559,7 +1594,7 @@ export async function scheduleStudioStrategistPost(env: Env, postId: string, req
     if (campaignType === "reply" && !replyToId) {
       return errorResponse("Reply suggestions need a target post/comment ID before scheduling.", 400);
     }
-    const scheduledAt = payload.scheduled_at || await chooseAutoSchedule(env, accountId, campaignType);
+    const scheduledAt = payload.scheduled_at || await chooseAutoSchedule(env, accountId, platform, campaignType);
     const subreddit = platform === "reddit"
       ? extractSubreddit(`${post.crawler_instructions ?? ""}\n${post.idea ?? ""}\n${post.rationale ?? ""}\n${post.post_text ?? ""}`)
       : null;
@@ -1588,7 +1623,7 @@ export async function scheduleStudioStrategistPost(env: Env, postId: string, req
     }
     if (capabilities.hasAccountId) {
       columns.push("account_id");
-      values.push(accountId);
+      values.push(accountIdForSocialPosts(platform, accountId));
     }
     if (capabilities.hasReplyToId) {
       columns.push("reply_to_id");
