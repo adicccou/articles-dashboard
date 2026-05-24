@@ -2,7 +2,6 @@ import { useState } from "react";
 import type { ArticleRecord, Site, ArticleCategory } from "../lib/types";
 import type { NavView } from "../components/TopNav";
 import { ArticleEditor } from "../components/ArticleEditor";
-import { SiteForm } from "../components/SiteForm";
 import { SocialAgentsPage } from "./SocialAgentsPage";
 import { StudioPage } from "./StudioPage";
 import { ConfigPage } from "./ConfigPage";
@@ -20,12 +19,6 @@ type DashboardPageProps = {
   categories: ArticleCategory[];
   selectedArticle?: ArticleRecord;
   onSelectArticle: (article?: ArticleRecord) => void;
-  onCreateSite: (payload: {
-    name: string;
-    slug: string;
-    domain: string;
-    status: "active" | "inactive";
-  }) => Promise<void>;
   onSaveArticle: (
     payload: {
       title: string;
@@ -57,7 +50,6 @@ export function DashboardPage({
   categories,
   selectedArticle,
   onSelectArticle,
-  onCreateSite,
   onSaveArticle,
   onDeleteArticle,
   onUpload,
@@ -115,10 +107,12 @@ export function DashboardPage({
           <button onClick={() => setShowSiteSettings(false)} className="button-secondary">
             ← Back to Articles
           </button>
-          <SiteForm onCreate={onCreateSite} />
           <section className="panel">
             <div className="panel__title-row">
-              <h2>Connected Sites</h2>
+              <div>
+                <h2>Connected Sites</h2>
+                <p className="muted">Manage website and app details in Config.</p>
+              </div>
             </div>
             <div className="table">
               <div className="table__row table__row--header">
@@ -147,7 +141,7 @@ export function DashboardPage({
           <h2>Articles</h2>
           <div className="actions">
             <button onClick={() => setShowSiteSettings(true)} className="button-secondary">
-              Sites Settings
+              Connected Sites
             </button>
             <button onClick={() => {
               onSelectArticle(undefined);

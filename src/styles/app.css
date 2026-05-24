@@ -76,56 +76,42 @@
 }
 
 .settings-modal__tabs {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(var(--settings-tab-count, 4), minmax(0, 1fr));
   margin: 20px 0 0;
+  width: 100%;
 }
 
-.settings-modal__tab {
-  align-items: flex-start;
-  background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
-  border: 1px solid #dbe3f3;
-  border-radius: 16px;
-  color: #0f172a;
-  cursor: pointer;
+.ui-tab.settings-modal__tab {
+  align-items: center;
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 14px 16px;
-  text-align: left;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  flex-direction: row;
+  gap: 8px;
+  justify-content: flex-start;
+  padding-inline: 12px;
+  text-align: center;
 }
 
 .settings-modal__tab:hover {
-  border-color: #94a3b8;
-  transform: translateY(-1px);
+  transform: none;
 }
 
 .settings-modal__tab.is-active {
-  background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  border-color: #0f172a;
 }
 
 .settings-modal__tab-eyebrow {
-  color: #64748b;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  display: none;
 }
 
 .settings-modal__tab-label {
-  font-size: 15px;
+  font-size: 0.88rem;
   font-weight: 700;
 }
 
 .settings-modal__tab-status {
   border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 4px 10px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 2px 7px;
 }
 
 .settings-modal__tab-status.connected {
@@ -138,9 +124,14 @@
   color: #64748b;
 }
 
+.settings-modal__tab.is-active .settings-modal__tab-status {
+  background: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.86);
+}
+
 @media (max-width: 900px) {
   .settings-modal__tabs {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    flex-wrap: nowrap;
   }
 }
 
@@ -159,6 +150,6 @@
   }
 
   .settings-modal__tabs {
-    grid-template-columns: 1fr;
+    width: 100%;
   }
 }

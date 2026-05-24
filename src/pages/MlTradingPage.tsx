@@ -20,6 +20,8 @@ function MlAssetRow({
   saving: boolean;
   onEdit: (asset: MlTradingAsset) => void;
 }) {
+  const todayTrades = Number.isFinite(asset.stats.today_trades) ? asset.stats.today_trades : 0;
+
   return (
     <div className="custom-lean-worker">
       <div className="custom-lean-worker__main">
@@ -45,6 +47,10 @@ function MlAssetRow({
         <strong className={asset.stats.today_pnl_usd >= 0 ? "custom-lean-good" : "custom-lean-risk"}>
           {formatUsd(asset.stats.today_pnl_usd)}
         </strong>
+      </div>
+      <div className="custom-lean-worker__metric">
+        <span>Trades today</span>
+        <strong>{todayTrades}</strong>
       </div>
       <div className="custom-lean-worker__metric">
         <span>Loss trades</span>
@@ -343,8 +349,9 @@ export function MlTradingPage() {
     (acc, asset) => ({
       totalPnlUsd: acc.totalPnlUsd + (Number.isFinite(asset.stats.total_pnl_usd) ? asset.stats.total_pnl_usd : 0),
       todayPnlUsd: acc.todayPnlUsd + (Number.isFinite(asset.stats.today_pnl_usd) ? asset.stats.today_pnl_usd : 0),
+      todayTrades: acc.todayTrades + (Number.isFinite(asset.stats.today_trades) ? asset.stats.today_trades : 0),
     }),
-    { totalPnlUsd: 0, todayPnlUsd: 0 },
+    { totalPnlUsd: 0, todayPnlUsd: 0, todayTrades: 0 },
   );
 
   const editingMlAsset = mlAssets.find((asset) => (asset.control_key || asset.asset) === editingMlAssetId) ?? null;
@@ -373,6 +380,12 @@ export function MlTradingPage() {
       value: formatUsd(aggregateMlStats.todayPnlUsd),
       detail: "All ML assets",
       tone: aggregateMlStats.todayPnlUsd >= 0 ? "custom-lean-good" : "custom-lean-risk",
+    },
+    {
+      label: "Trades Today",
+      value: aggregateMlStats.todayTrades,
+      detail: "All ML assets",
+      tone: null as string | null,
     },
     {
       label: "Diagnostics",
@@ -529,11 +542,12 @@ export function MlTradingPage() {
       <section className="panel custom-lean-assets">
         <RuntimeSummaryCards cards={summaryCards} />
 
-        <div className="custom-lean-workers">
+        <div className="custom-lean-workers custom-lean-workers--ml-assets">
           <div className="custom-lean-workers__header">
             <span>Asset</span>
             <span>Total PnL</span>
             <span>Today PnL</span>
+            <span>Trades today</span>
             <span>Loss trades</span>
             <span>Win trades</span>
             <span>Avg win RR</span>

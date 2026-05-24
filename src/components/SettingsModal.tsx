@@ -108,7 +108,7 @@ export function SettingsModal({
         </div>
 
         <div
-          className="settings-modal__tabs"
+          className="ui-tabs__list settings-modal__tabs"
           role="tablist"
           aria-label="Settings sections"
           style={{ "--settings-tab-count": tabs.length } as CSSProperties}
@@ -119,7 +119,7 @@ export function SettingsModal({
               type="button"
               role="tab"
               aria-selected={activeTab === tab.id}
-              className={`settings-modal__tab ${activeTab === tab.id ? "is-active" : ""}`}
+              className={`ui-tab settings-modal__tab ${activeTab === tab.id ? "ui-tab--active is-active" : ""}`}
               onClick={() => setActiveTab(tab.id)}
             >
               <span className="settings-modal__tab-eyebrow">{tab.eyebrow}</span>

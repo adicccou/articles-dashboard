@@ -223,6 +223,22 @@ function parseNumber(value: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function parseOptionalNumber(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeMlTradingAssetStats(asset: unknown): Record<string, unknown> {
+  const rawStats =
+    asset && typeof asset === "object" && !Array.isArray(asset) && typeof (asset as { stats?: unknown }).stats === "object" && !Array.isArray((asset as { stats?: unknown }).stats)
+      ? (asset as { stats: Record<string, unknown> }).stats
+      : {};
+  return {
+    ...rawStats,
+    today_trades: Math.max(0, Math.trunc(parseOptionalNumber(rawStats.today_trades, 0))),
+  };
+}
+
 type RiskOverride = {
   risk_usd_min: number;
   risk_usd_max: number;
@@ -1076,7 +1092,7 @@ export async function getCustomLeanWorkers(env: Env): Promise<Response> {
     const isMlTradingWorker = (worker: unknown) => {
       if (!worker || typeof worker !== "object") return false;
       const workerId = String((worker as { id?: unknown }).id || "").trim().toLowerCase();
-      if (workerId === "xau_ultra_micro_continuation_4to1") {
+      if (workerId === "xau_ultra_micro_continuation_4to1" || workerId === "audnzd_ultra_micro_continuation_3to1") {
         return true;
       }
       const probe = [
@@ -1205,34 +1221,40 @@ export async function getMlTradingAssets(env: Env): Promise<Response> {
       data && typeof data === "object" && !Array.isArray(data)
         ? Boolean((data as { connected?: unknown }).connected ?? true)
         : true;
-    const normalizedAssets = assets.map((asset) => {
-      if (!asset || typeof asset !== "object") return asset;
+    const normalizedAssets = assets.flatMap((asset) => {
+      if (!asset || typeof asset !== "object") return [asset];
       const symbol = String((asset as { asset?: unknown }).asset || "").trim().toUpperCase();
       const controlFamily = String((asset as { control_family?: unknown }).control_family || "ml_asset").trim().toLowerCase();
       const controlKey = String((asset as { control_key?: unknown }).control_key || "").trim();
       const builtInConfidence = Number((asset as { confidence_threshold?: unknown }).confidence_threshold ?? 0);
+      const stats = normalizeMlTradingAssetStats(asset);
+      if (controlFamily === "worker" && controlKey && deletedWorkerIds.has(controlKey)) {
+        return [];
+      }
       if (controlFamily === "worker" && controlKey) {
         const riskOverride = workerRiskOverrides[controlKey];
         const confidenceOverride = workerConfidenceOverrides[controlKey];
-        return {
+        return [{
           ...asset,
+          stats,
           enabled: !disabledWorkerIds.has(controlKey) && !deletedWorkerIds.has(controlKey),
           risk_usd_min: riskOverride?.risk_usd_min ?? Number((asset as { risk_usd_min?: unknown }).risk_usd_min ?? workerGlobalRiskMin),
           risk_usd_max: riskOverride?.risk_usd_max ?? Number((asset as { risk_usd_max?: unknown }).risk_usd_max ?? workerGlobalRiskMax),
           confidence_threshold: confidenceOverride?.min_confidence
             ?? (Number.isFinite(builtInConfidence) && builtInConfidence > 0 ? builtInConfidence : 60),
-        };
+        }];
       }
       const riskOverride = symbol ? assetRiskOverrides[symbol] : null;
       const confidenceOverride = symbol ? assetConfidenceOverrides[symbol] : null;
-      return {
+      return [{
         ...asset,
+        stats,
         enabled: symbol ? enabledAssets.has(symbol) : false,
         risk_usd_min: riskOverride?.risk_usd_min ?? globalRiskMin,
         risk_usd_max: riskOverride?.risk_usd_max ?? globalRiskMax,
         confidence_threshold: confidenceOverride?.min_confidence
           ?? (Number.isFinite(builtInConfidence) && builtInConfidence > 0 ? builtInConfidence : 60),
-      };
+      }];
     });
     return jsonResponse({
       connected,

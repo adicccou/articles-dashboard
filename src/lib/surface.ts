@@ -2,7 +2,7 @@ import type { NavView } from "../components/TopNav";
 
 export type DashboardSurface = "marketing" | "trading";
 
-export const MARKETING_VIEWS: NavView[] = ["articles", "reddit", "studio", "config", "planner", "statistics"];
+export const MARKETING_VIEWS: NavView[] = ["articles", "reddit", "studio", "planner", "statistics", "config"];
 export const TRADING_VIEWS: NavView[] = ["trading"];
 
 export function getDashboardSurface(): DashboardSurface {

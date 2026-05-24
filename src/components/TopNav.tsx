@@ -34,9 +34,9 @@ export const TopNav: React.FC<TopNavProps> = ({
     { label: "Articles", view: "articles" },
     { label: "Social Agents", view: "reddit" },
     { label: "Studio", view: "studio" },
-    { label: "Config", view: "config" },
     { label: "Scheduler", view: "planner" },
     { label: "Statistics", view: "statistics" },
+    { label: "Config", view: "config" },
   ];
   const allowedViews = getSurfaceViews(surface);
   const navItems = allNavItems.filter((item) => allowedViews.includes(item.view));

@@ -1,4 +1,4 @@
-import type { ArticleInput, ArticleRecord, AuthState, DashboardBootstrap, Site, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialAccountInput, SocialPost, StudioApp, StudioCampaign, StudioCrawlerRun, StudioSignal, StudioStrategistPost, StudioSummary, ThreadsCampaignResult, ThreadsMediaResponse, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorkersResponse, MlTradingAssetsResponse, MlTradingDiagnostics, MlTradingSettings } from "./types";
+import type { ArticleAssistPayload, ArticleCoverPayload, ArticleCoverResponse, ArticleInput, ArticleRecord, ArticleStylePayload, ArticleStyleResponse, AuthState, DashboardBootstrap, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialAccountInput, SocialPost, StudioApp, StudioCampaign, StudioCrawlerRun, StudioSignal, StudioStrategistPost, StudioSummary, ThreadsCampaignResult, ThreadsMediaResponse, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorkersResponse, MlTradingAssetsResponse, MlTradingDiagnostics, MlTradingSettings } from "./types";
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -42,15 +42,25 @@ export const api = {
       method: "POST",
       body: JSON.stringify({}),
     }),
-  createSite: (payload: Pick<Site, "name" | "slug" | "domain" | "status">) =>
-    request<Site>("/api/sites", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
   getCategories: () => request<ArticleCategory[]>("/api/categories"),
   saveArticle: (payload: ArticleInput, id?: number) =>
     request<ArticleRecord>(id ? `/api/articles/${id}` : "/api/articles", {
       method: id ? "PUT" : "POST",
+      body: JSON.stringify(payload),
+    }),
+  autofillArticleField: (payload: ArticleAssistPayload) =>
+    request<{ value: string }>("/api/articles/assist", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  generateArticleCover: (payload: ArticleCoverPayload) =>
+    request<ArticleCoverResponse>("/api/articles/generate-cover", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  styleArticleContent: (payload: ArticleStylePayload) =>
+    request<ArticleStyleResponse>("/api/articles/style-content", {
+      method: "POST",
       body: JSON.stringify(payload),
     }),
   deleteArticle: (id: number) =>
@@ -280,6 +290,7 @@ export const api = {
     app_id: number;
     name: string;
     campaign_type: "post" | "reply";
+    result_limit: number;
     account_refs: string[];
     platforms: string[];
     instructions: string;
@@ -301,6 +312,7 @@ export const api = {
     campaign_id?: number | null;
     app_id?: number;
     campaign_type?: "post" | "reply";
+    result_limit?: number;
     account_refs?: string[];
     platforms?: string[];
     instructions?: string;
@@ -313,10 +325,18 @@ export const api = {
     request<StudioSignal[]>(
       `/api/studio/signals${crawlerRunId ? `?crawler_run_id=${encodeURIComponent(String(crawlerRunId))}` : ""}`,
     ),
+  deleteStudioSignal: (id: number) =>
+    request<{ success: boolean }>(`/api/studio/signals/${id}`, {
+      method: "DELETE",
+    }),
   updateStudioStrategistPost: (id: number, payload: Partial<StudioStrategistPost>) =>
     request<{ success: boolean; updated_at: string }>(`/api/studio/strategist-posts/${id}`, {
       method: "PUT",
       body: JSON.stringify(payload),
+    }),
+  regenerateStudioStrategistPost: (id: number) =>
+    request<StudioStrategistPost>(`/api/studio/strategist-posts/${id}/regenerate`, {
+      method: "POST",
     }),
   scheduleStudioStrategistPost: (id: number, payload: { scheduled_at?: string | null; media_url?: string | null }) =>
     request<{ success: boolean; social_post_id: number; planner_item_id: number; scheduled_at: string }>(

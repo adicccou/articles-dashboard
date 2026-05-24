@@ -81,6 +81,40 @@ export type ArticleInput = {
   };
 };
 
+export type ArticleAssistField = "meta_title" | "meta_description" | "excerpt" | "category";
+
+export type ArticleAssistPayload = {
+  field: ArticleAssistField;
+  title?: string;
+  content?: string;
+  excerpt?: string;
+  category?: string;
+  site_names?: string[];
+  site_domains?: string[];
+  categories?: string[];
+};
+
+export type ArticleCoverPayload = Omit<ArticleAssistPayload, "field"> & {
+  cover_style_reference?: string;
+};
+
+export type ArticleStylePayload = Omit<ArticleAssistPayload, "field">;
+
+export type ArticleStyleResponse = {
+  html: string;
+};
+
+export type ArticleCoverResponse = {
+  key: string;
+  url: string;
+  mime_type: string;
+  prompt: string;
+  model: string;
+  aspect_ratio: string;
+  image_size: string;
+  note?: string;
+};
+
 export type RedditAccount = {
   id: number;
   name: string;
@@ -411,6 +445,7 @@ export type MlTradingAssetStats = {
   period: string;
   total_pnl_usd: number;
   today_pnl_usd: number;
+  today_trades: number;
   total_win_trades: number;
   total_loss_trades: number;
   avg_win_rr: number;
@@ -735,6 +770,7 @@ export type StudioCampaign = {
   app_name?: string | null;
   name: string;
   campaign_type: "post" | "reply";
+  result_limit: number;
   account_refs: string[];
   platforms: Array<"twitter" | "threads" | "reddit">;
   instructions: string;
@@ -750,6 +786,7 @@ export type StudioCrawlerRun = {
   app_id: number;
   app_name?: string | null;
   campaign_type: "post" | "reply";
+  result_limit: number;
   account_refs: string[];
   platforms: Array<"twitter" | "threads" | "reddit">;
   instructions: string;

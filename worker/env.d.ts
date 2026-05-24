@@ -2,6 +2,11 @@ declare type Fetcher = {
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
 };
 
+declare interface ExecutionContext {
+  waitUntil(promise: Promise<unknown>): void;
+  passThroughOnException(): void;
+}
+
 declare interface D1PreparedStatement {
   bind(...values: unknown[]): D1PreparedStatement;
   first<T = Record<string, unknown>>(): Promise<T | null>;

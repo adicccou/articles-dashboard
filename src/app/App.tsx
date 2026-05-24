@@ -31,6 +31,20 @@ function readStoredView(surface: DashboardSurface): NavView {
   return stored && isViewAllowedForSurface(stored, surface) ? stored : getDefaultView(surface);
 }
 
+function syncViewUrl(surface: DashboardSurface, view: NavView) {
+  if (typeof window === "undefined") return;
+
+  const url = new URL(window.location.href);
+  url.searchParams.set("surface", surface);
+  url.searchParams.set("view", view);
+
+  const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+  const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (nextUrl !== currentUrl) {
+    window.history.replaceState(window.history.state, "", nextUrl);
+  }
+}
+
 export function App() {
   const [surface] = useState<DashboardSurface>(() => getDashboardSurface());
   const [auth, setAuth] = useState<AuthState>({ authenticated: false });
@@ -93,10 +107,13 @@ export function App() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!isViewAllowedForSurface(view, surface)) {
-      setView(getDefaultView(surface));
+      const defaultView = getDefaultView(surface);
+      setView(defaultView);
+      syncViewUrl(surface, defaultView);
       return;
     }
     window.localStorage.setItem(`${DASHBOARD_VIEW_STORAGE_KEY_PREFIX}:${surface}`, view);
+    syncViewUrl(surface, view);
   }, [surface, view]);
 
   async function saveSettings(payload: AppSettingsInput) {
@@ -152,10 +169,6 @@ export function App() {
           selectedArticle={selectedArticle}
           onSelectArticle={(article) => {
             setSelectedArticle(article);
-          }}
-          onCreateSite={async (payload) => {
-            await api.createSite(payload);
-            await load();
           }}
           onSaveArticle={async (payload, id) => {
             await api.saveArticle(payload, id);

@@ -1,34 +1,26 @@
-import { useEffect, useState } from "react";
-import type { RedditCampaign, RedditAccount, PlannerItem } from "../lib/types";
+import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
+import type { RedditAccount, PlannerItem } from "../lib/types";
 import { api } from "../lib/api";
 import { SocialPlannerItemModal } from "../components/SocialPlannerItemModal";
-import { SocialCampaignModal } from "../components/SocialCampaignModal";
 import { asArray } from "../lib/collections";
 import { formatDisplayDateTime } from "../lib/datetime";
 import { getPostImageUrls } from "../lib/socialPostMedia";
+import type { SocialAgentToolbarHandle } from "../components/SocialPublisherWorkspace";
 
-type ContentMode = "posts" | "campaigns";
-
-export function RedditAgentPage() {
-  const [campaigns, setCampaigns] = useState<RedditCampaign[]>([]);
+export const RedditAgentPage = forwardRef<SocialAgentToolbarHandle>(function RedditAgentPage(_props, ref) {
   const [plannerItems, setPlannerItems] = useState<PlannerItem[]>([]);
   const [accounts, setAccounts] = useState<RedditAccount[]>([]);
-  const [mode, setMode] = useState<ContentMode>("campaigns");
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
-  const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
     try {
       setLoading(true);
-      const [campaignsData, plannerData, accountsData] = await Promise.all([
-        api.listCampaigns(),
+      const [plannerData, accountsData] = await Promise.all([
         api.listPlannerItems(),
         api.listRedditAccounts(),
       ]);
-      setCampaigns(asArray<RedditCampaign>(campaignsData));
       setPlannerItems(asArray<PlannerItem>(plannerData));
       setAccounts(asArray<RedditAccount>(accountsData));
       setError(null);
@@ -43,13 +35,16 @@ export function RedditAgentPage() {
     void load();
   }, []);
 
+  useImperativeHandle(ref, () => ({
+    openComposer: () => setIsPostModalOpen(true),
+    reload: () => {
+      void load();
+    },
+  }), []);
+
   const redditPosts = plannerItems.filter(
     (item) => item.item_type === "post" && item.platform.trim().toLowerCase() === "reddit",
   );
-  const redditReplyCount = 0;
-  const editingCampaign = editingId ? campaigns.find((campaign) => campaign.id === editingId) : undefined;
-  const confirmDeleteCampaign = (name: string) =>
-    window.confirm(`Delete the Reddit campaign "${name}"? This cannot be undone.`);
 
   function renderPlannerPostMedia(item: PlannerItem) {
     const imageUrls = getPostImageUrls(item.image_url);
@@ -84,61 +79,14 @@ export function RedditAgentPage() {
   return (
     <div className="social-workspace stack">
       {error && <p className="error panel">{error}</p>}
-      <section className="panel social-hero">
-        <div className="social-hero__content">
-          <div className="social-title-row">
-            <h2>🟠 Reddit Agent</h2>
-            <span className={`social-status-pill social-status-pill--${campaigns.length ? "success" : "neutral"}`}>
-              {accounts.length ? "Connected" : "Needs setup"}
-            </span>
-          </div>
-        </div>
-        <div className="social-hero__actions">
-          <button type="button" onClick={() => setIsPostModalOpen(true)}>
-            + Post
-          </button>
-              <button
-                type="button"
-                className="button-secondary"
-                onClick={() => {
-                  setEditingId(null);
-              setIsCampaignModalOpen(true);
-            }}
-          >
-            + Campaign
-          </button>
-          <button
-            type="button"
-            aria-label="Refresh"
-            className="button-secondary social-icon-button"
-            title="Refresh"
-            onClick={() => void load()}
-          >
-            ↻
-          </button>
-        </div>
-      </section>
 
       <section className="panel social-panel-shell">
-        <div className="social-panel-tabs">
-          <button
-            type="button"
-            className={`social-panel-tab ${mode === "posts" ? "social-panel-tab--active" : ""}`}
-            onClick={() => setMode("posts")}
-          >
-            Posts ({redditPosts.length})
-          </button>
-          <button
-            type="button"
-            className={`social-panel-tab ${mode === "campaigns" ? "social-panel-tab--active" : ""}`}
-            onClick={() => setMode("campaigns")}
-          >
-            Campaigns ({campaigns.length})
-          </button>
-        </div>
+        <div className="social-panel-section stack">
+          <div className="panel__title-row">
+            <h2>Reddit Posts ({redditPosts.length})</h2>
+          </div>
 
-        {mode === "posts" ? (
-          redditPosts.length === 0 ? (
+          {redditPosts.length === 0 ? (
             <div className="social-empty-card">
               <p className="social-empty-card__title">No Reddit posts planned yet.</p>
               <p className="social-empty-card__copy">Add a Reddit post plan here and it will appear in this workspace for follow-up.</p>
@@ -167,75 +115,11 @@ export function RedditAgentPage() {
                     ) : null}
                   </div>
                 </article>
-              ))}
-            </div>
-          )
-        ) : campaigns.length === 0 ? (
-          <div className="social-empty-card">
-            <p className="social-empty-card__title">No campaigns yet.</p>
-            <p className="social-empty-card__copy">
-              Create your first Reddit campaign to automatically find and reply to comments.
-            </p>
-            <div className="social-empty-card__actions">
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingId(null);
-                  setIsCampaignModalOpen(true);
-                }}
-              >
-                + Campaign
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="table social-campaign-table">
-            <div className="table__row table__row--header">
-              <span>Campaign</span>
-              <span>Account</span>
-              <span>Interval</span>
-              <span>Duration</span>
-              <span>Actions</span>
-            </div>
-            {asArray<RedditCampaign>(campaigns).map((campaign) => (
-              <div className="table__row" key={campaign.id}>
-                <span>
-                  {campaign.name}
-                  <small>{`r/${campaign.subreddit} • ${campaign.search_query}`}</small>
-                </span>
-                <span className="social-muted">
-                  {accounts.find((account) => account.id === campaign.reddit_account_id)?.name || "—"}
-                </span>
-                <span className="social-muted">{campaign.throttle_interval_minutes ? `${campaign.throttle_interval_minutes} min` : "—"}</span>
-                <span className="social-muted">
-                  {campaign.start_at ? formatDisplayDateTime(campaign.start_at) : "Started immediately"}
-                  {campaign.end_at ? ` → ${formatDisplayDateTime(campaign.end_at)}` : ""}
-                </span>
-                <span className="social-table-actions">
-                  <button
-                    onClick={() => {
-                      setEditingId(campaign.id);
-                      setIsCampaignModalOpen(true);
-                    }}
-                    className="social-inline-button"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={async () => {
-                      if (!confirmDeleteCampaign(campaign.name)) return;
-                      await api.deleteCampaign(campaign.id);
-                      await load();
-                    }}
-                    className="social-inline-button social-inline-button--danger"
-                  >
-                    Delete
-                  </button>
-                </span>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            )
+          }
+        </div>
       </section>
 
       {isPostModalOpen ? (
@@ -250,48 +134,8 @@ export function RedditAgentPage() {
           }}
         />
       ) : null}
-      {isCampaignModalOpen ? (
-        <SocialCampaignModal
-          platform="reddit"
-          platformLabel="Reddit"
-          accounts={accounts.map((account) => ({ id: account.id, label: account.name }))}
-          initialData={editingCampaign}
-          mode={editingCampaign ? "edit" : "create"}
-          onClose={() => {
-            setIsCampaignModalOpen(false);
-            setEditingId(null);
-          }}
-          onSubmit={async (payload) => {
-            if (editingCampaign?.id) {
-              await api.updateCampaign(editingCampaign.id, payload);
-            } else {
-              await api.createCampaign({
-                reddit_account_id: Number(payload.reddit_account_id),
-                name: payload.name || "",
-                description: payload.description || "",
-                subreddit: payload.subreddit || "",
-                search_query: payload.search_query || "",
-                search_criteria: {
-                  min_score: 0,
-                  time_filter: "week",
-                },
-                agent_instructions: payload.agent_instructions || "",
-                batch_size: 10,
-                batch_window_hours: 24,
-                throttle_enabled: true,
-                throttle_interval_minutes: Number(payload.throttle_interval_minutes) || 60,
-                start_at: payload.start_at || null,
-                end_at: payload.end_at || null,
-                telegram_chat_id: payload.telegram_chat_id || "",
-                status: "active",
-                approval_method: "batch",
-              } as Omit<RedditCampaign, "id" | "created_at" | "updated_at">);
-            }
-            await load();
-            setEditingId(null);
-          }}
-        />
-      ) : null}
     </div>
   );
-}
+});
+
+RedditAgentPage.displayName = "RedditAgentPage";

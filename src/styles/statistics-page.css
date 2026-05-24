@@ -4,7 +4,6 @@
   gap: 24px;
 }
 
-/* Project selector tabs */
 .project-selector {
   display: flex;
   gap: 8px;
@@ -42,47 +41,79 @@
   color: #fff !important;
 }
 
-.project-tab--disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+.stats-context {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 18px;
 }
 
-.project-tab__badge {
-  font-size: 0.65rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  background: #f1f5f9;
-  color: #64748b;
-  padding: 1px 6px;
+.stats-context h3 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.stats-context__copy {
+  margin: 8px 0 0;
+  color: var(--text-soft);
+  max-width: 760px;
+}
+
+.stats-context__meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.stats-context__meta a {
+  font-weight: 600;
+}
+
+.stats-status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: capitalize;
 }
 
-.project-tab--active .project-tab__badge {
-  background: rgba(255,255,255,0.2);
-  color: rgba(255,255,255,0.85);
+.stats-status-chip--active {
+  background: #dcfce7;
+  color: #166534;
 }
 
-/* Stats grid */
+.stats-status-chip--inactive {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.stats-status-chip--archived {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
 }
 
-@media (max-width: 1100px) {
-  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+.stats-grid--posts {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
-@media (max-width: 600px) {
-  .stats-grid { grid-template-columns: 1fr; }
-}
-
-/* Stat card */
 .stat-card {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
   padding: 20px 22px;
   background: var(--surface);
   border: 1.5px solid var(--border);
@@ -116,17 +147,137 @@
   margin-top: 2px;
 }
 
-/* Accent colours – left border stripe */
-.stat-card--blue   { border-left: 4px solid #3b82f6; }
-.stat-card--green  { border-left: 4px solid #22c55e; }
+.stat-card--blue { border-left: 4px solid #3b82f6; }
+.stat-card--green { border-left: 4px solid #22c55e; }
 .stat-card--purple { border-left: 4px solid #a855f7; }
-.stat-card--amber  { border-left: 4px solid #f59e0b; }
-.stat-card--red    { border-left: 4px solid #ef4444; }
+.stat-card--amber { border-left: 4px solid #f59e0b; }
+.stat-card--red { border-left: 4px solid #ef4444; }
 
-/* Loading / error */
+.stats-tag-panels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.stats-tag-panel,
+.stats-posts-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 18px;
+  background: #fff;
+}
+
+.stats-tag-list {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.stats-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.stats-tag--campaign {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+.stats-count-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #334155;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.stats-post-list {
+  display: grid;
+}
+
+.stats-post-list__row {
+  display: grid;
+  grid-template-columns: minmax(0, 2.6fr) minmax(120px, 0.9fr) minmax(140px, 0.9fr) minmax(180px, 1fr) minmax(180px, 1fr);
+  gap: 14px;
+  align-items: start;
+  padding: 14px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.stats-post-list__row--header {
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-soft);
+  font-weight: 700;
+}
+
+.stats-post-list__row strong {
+  display: block;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.stats-post-list__row small {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-soft);
+  line-height: 1.45;
+}
+
+.stats-post-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.stats-post-status--suggested {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.stats-post-status--asset_needed {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.stats-post-status--scheduled {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+.stats-post-status--posted {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.stats-post-status--dismissed {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.stats-empty,
 .stats-loading,
 .stats-error {
-  padding: 32px;
+  padding: 24px;
   text-align: center;
   font-size: 0.9rem;
   color: var(--text-soft);
@@ -138,4 +289,52 @@
   color: var(--danger);
   border-color: #fecaca;
   background: #fff7f7;
+}
+
+@media (max-width: 1240px) {
+  .stats-grid--posts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1100px) {
+  .stats-grid,
+  .stats-grid--posts,
+  .stats-tag-panels {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stats-post-list__row {
+    grid-template-columns: minmax(0, 2fr) minmax(110px, 0.8fr) minmax(120px, 0.8fr);
+  }
+
+  .stats-post-list__row span:nth-child(4),
+  .stats-post-list__row span:nth-child(5) {
+    grid-column: span 1;
+  }
+}
+
+@media (max-width: 780px) {
+  .stats-context {
+    flex-direction: column;
+  }
+
+  .stats-context__meta {
+    justify-content: flex-start;
+  }
+
+  .stats-grid,
+  .stats-grid--posts,
+  .stats-tag-panels {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-post-list__row,
+  .stats-post-list__row--header {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-post-list__row--header {
+    display: none;
+  }
 }

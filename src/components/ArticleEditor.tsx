@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ArticleInput, ArticleRecord, Site, ArticleCategory } from "../lib/types";
+import { api } from "../lib/api";
+import type { ArticleAssistField, ArticleInput, ArticleRecord, Site, ArticleCategory } from "../lib/types";
 import { slugify } from "../lib/slug";
 
 type ArticleEditorProps = {
@@ -67,8 +68,11 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
   const [categoryText, setCategoryText] = useState(() => article?.category?.name ?? "");
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [assistBusy, setAssistBusy] = useState<ArticleAssistField | "cover" | "style" | null>(null);
+  const [assistMessage, setAssistMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const editorRef = useRef<HTMLDivElement | null>(null);
+  const selectionRef = useRef<Range | null>(null);
 
   const selectedSites = useMemo(() => new Set(form.site_ids), [form.site_ids]);
 
@@ -114,18 +118,52 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
     update("content", editor.innerHTML);
   }
 
+  function saveEditorSelection() {
+    const editor = editorRef.current;
+    const selection = window.getSelection();
+    if (!editor || !selection || selection.rangeCount === 0) return;
+
+    const range = selection.getRangeAt(0);
+    const commonAncestor = range.commonAncestorContainer;
+    const selectionNode = commonAncestor.nodeType === Node.TEXT_NODE
+      ? commonAncestor.parentElement
+      : commonAncestor;
+
+    if (selectionNode && editor.contains(selectionNode)) {
+      selectionRef.current = range.cloneRange();
+    }
+  }
+
+  function restoreEditorSelection() {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    editor.focus({ preventScroll: true });
+    if (!selectionRef.current) return;
+
+    const selection = window.getSelection();
+    if (!selection) return;
+    try {
+      selection.removeAllRanges();
+      selection.addRange(selectionRef.current);
+    } catch {
+      selectionRef.current = null;
+    }
+  }
+
   function focusEditor() {
-    editorRef.current?.focus();
+    restoreEditorSelection();
   }
 
   function applyEditorCommand(command: string, value?: string) {
     focusEditor();
     document.execCommand(command, false, value);
     syncEditorContent();
+    saveEditorSelection();
   }
 
   function applyBlock(block: "p" | "h1" | "h2" | "h3" | "blockquote") {
-    applyEditorCommand("formatBlock", block);
+    applyEditorCommand("formatBlock", `<${block}>`);
   }
 
   function applyFontSize(sizeKey: keyof typeof fontSizeMap) {
@@ -141,6 +179,7 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
       });
     }
     syncEditorContent();
+    saveEditorSelection();
   }
 
   function createLink() {
@@ -175,6 +214,125 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
     } finally {
       setUploading(false);
       event.target.value = "";
+    }
+  }
+
+  function buildAssistPayload(field: ArticleAssistField): {
+    field: ArticleAssistField;
+    title: string;
+    content: string;
+    excerpt: string;
+    category: string;
+    site_names: string[];
+    site_domains: string[];
+    categories: string[];
+  };
+  function buildAssistPayload(): {
+    title: string;
+    content: string;
+    excerpt: string;
+    category: string;
+    site_names: string[];
+    site_domains: string[];
+    categories: string[];
+  };
+  function buildAssistPayload(field?: ArticleAssistField) {
+    const selectedSiteRows = sites.filter((site) => selectedSites.has(site.id));
+    return {
+      ...(field ? { field } : {}),
+      title: form.title,
+      content: editorRef.current?.innerHTML || form.content,
+      excerpt: form.excerpt,
+      category: categoryText,
+      site_names: selectedSiteRows.map((site) => site.name),
+      site_domains: selectedSiteRows.map((site) => site.domain).filter(Boolean),
+      categories: categories.map((category) => category.name),
+    };
+  }
+
+  function applyCategoryValue(value: string) {
+    setCategoryText(value);
+    const match = categories.find(
+      (category) => category.name.toLowerCase() === value.trim().toLowerCase(),
+    );
+    update("category_id", match?.id ?? null);
+  }
+
+  async function handleAutofill(field: ArticleAssistField) {
+    setAssistBusy(field);
+    setAssistMessage(null);
+    setError(null);
+    syncEditorContent();
+    try {
+      const { value } = await api.autofillArticleField(buildAssistPayload(field));
+      if (field === "meta_title") {
+        updateSeo("meta_title", value);
+      } else if (field === "meta_description") {
+        updateSeo("meta_description", value);
+      } else if (field === "excerpt") {
+        update("excerpt", value);
+      } else {
+        applyCategoryValue(value);
+      }
+      setAssistMessage("AI autofill applied.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "AI autofill failed.");
+    } finally {
+      setAssistBusy(null);
+    }
+  }
+
+  async function handleGenerateCover() {
+    setAssistBusy("cover");
+    setAssistMessage(null);
+    setError(null);
+    syncEditorContent();
+    try {
+      const generated = await api.generateArticleCover(buildAssistPayload());
+      update("cover_image", generated.url);
+      updateSeo("og_image", generated.url);
+      setAssistMessage("AI cover image generated in 16:9 web hero format.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "AI cover generation failed.");
+    } finally {
+      setAssistBusy(null);
+    }
+  }
+
+  function removeCoverImage() {
+    setForm((current) => ({
+      ...current,
+      cover_image: null,
+      seo: {
+        ...current.seo,
+        og_image: current.seo.og_image === current.cover_image ? "" : current.seo.og_image,
+      },
+    }));
+  }
+
+  async function handleStyleArticle() {
+    const editorText = editorRef.current?.textContent?.trim() ?? "";
+    if (!editorText) {
+      setError("Paste or write article content before styling.");
+      return;
+    }
+
+    setAssistBusy("style");
+    setAssistMessage(null);
+    setError(null);
+    syncEditorContent();
+    try {
+      const { html } = await api.styleArticleContent(buildAssistPayload());
+      setForm((current) => ({ ...current, content: html }));
+      if (editorRef.current) {
+        editorRef.current.innerHTML = html;
+      }
+      selectionRef.current = null;
+      setAssistMessage("Article styling applied.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "AI styling failed.");
+    } finally {
+      setAssistBusy(null);
     }
   }
 
@@ -245,6 +403,7 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
           </div>
         </div>
         {error ? <p className="error">{error}</p> : null}
+        {assistMessage ? <p className="success">{assistMessage}</p> : null}
         <label>
           Title
           <input
@@ -276,7 +435,17 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
             />
           </label>
           <label>
-            Category
+            <span className="article-editor__label-row">
+              <span>Category</span>
+              <button
+                type="button"
+                className="button-secondary article-editor__autofill"
+                disabled={Boolean(assistBusy)}
+                onClick={() => void handleAutofill("category")}
+              >
+                {assistBusy === "category" ? "Filling..." : "Autofill"}
+              </button>
+            </span>
             <input
               list="category-options"
               value={categoryText}
@@ -298,7 +467,17 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
           </label>
         </div>
         <label>
-          Excerpt
+          <span className="article-editor__label-row">
+            <span>Excerpt</span>
+            <button
+              type="button"
+              className="button-secondary article-editor__autofill"
+              disabled={Boolean(assistBusy)}
+              onClick={() => void handleAutofill("excerpt")}
+            >
+              {assistBusy === "excerpt" ? "Filling..." : "Autofill"}
+            </button>
+          </span>
           <textarea
             value={form.excerpt}
             onChange={(e) => update("excerpt", e.target.value)}
@@ -309,7 +488,17 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
         <label>
           Content
           <div className="article-editor__surface">
-            <div className="article-editor__toolbar" role="toolbar" aria-label="Content formatting">
+            <div
+              className="article-editor__toolbar"
+              role="toolbar"
+              aria-label="Content formatting"
+              onMouseDown={(event) => {
+                const tagName = (event.target as HTMLElement).tagName;
+                if (tagName !== "SELECT" && tagName !== "INPUT") {
+                  event.preventDefault();
+                }
+              }}
+            >
               <select
                 className="article-editor__select"
                 defaultValue=""
@@ -375,6 +564,14 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
               <button type="button" className="button-secondary" onClick={() => applyEditorCommand("removeFormat")}>
                 Clear
               </button>
+              <button
+                type="button"
+                className="button-secondary article-editor__style-button"
+                disabled={Boolean(assistBusy)}
+                onClick={() => void handleStyleArticle()}
+              >
+                {assistBusy === "style" ? "Styling..." : "Style it"}
+              </button>
             </div>
             <div
               ref={editorRef}
@@ -382,8 +579,16 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
               contentEditable
               suppressContentEditableWarning
               data-placeholder="Write your article here with rich formatting."
-              onInput={syncEditorContent}
-              onBlur={syncEditorContent}
+              onInput={() => {
+                syncEditorContent();
+                saveEditorSelection();
+              }}
+              onKeyUp={saveEditorSelection}
+              onMouseUp={saveEditorSelection}
+              onBlur={() => {
+                saveEditorSelection();
+                syncEditorContent();
+              }}
             />
           </div>
           <small className="article-editor__hint">Formatting is saved as rich HTML content.</small>
@@ -416,7 +621,17 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
         </div>
         <div className="grid-two">
           <label>
-            Cover image
+            <span className="article-editor__label-row">
+              <span>Cover image</span>
+              <button
+                type="button"
+                className="button-secondary article-editor__autofill"
+                disabled={Boolean(assistBusy) || uploading}
+                onClick={() => void handleGenerateCover()}
+              >
+                {assistBusy === "cover" ? "Generating..." : "Generate image"}
+              </button>
+            </span>
             <input type="file" accept="image/*" onChange={handleFileChange} />
           </label>
           <label>
@@ -429,7 +644,20 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
           </label>
         </div>
         {uploading ? <p className="muted">Uploading image...</p> : null}
-        {form.cover_image ? <img className="cover-preview" src={form.cover_image} alt="" /> : null}
+        {form.cover_image ? (
+          <div className="cover-preview-frame">
+            <img className="cover-preview" src={form.cover_image} alt="" />
+            <button
+              type="button"
+              className="cover-preview__remove"
+              aria-label="Remove cover image"
+              title="Remove cover image"
+              onClick={removeCoverImage}
+            >
+              X
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <section className="panel stack">
@@ -437,7 +665,17 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
           <h2>SEO</h2>
         </div>
         <label>
-          Meta title
+          <span className="article-editor__label-row">
+            <span>Meta title</span>
+            <button
+              type="button"
+              className="button-secondary article-editor__autofill"
+              disabled={Boolean(assistBusy)}
+              onClick={() => void handleAutofill("meta_title")}
+            >
+              {assistBusy === "meta_title" ? "Filling..." : "Autofill"}
+            </button>
+          </span>
           <input
             value={form.seo.meta_title}
             onChange={(e) => updateSeo("meta_title", e.target.value)}
@@ -445,7 +683,17 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
           />
         </label>
         <label>
-          Meta description
+          <span className="article-editor__label-row">
+            <span>Meta description</span>
+            <button
+              type="button"
+              className="button-secondary article-editor__autofill"
+              disabled={Boolean(assistBusy)}
+              onClick={() => void handleAutofill("meta_description")}
+            >
+              {assistBusy === "meta_description" ? "Filling..." : "Autofill"}
+            </button>
+          </span>
           <textarea
             value={form.seo.meta_description}
             onChange={(e) => updateSeo("meta_description", e.target.value)}

@@ -38,10 +38,35 @@ interface GeminiTextRequest {
 type GeminiResponse = {
   candidates?: Array<{
     content?: {
-      parts?: Array<{ text?: string }>;
+      parts?: Array<{
+        text?: string;
+        inlineData?: {
+          mimeType?: string;
+          data?: string;
+        };
+        inline_data?: {
+          mime_type?: string;
+          mimeType?: string;
+          data?: string;
+        };
+      }>;
     };
   }>;
   promptFeedback?: unknown;
+};
+
+interface GeminiImageRequest {
+  apiKey: string;
+  model: string;
+  prompt: string;
+  aspectRatio?: string;
+  imageSize?: "512" | "1K" | "2K" | "4K";
+}
+
+export type GeminiImageResult = {
+  data: string;
+  mimeType: string;
+  text: string;
 };
 
 type GeminiErrorResponse = {
@@ -157,6 +182,90 @@ export async function callGeminiText({
   }
 
   throw new GeminiApiError(`Gemini request failed after retries for model ${model}.`);
+}
+
+export async function callGeminiImage({
+  apiKey,
+  model,
+  prompt,
+  aspectRatio = "16:9",
+  imageSize = "1K",
+}: GeminiImageRequest): Promise<GeminiImageResult> {
+  const body = JSON.stringify({
+    contents: [
+      {
+        parts: [{ text: prompt }],
+      },
+    ],
+    generationConfig: {
+      responseModalities: ["TEXT", "IMAGE"],
+      responseFormat: {
+        image: {
+          aspectRatio,
+          imageSize,
+        },
+      },
+    },
+  });
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "x-goog-api-key": apiKey,
+          "content-type": "application/json",
+        },
+        body,
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await readGeminiErrorText(response);
+      if (isBillingOrCreditError(errorText)) {
+        throw new GeminiBillingError(`Gemini billing or credits unavailable for model ${model}: ${errorText}`, response.status);
+      }
+
+      if ([429, 500, 502, 503, 504].includes(response.status) && attempt < 2) {
+        const retryAfter = response.headers.get("retry-after");
+        const retryMs = retryAfter ? Number.parseFloat(retryAfter) * 1000 : (attempt + 1) * 1000;
+        await new Promise((resolve) => setTimeout(resolve, Math.min(Number.isFinite(retryMs) ? retryMs : 1000, 5000)));
+        continue;
+      }
+
+      if (response.status === 429) {
+        throw new GeminiRateLimitError(`Gemini rate limit reached for model ${model}: ${errorText}`);
+      }
+
+      throw new GeminiApiError(`Gemini image request failed for model ${model}: ${errorText}`, response.status);
+    }
+
+    const data = (await response.json()) as GeminiResponse;
+    const parts = data.candidates?.[0]?.content?.parts ?? [];
+    const text = parts.map((part) => part.text || "").filter(Boolean).join("\n").trim();
+    const imagePart = parts.find((part) => part.inlineData?.data || part.inline_data?.data);
+    const imageData = imagePart?.inlineData?.data ?? imagePart?.inline_data?.data;
+    const mimeType =
+      imagePart?.inlineData?.mimeType ??
+      imagePart?.inline_data?.mimeType ??
+      imagePart?.inline_data?.mime_type ??
+      "image/png";
+
+    if (!imageData) {
+      throw new GeminiApiError(
+        `Unexpected Gemini image response format${data.promptFeedback ? `: ${JSON.stringify(data.promptFeedback)}` : ""}`,
+      );
+    }
+
+    return {
+      data: imageData,
+      mimeType,
+      text,
+    };
+  }
+
+  throw new GeminiApiError(`Gemini image request failed after retries for model ${model}.`);
 }
 
 export function formatGeminiUserError(error: unknown): string {

@@ -9,6 +9,8 @@ export type Env = {
   REDDIT_CLIENT_ID?: string;
   REDDIT_CLIENT_SECRET?: string;
   REDDIT_REDIRECT_URI?: string;
+  DASHBOARD_API_URL?: string;
+  MCP_CONNECTOR_TOKEN?: string;
   TRADING_AGENT_SYNC_SECRET?: string;
   JOURNL_SERVICE_ROLE_KEY?: string;
 };

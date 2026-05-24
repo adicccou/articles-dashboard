@@ -1,23 +1,19 @@
-import { useEffect, useState } from "react";
+import { forwardRef, useEffect, useState } from "react";
 import type { SocialAccount, SocialPost, PlannerItem } from "../lib/types";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
-import { formatDisplayDateTime } from "../lib/datetime";
-import { SocialPublisherWorkspace, type SocialWorkspaceFeedback } from "../components/SocialPublisherWorkspace";
+import { SocialPublisherWorkspace, type SocialAgentToolbarHandle, type SocialWorkspaceFeedback } from "../components/SocialPublisherWorkspace";
 import { KnowledgeBaseEditor } from "../components/KnowledgeBaseEditor";
-import { SocialCampaignModal } from "../components/SocialCampaignModal";
 
 const TWITTER_KB_ID = 1;
 
-export function TwitterAgentPage() {
+export const TwitterAgentPage = forwardRef<SocialAgentToolbarHandle>(function TwitterAgentPage(_props, ref) {
   const [posts, setPosts] = useState<SocialPost[]>([]);
   const [scheduledSocialPosts, setScheduledSocialPosts] = useState<SocialPost[]>([]);
   const [plannerItems, setPlannerItems] = useState<PlannerItem[]>([]);
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [newPost, setNewPost] = useState("");
   const [adding, setAdding] = useState(false);
-  const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
-  const [editingCampaignId, setEditingCampaignId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<SocialWorkspaceFeedback | null>(null);
@@ -54,9 +50,6 @@ export function TwitterAgentPage() {
   }, []);
 
   const isConnected = accounts.some((account) => account.status === "active" && Boolean(account.credentials_ready));
-  const campaigns = plannerItems.filter(
-    (item) => item.item_type === "campaign" && ["x", "twitter", "twitter/x"].includes(item.platform.trim().toLowerCase()),
-  );
   const activePlannerPostStatuses = new Set(["planned", "drafting", "approved"]);
   const activeSocialPostStatuses = new Set(["draft", "approved", "scheduled"]);
   const socialPlannerPlatforms = new Set(["reddit", "threads", "thread", "twitter", "x", "twitter/x"]);
@@ -74,17 +67,15 @@ export function TwitterAgentPage() {
       .map((post) => post.scheduled_at)
       .filter((value): value is string => Boolean(value)),
   ];
-  const editingCampaign = editingCampaignId ? campaigns.find((item) => item.id === editingCampaignId) ?? null : null;
-  const confirmDeleteCampaign = (title: string) =>
-    window.confirm(`Delete the X campaign "${title}"? This cannot be undone.`);
 
   return (
     <>
       <SocialPublisherWorkspace
+        ref={ref}
+        hideHeader
         icon="𝕏"
         platformLabel="Twitter / X Agent"
         shortLabel="𝕏"
-        campaignCount={campaigns.length}
         queuePlaceholder="Write a tweet..."
         queueHint="Post immediately above, pick a time manually, or auto-schedule into an open planner slot."
         queueLimit={280}
@@ -97,74 +88,6 @@ export function TwitterAgentPage() {
         posts={posts}
         accounts={accounts}
         feedback={feedback}
-        campaignContent={
-          campaigns.length === 0 ? (
-            <div className="social-empty-card">
-              <p className="social-empty-card__title">No X campaigns yet.</p>
-              <p className="social-empty-card__copy">Create your first X campaign here and it will start showing up in this workspace.</p>
-              <div className="social-empty-card__actions">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingCampaignId(null);
-                    setIsCampaignModalOpen(true);
-                  }}
-                >
-                  + Campaign
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="table social-campaign-table">
-              <div className="table__row table__row--header">
-                <span>Campaign</span>
-                <span>Account</span>
-                <span>Interval</span>
-                <span>Duration</span>
-                <span>Actions</span>
-              </div>
-              {campaigns.map((item) => (
-                <div className="table__row" key={item.id}>
-                  <span>
-                    {item.title}
-                    {item.instruction ? <small>{item.instruction}</small> : null}
-                  </span>
-                  <span className="social-muted">
-                    {accounts.find((account) => account.id === item.account_id)?.username || "—"}
-                  </span>
-                  <span className="social-muted">{item.interval_minutes ? `${item.interval_minutes} min` : "—"}</span>
-                  <span className="social-muted">
-                    {item.duration_start ? formatDisplayDateTime(item.duration_start) : "Started immediately"}
-                    {item.duration_end ? ` → ${formatDisplayDateTime(item.duration_end)}` : ""}
-                  </span>
-                  <span className="social-table-actions">
-                    <button
-                      type="button"
-                      className="social-inline-button"
-                      onClick={() => {
-                        setEditingCampaignId(item.id);
-                        setIsCampaignModalOpen(true);
-                      }}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      className="social-inline-button social-inline-button--danger"
-                      onClick={async () => {
-                        if (!confirmDeleteCampaign(item.title)) return;
-                        await api.deletePlannerItem(item.id);
-                        await load();
-                      }}
-                    >
-                      Delete
-                    </button>
-                  </span>
-                </div>
-              ))}
-            </div>
-          )
-        }
         newPost={newPost}
         adding={adding}
         error={error}
@@ -233,10 +156,6 @@ export function TwitterAgentPage() {
         }}
         knowledgeBaseContent={<KnowledgeBaseEditor type="social_platform" entityId={TWITTER_KB_ID} />}
         accountInputHint="Add each X profile with the credentials required for publishing from that account."
-        onCreateCampaign={() => {
-          setEditingCampaignId(null);
-          setIsCampaignModalOpen(true);
-        }}
         accountFields={[
           {
             key: "username",
@@ -265,28 +184,8 @@ export function TwitterAgentPage() {
           },
         ]}
       />
-      {isCampaignModalOpen ? (
-        <SocialCampaignModal
-          platform="twitter"
-          platformLabel="X"
-          accounts={accounts.map((account) => ({ id: account.id, label: account.username }))}
-          initialData={editingCampaign}
-          mode={editingCampaign ? "edit" : "create"}
-          onClose={() => {
-            setIsCampaignModalOpen(false);
-            setEditingCampaignId(null);
-          }}
-          onSubmit={async (payload) => {
-            if (editingCampaign) {
-              await api.updatePlannerItem(editingCampaign.id, payload);
-              setEditingCampaignId(null);
-            } else {
-              await api.createPlannerItem(payload);
-            }
-            await load();
-          }}
-        />
-      ) : null}
     </>
   );
-}
+});
+
+TwitterAgentPage.displayName = "TwitterAgentPage";

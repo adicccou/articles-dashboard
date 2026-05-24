@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import type { SocialAccount, SocialPost } from "../lib/types";
 import { formatDisplayDate, formatDisplayDateTime } from "../lib/datetime";
 import { getPostImageUrls } from "../lib/socialPostMedia";
 
-type Tab = "posts" | "campaigns" | "replies";
+type Tab = "posts" | "replies";
 type SetupTab = "overview" | "knowledge" | "accounts";
 
 export type SocialAccountField = {
@@ -23,11 +23,15 @@ export type SocialWorkspaceFeedback = {
   detail?: string;
 };
 
+export type SocialAgentToolbarHandle = {
+  openComposer: () => void;
+  reload: () => void;
+};
+
 type SocialPublisherWorkspaceProps = {
   icon: string;
   platformLabel: string;
   shortLabel: string;
-  campaignCount: number;
   queuePlaceholder: string;
   queueHint: string;
   queueLimit: number;
@@ -39,7 +43,6 @@ type SocialPublisherWorkspaceProps = {
   loading: boolean;
   posts: SocialPost[];
   accounts: SocialAccount[];
-  campaignContent: React.ReactNode;
   repliesContent?: React.ReactNode;
   replyCount?: number;
   newPost: string;
@@ -62,7 +65,7 @@ type SocialPublisherWorkspaceProps = {
   knowledgeBaseContent?: React.ReactNode;
   accountInputHint?: string;
   showAccountManagement?: boolean;
-  onCreateCampaign?: () => void;
+  hideHeader?: boolean;
 };
 
 const AUTO_SCHEDULE_HOURS = [10, 13, 16];
@@ -292,11 +295,10 @@ function SocialPostComposerModal({
   );
 }
 
-export function SocialPublisherWorkspace({
+export const SocialPublisherWorkspace = forwardRef<SocialAgentToolbarHandle, SocialPublisherWorkspaceProps>(function SocialPublisherWorkspace({
   icon,
   platformLabel,
   shortLabel,
-  campaignCount,
   queuePlaceholder,
   queueHint,
   queueLimit,
@@ -308,7 +310,6 @@ export function SocialPublisherWorkspace({
   loading,
   posts,
   accounts,
-  campaignContent,
   repliesContent,
   replyCount = 0,
   newPost,
@@ -331,8 +332,8 @@ export function SocialPublisherWorkspace({
   knowledgeBaseContent,
   accountInputHint = "Add another account with the credentials this platform requires.",
   showAccountManagement = false,
-  onCreateCampaign,
-}: SocialPublisherWorkspaceProps) {
+  hideHeader = false,
+}, ref) {
   const tabStorageKey = useMemo(
     () => `dashboard:social-tab:${platformLabel.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
     [platformLabel],
@@ -340,7 +341,7 @@ export function SocialPublisherWorkspace({
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window === "undefined") return "posts";
     const stored = window.localStorage.getItem(tabStorageKey);
-    return stored === "posts" || stored === "campaigns" || stored === "replies" ? stored : "posts";
+    return stored === "posts" || stored === "replies" ? stored : "posts";
   });
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
   const [isSetupOpen, setIsSetupOpen] = useState(false);
@@ -356,7 +357,6 @@ export function SocialPublisherWorkspace({
 
   const tabs: Array<{ id: Tab; label: string }> = [
     { id: "posts", label: `Posts (${posts.length})` },
-    { id: "campaigns", label: `Campaigns (${campaignCount})` },
     ...(repliesContent ? [{ id: "replies" as const, label: `Replies (${replyCount})` }] : []),
   ];
   const setupTabs: Array<{ id: SetupTab; label: string }> = [
@@ -374,6 +374,17 @@ export function SocialPublisherWorkspace({
   const requiredConnectFieldKeys = connectAccountRequiredFieldKeys ?? requiredAccountFieldKeys;
   const isAccountFormComplete = hasValuesForKeys(requiredAccountFieldKeys);
   const isConnectFormComplete = hasValuesForKeys(requiredConnectFieldKeys);
+  const openComposer = () => {
+    setTab("posts");
+    setIsPostModalOpen(true);
+  };
+
+  useImperativeHandle(ref, () => ({
+    openComposer,
+    reload: () => {
+      void onReload();
+    },
+  }), [onReload]);
 
   return (
     <div className="social-workspace stack">
@@ -388,64 +399,55 @@ export function SocialPublisherWorkspace({
         </div>
       ) : null}
 
-      <section className="panel social-hero">
-        <div className="social-hero__content">
-          <div className="social-title-row">
-            <h2>{icon} {platformLabel}</h2>
-            <span className={`social-status-pill social-status-pill--${isConnected ? "success" : "warning"}`}>
-              {isConnected ? "Connected" : "Needs setup"}
-            </span>
+      {!hideHeader ? (
+        <section className="panel social-hero">
+          <div className="social-hero__content">
+            <div className="social-title-row">
+              <h2>{icon} {platformLabel}</h2>
+              <span className={`social-status-pill social-status-pill--${isConnected ? "success" : "warning"}`}>
+                {isConnected ? "Connected" : "Needs setup"}
+              </span>
+            </div>
           </div>
-        </div>
-        <div className="social-hero__actions">
-          <button
-            type="button"
-            onClick={() => {
-              setTab("posts");
-              setIsPostModalOpen(true);
-            }}
-          >
-            + Post
-          </button>
-          {onCreateCampaign ? (
-            <button className="button-secondary" type="button" onClick={onCreateCampaign}>
-              + Campaign
+          <div className="social-hero__actions">
+            <button type="button" onClick={openComposer}>
+              + Post
             </button>
-          ) : null}
-          {showAccountManagement ? (
+            {showAccountManagement ? (
+              <button
+                aria-label="Manage accounts and setup"
+                className={`button-secondary social-icon-button ${isSetupOpen ? "social-utility-button--active" : ""}`}
+                title="Manage"
+                type="button"
+                onClick={() => {
+                  setSetupTab("accounts");
+                  setIsSetupOpen(true);
+                }}
+              >
+                ⚙
+                <span className="social-toolbar-badge">{accounts.length}</span>
+              </button>
+            ) : null}
             <button
-              aria-label="Manage accounts and setup"
-              className={`button-secondary social-icon-button ${isSetupOpen ? "social-utility-button--active" : ""}`}
-              title="Manage"
+              aria-label="Refresh"
+              className="button-secondary social-icon-button"
+              title="Refresh"
               type="button"
-              onClick={() => {
-                setSetupTab("accounts");
-                setIsSetupOpen(true);
-              }}
+              onClick={() => void onReload()}
             >
-              ⚙
-              <span className="social-toolbar-badge">{accounts.length}</span>
+              ↻
             </button>
-          ) : null}
-          <button
-            aria-label="Refresh"
-            className="button-secondary social-icon-button"
-            title="Refresh"
-            type="button"
-            onClick={() => void onReload()}
-          >
-            ↻
-          </button>
-        </div>
-      </section>
+          </div>
+        </section>
+      ) : null}
 
       <section className="panel social-panel-shell">
-        <div className="social-panel-tabs">
+        <div className="ui-tabs__list social-panel-tabs">
           {tabs.map((item) => (
             <button
               key={item.id}
               type="button"
-              className={`social-panel-tab ${tab === item.id ? "social-panel-tab--active" : ""}`}
+              className={`ui-tab social-panel-tab ${tab === item.id ? "ui-tab--active social-panel-tab--active" : ""}`}
               onClick={() => setTab(item.id)}
             >
               {item.label}
@@ -499,15 +501,6 @@ export function SocialPublisherWorkspace({
           </div>
         ) : null}
 
-        {tab === "campaigns" ? (
-          <div className="social-panel-section stack">
-            <div className="panel__title-row">
-              <h2>{shortLabel} Campaigns</h2>
-            </div>
-            {campaignContent}
-          </div>
-        ) : null}
-
         {tab === "replies" && repliesContent ? (
           <div className="social-panel-section stack">
             <div className="panel__title-row">
@@ -531,12 +524,12 @@ export function SocialPublisherWorkspace({
               </button>
             </div>
 
-            <div className="social-panel-tabs social-panel-tabs--modal">
+            <div className="ui-tabs__list social-panel-tabs social-panel-tabs--modal">
               {setupTabs.map((item) => (
                 <button
                   key={item.id}
                   type="button"
-                  className={`social-panel-tab ${setupTab === item.id ? "social-panel-tab--active" : ""}`}
+                  className={`ui-tab social-panel-tab ${setupTab === item.id ? "ui-tab--active social-panel-tab--active" : ""}`}
                   onClick={() => setSetupTab(item.id)}
                 >
                   {item.label}
@@ -549,8 +542,8 @@ export function SocialPublisherWorkspace({
                 <div className="social-connections-summary">
                   <article className="social-connections-summary__card">
                     <span>Queue health</span>
-                    <strong>{posts.length + campaignCount}</strong>
-                    <small>Active items across posts and campaigns.</small>
+                    <strong>{posts.length}</strong>
+                    <small>Active posts in this workspace.</small>
                   </article>
                   <article className="social-connections-summary__card">
                     <span>Readiness</span>
@@ -721,4 +714,4 @@ export function SocialPublisherWorkspace({
       ) : null}
     </div>
   );
-}
+});

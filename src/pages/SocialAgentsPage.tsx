@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RedditAgentPage } from "./RedditAgentPage";
 import { TwitterAgentPage } from "./TwitterAgentPage";
 import { ThreadsAgentPage } from "./ThreadsAgentPage";
+import type { SocialAgentToolbarHandle } from "../components/SocialPublisherWorkspace";
 import "../styles/social-agents-page.css";
 
 type Platform = "reddit" | "twitter" | "threads" | "linkedin";
@@ -36,34 +37,64 @@ function ComingSoon({ platform }: { platform: string }) {
 
 export function SocialAgentsPage() {
   const [platform, setPlatform] = useState<Platform>(readStoredPlatform);
+  const redditToolbarRef = useRef<SocialAgentToolbarHandle>(null);
+  const twitterToolbarRef = useRef<SocialAgentToolbarHandle>(null);
+  const threadsToolbarRef = useRef<SocialAgentToolbarHandle>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(SOCIAL_PLATFORM_STORAGE_KEY, platform);
   }, [platform]);
 
+  const activeToolbarRef = platform === "reddit"
+    ? redditToolbarRef
+    : platform === "twitter"
+      ? twitterToolbarRef
+      : platform === "threads"
+        ? threadsToolbarRef
+        : null;
+
   return (
     <div className="social-agents-page">
-      <div className="social-platform-tabs">
-        {PLATFORMS.map((p) => (
-          <button
-            key={p.id}
-            className={`social-tab ${platform === p.id ? "social-tab--active" : ""} ${!p.available ? "social-tab--disabled" : ""}`}
-            onClick={() => p.available && setPlatform(p.id)}
-            disabled={!p.available}
-            title={!p.available ? "Coming soon" : undefined}
-          >
-            <span className="social-tab__icon">{p.icon}</span>
-            {p.label}
-            {!p.available && <span className="social-tab__badge">soon</span>}
-          </button>
-        ))}
+      <div className="social-platform-bar">
+        <div className="ui-tabs__list social-platform-tabs">
+          {PLATFORMS.map((p) => (
+            <button
+              key={p.id}
+              className={`ui-tab social-tab ${platform === p.id ? "ui-tab--active social-tab--active" : ""} ${!p.available ? "ui-tab--disabled social-tab--disabled" : ""}`}
+              onClick={() => p.available && setPlatform(p.id)}
+              disabled={!p.available}
+              title={!p.available ? "Coming soon" : undefined}
+            >
+              <span className="social-tab__icon">{p.icon}</span>
+              {p.label}
+              {!p.available && <span className="ui-tab__badge social-tab__badge">soon</span>}
+            </button>
+          ))}
+        </div>
+
+        {activeToolbarRef ? (
+          <div className="social-platform-actions">
+            <button type="button" onClick={() => activeToolbarRef.current?.openComposer()}>
+              + Post
+            </button>
+            <button
+              type="button"
+              aria-label="Refresh"
+              className="button-secondary social-icon-button"
+              title="Refresh"
+              onClick={() => activeToolbarRef.current?.reload()}
+            >
+              ↻
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <div className="social-tab-content">
-        {platform === "reddit"   && <RedditAgentPage />}
-        {platform === "twitter"  && <TwitterAgentPage />}
-        {platform === "threads"  && <ThreadsAgentPage />}
+        {platform === "reddit"   && <RedditAgentPage ref={redditToolbarRef} />}
+        {platform === "twitter"  && <TwitterAgentPage ref={twitterToolbarRef} />}
+        {platform === "threads"  && <ThreadsAgentPage ref={threadsToolbarRef} />}
         {platform === "linkedin" && <ComingSoon platform="LinkedIn" />}
       </div>
     </div>

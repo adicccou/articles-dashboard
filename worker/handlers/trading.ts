@@ -183,7 +183,7 @@ function validateAssets(assets: string[]): string | null {
   }
   const invalid = assets.filter((asset) => !/^[A-Z0-9._/-]{2,20}$/.test(asset));
   if (invalid.length > 0) {
-    return "Trading assets must be symbols like XAUUSD, US500, BTCUSD, AUDUSD, XTIUSD, or EURUSD.";
+    return "Trading assets must be symbols like XAUUSD, US500, BTCUSD, AUDUSD, AUDNZD, or EURUSD.";
   }
   return null;
 }

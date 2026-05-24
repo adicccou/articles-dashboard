@@ -212,19 +212,6 @@ export function ConfigPage() {
     [apps],
   );
 
-  const appRows = useMemo(() => apps.map((app) => {
-    const relatedCampaigns = campaigns.filter((campaign) => campaign.app_id === app.id && campaign.status !== "archived");
-    const refs = uniqueStrings(relatedCampaigns.flatMap((campaign) => campaign.account_refs));
-    const connectedAccounts = refs
-      .map((ref) => accountsByRef.get(ref))
-      .filter((account): account is ManagedAccount => Boolean(account));
-    const platforms = uniqueStrings([
-      ...relatedCampaigns.flatMap((campaign) => campaign.platforms),
-      ...connectedAccounts.map((account) => account.platform),
-    ]);
-    return { app, relatedCampaigns, connectedAccounts, platforms };
-  }), [accountsByRef, apps, campaigns]);
-
   const accountRows = useMemo(() => accounts.map((account) => {
     const ref = accountRef(account);
     const relatedCampaigns = campaigns.filter((campaign) => campaign.account_refs.includes(ref) && campaign.status !== "archived");
@@ -475,30 +462,24 @@ export function ConfigPage() {
       {error ? <p className="error panel">{error}</p> : null}
       {feedback ? <p className="panel config-feedback">{feedback}</p> : null}
 
-      <section className="panel config-tabs">
-        <div className="config-tabs__list">
+      <section className="panel ui-tabs config-tabs">
+        <div className="ui-tabs__list config-tabs__list">
           <button
             type="button"
-            className={`config-tab ${tab === "apps" ? "config-tab--active" : ""}`}
+            className={`ui-tab config-tab ${tab === "apps" ? "ui-tab--active config-tab--active" : ""}`}
             onClick={() => setTab("apps")}
           >
             Apps ({apps.length})
           </button>
           <button
             type="button"
-            className={`config-tab ${tab === "accounts" ? "config-tab--active" : ""}`}
+            className={`ui-tab config-tab ${tab === "accounts" ? "ui-tab--active config-tab--active" : ""}`}
             onClick={() => setTab("accounts")}
           >
             Social Media Accounts ({accounts.length})
           </button>
         </div>
-        <div className="config-tabs__actions">
-          <button type="button" onClick={openAddApp}>
-            Add app
-          </button>
-          <button type="button" onClick={() => openAddAccount()}>
-            Add account
-          </button>
+        <div className="ui-tabs__actions config-tabs__actions">
           <button className="button-secondary" type="button" disabled={refreshing} onClick={() => void load({ silent: true })}>
             {refreshing ? "Refreshing..." : "Refresh"}
           </button>
@@ -509,7 +490,12 @@ export function ConfigPage() {
         <section className="panel config-list">
             <div className="panel__title-row">
               <h2>Apps</h2>
-              <span className="config-count">{apps.length}</span>
+              <div className="config-title-actions">
+                <span className="config-count">{apps.length}</span>
+                <button type="button" onClick={openAddApp}>
+                  Add app
+                </button>
+              </div>
             </div>
             {apps.length === 0 ? (
               <div className="config-empty">No apps yet.</div>
@@ -517,34 +503,16 @@ export function ConfigPage() {
               <div className="config-table config-table--apps">
                 <div className="config-table__row config-table__row--header">
                   <span>App</span>
-                  <span>Connected social media</span>
-                  <span>Campaigns</span>
                   <span>Status</span>
                   <span>Updated</span>
                   <span>Actions</span>
                 </div>
-                {appRows.map(({ app, connectedAccounts, platforms, relatedCampaigns }) => (
+                {apps.map((app) => (
                   <article className="config-table__row" key={app.id}>
                     <div className="config-main-cell">
                       <span className="config-id">{appId(app.id)}</span>
                       <strong>{app.name}</strong>
                       <small>{app.description || "No app info yet."}</small>
-                    </div>
-                    <div className="config-chip-list">
-                      {connectedAccounts.length > 0 ? connectedAccounts.map((account) => (
-                        <span className="config-chip" key={accountRef(account)}>
-                          {platformLabel(account.platform)} {account.platform === "reddit" ? account.username : `@${account.username}`}
-                        </span>
-                      )) : platforms.length > 0 ? platforms.map((platform) => (
-                        <span className="config-chip" key={platform}>{platformLabel(platform as AccountPlatform)}</span>
-                      )) : (
-                        <span className="config-muted">No social media connected</span>
-                      )}
-                    </div>
-                    <div className="config-chip-list">
-                      {relatedCampaigns.length > 0 ? relatedCampaigns.map((campaign) => (
-                        <span className="config-chip" key={campaign.id}>{campaign.name}</span>
-                      )) : <span className="config-muted">No campaigns</span>}
                     </div>
                     <span className={`config-pill config-pill--${statusTone(app.status)}`}>{app.status}</span>
                     <span className="config-muted">{formatDisplayDate(app.updated_at || app.created_at)}</span>
@@ -567,7 +535,12 @@ export function ConfigPage() {
         <section className="panel config-list">
             <div className="panel__title-row">
               <h2>Social media accounts</h2>
-              <span className="config-count">{accounts.length}</span>
+              <div className="config-title-actions">
+                <span className="config-count">{accounts.length}</span>
+                <button type="button" onClick={() => openAddAccount()}>
+                  Add account
+                </button>
+              </div>
             </div>
             {accounts.length === 0 ? (
               <div className="config-empty">No social media accounts yet.</div>

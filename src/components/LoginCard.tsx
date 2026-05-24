@@ -48,7 +48,7 @@ export function LoginCard({ surface = "marketing", onSubmit }: LoginCardProps) {
             onChange={(e) => setPassword(e.target.value)}
           />
         </label>
-        <label style={{ flexDirection: "row", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+        <label className="login-card__remember">
           <input
             type="checkbox"
             checked={remember}

@@ -374,6 +374,11 @@
   align-items: center;
 }
 
+.custom-lean-workers--ml-assets .custom-lean-workers__header,
+.custom-lean-workers--ml-assets .custom-lean-worker {
+  grid-template-columns: minmax(240px, 1.8fr) repeat(7, minmax(105px, 0.75fr)) minmax(120px, 0.9fr);
+}
+
 .custom-lean-workers__header {
   background: #f1f5f9;
   color: #475569;
@@ -686,6 +691,11 @@
   .custom-lean-workers__header,
   .custom-lean-worker {
     min-width: 1080px;
+  }
+
+  .custom-lean-workers--ml-assets .custom-lean-workers__header,
+  .custom-lean-workers--ml-assets .custom-lean-worker {
+    min-width: 1180px;
   }
 }
 

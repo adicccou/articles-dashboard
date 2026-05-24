@@ -15,8 +15,11 @@
     "db:migrate:remote": "wrangler d1 migrations apply article_dashboard --remote"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "agents": "^0.13.2",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.10.0",

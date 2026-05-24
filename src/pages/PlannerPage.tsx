@@ -163,21 +163,6 @@ export function PlannerPage() {
     [items, selectedItemId],
   );
 
-  const metrics = useMemo(() => {
-    const now = new Date();
-    const monthEnd = endOfMonth(now);
-    return {
-      total: items.length,
-      posts: items.filter((item) => item.item_type === "post").length,
-      campaigns: items.filter((item) => item.item_type === "campaign").length,
-      thisMonth: items.filter((item) => {
-        if (!item.scheduled_for) return false;
-        const date = new Date(item.scheduled_for);
-        return date >= now && date <= monthEnd;
-      }).length,
-    };
-  }, [items]);
-
   const calendarDays = useMemo(() => monthGrid(calendarDate), [calendarDate]);
   const currentWeekDays = useMemo(() => weekDays(calendarDate), [calendarDate]);
 
@@ -306,6 +291,26 @@ export function PlannerPage() {
           <h2>Scheduler</h2>
         </div>
         <div className="scheduler-hero__actions">
+          <div className="ui-tabs__list scheduler-tabs scheduler-tabs--header">
+            <button
+              className={view === "list" ? "ui-tab scheduler-tab ui-tab--active scheduler-tab--active" : "ui-tab scheduler-tab"}
+              onClick={() => setView("list")}
+            >
+              List
+            </button>
+            <button
+              className={view === "calendar" ? "ui-tab scheduler-tab ui-tab--active scheduler-tab--active" : "ui-tab scheduler-tab"}
+              onClick={() => setView("calendar")}
+            >
+              Calendar view
+            </button>
+            <button
+              className={view === "week" ? "ui-tab scheduler-tab ui-tab--active scheduler-tab--active" : "ui-tab scheduler-tab"}
+              onClick={() => setView("week")}
+            >
+              Week view
+            </button>
+          </div>
           <button className="button-secondary" onClick={() => void load({ silent: true })} disabled={refreshing}>
             {refreshing ? "Refreshing..." : "Refresh"}
           </button>
@@ -313,46 +318,7 @@ export function PlannerPage() {
         </div>
       </section>
 
-      <section className="scheduler-metrics">
-        <article className="scheduler-metric">
-          <span>Total</span>
-          <strong>{metrics.total}</strong>
-        </article>
-        <article className="scheduler-metric">
-          <span>Posts</span>
-          <strong>{metrics.posts}</strong>
-        </article>
-        <article className="scheduler-metric">
-          <span>Campaigns</span>
-          <strong>{metrics.campaigns}</strong>
-        </article>
-        <article className="scheduler-metric">
-          <span>Scheduled this month</span>
-          <strong>{metrics.thisMonth}</strong>
-        </article>
-      </section>
-
       <section className="panel scheduler-toolbar">
-        <div className="scheduler-tabs">
-          <button
-            className={view === "list" ? "scheduler-tab scheduler-tab--active" : "scheduler-tab"}
-            onClick={() => setView("list")}
-          >
-            List
-          </button>
-          <button
-            className={view === "calendar" ? "scheduler-tab scheduler-tab--active" : "scheduler-tab"}
-            onClick={() => setView("calendar")}
-          >
-            Calendar view
-          </button>
-          <button
-            className={view === "week" ? "scheduler-tab scheduler-tab--active" : "scheduler-tab"}
-            onClick={() => setView("week")}
-          >
-            Week view
-          </button>
-        </div>
         <div className="scheduler-filters">
           <label>
             Search
@@ -361,25 +327,6 @@ export function PlannerPage() {
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search schedules"
             />
-          </label>
-          <label>
-            Type
-            <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as SchedulerType)}>
-              <option value="all">All</option>
-              <option value="post">Posts</option>
-              <option value="campaign">Campaigns</option>
-            </select>
-          </label>
-          <label>
-            Status
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as SchedulerStatus)}>
-              <option value="all">All</option>
-              {schedulerStatuses.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
           </label>
         </div>
       </section>

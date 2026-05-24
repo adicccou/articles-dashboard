@@ -55,8 +55,8 @@ wrangler secret put SESSION_SECRET
 For local development you can also create `.dev.vars`:
 
 ```bash
-ADMIN_PASSWORD=changeme
-SESSION_SECRET=replace-me
+ADMIN_PASSWORD=<long-random-local-password>
+SESSION_SECRET=<long-random-local-session-secret>
 PUBLIC_MEDIA_BASE_URL=http://127.0.0.1:8787/api/media/
 ```
 

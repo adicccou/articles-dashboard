@@ -44,6 +44,14 @@
   min-width: 0;
 }
 
+.config-title-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 .config-table {
   background: #fff;
   border: 1px solid var(--border);
@@ -77,9 +85,7 @@
 
 .config-table--apps .config-table__row {
   grid-template-columns:
-    minmax(180px, 1.2fr)
-    minmax(180px, 1.25fr)
-    minmax(160px, 1fr)
+    minmax(240px, 1.8fr)
     92px
     120px
     minmax(140px, 0.75fr);
@@ -259,12 +265,14 @@
   .config-tabs,
   .config-tabs__list,
   .config-tabs__actions,
+  .config-title-actions,
   .config-modal__actions {
     align-items: stretch;
     flex-direction: column;
   }
 
   .config-tabs button,
+  .config-title-actions button,
   .config-row-actions button,
   .config-modal__actions button {
     width: 100%;

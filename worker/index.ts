@@ -17,6 +17,7 @@ import { handleAuthorizeRequest, handleOAuthCallback, listRedditAccounts, update
 import { getKnowledgeBase, saveKnowledgeBase, getVersions, getVersion } from "./handlers/knowledge-base";
 import { listStrategies, getStrategy, createStrategy, updateStrategy, activateStrategy, deactivateStrategy, deleteStrategy, getStrategyStats, getStrategyExecutions, getActiveStrategyInternal } from "./handlers/trading";
 import { chatWithAssistant } from "./handlers/assistant";
+import { generateArticleCover, styleArticleContent, suggestArticleField } from "./handlers/article-ai";
 import { completeCtraderConnectionFromAgent, getAppSettings, getCustomLeanDiagnostics, getCustomLeanSettings, getCustomLeanWorkers, getInternalAgentSettings, getLeanStatus, getLearningReport, getMlTradingAssets, getMlTradingDiagnostics, getMlTradingSettings, syncAgentFromSettings, updateAppSettings, updateCustomLeanSettings, updateMlTradingSettings } from "./handlers/settings";
 import {
   listPlannerItems,
@@ -70,6 +71,7 @@ import {
   createStudioStrategistPosts,
   deleteStudioApp,
   deleteStudioCampaign,
+  deleteStudioSignal,
   getStudioSummary,
   listStudioAccounts,
   listStudioApps,
@@ -78,6 +80,7 @@ import {
   listStudioNotifications,
   listStudioSignals,
   listStudioStrategistPosts,
+  regenerateStudioStrategistPost,
   scheduleStudioStrategistPost,
   updateStudioApp,
   updateStudioCampaign,
@@ -85,6 +88,7 @@ import {
   updateStudioNotification,
   updateStudioStrategistPost,
 } from "./handlers/studio";
+import { handleMcpRequest } from "./handlers/mcp";
 
 function withCors(response: Response): Response {
   const headers = new Headers(response.headers);
@@ -720,9 +724,13 @@ async function handleMediaFetch(env: Env, key: string) {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
       const url = new URL(request.url);
+
+      if (url.pathname === "/mcp") {
+        return handleMcpRequest(request, env, ctx);
+      }
 
       const legalPage = handleLegalPage(url.pathname);
       if (legalPage && request.method === "GET") {
@@ -1132,6 +1140,13 @@ export default {
       return await listStudioSignals(env, url);
     }
 
+    if (url.pathname.startsWith("/api/studio/signals/") && request.method === "DELETE") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      return await deleteStudioSignal(env, id);
+    }
+
     if (url.pathname === "/api/studio/strategist-posts" && request.method === "GET") {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
@@ -1143,6 +1158,13 @@ export default {
       if (unauthorized) return unauthorized;
       const id = url.pathname.split("/")[4];
       return await scheduleStudioStrategistPost(env, id, request);
+    }
+
+    if (url.pathname.startsWith("/api/studio/strategist-posts/") && url.pathname.endsWith("/regenerate") && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = url.pathname.split("/")[4];
+      return await regenerateStudioStrategistPost(env, id);
     }
 
     if (url.pathname.startsWith("/api/studio/strategist-posts/") && request.method === "PUT") {
@@ -1180,6 +1202,24 @@ export default {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
       return json(await saveArticle(env, await request.json()), { status: 201 });
+    }
+
+    if (url.pathname === "/api/articles/assist" && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return suggestArticleField(env, request);
+    }
+
+    if (url.pathname === "/api/articles/generate-cover" && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return generateArticleCover(env, request);
+    }
+
+    if (url.pathname === "/api/articles/style-content" && request.method === "POST") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return styleArticleContent(env, request);
     }
 
     if (url.pathname.startsWith("/api/articles/") && request.method === "DELETE") {
