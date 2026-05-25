@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
-import type { LearningReport, LearningSuggestion } from "../lib/types";
+import type { LearningReport, LearningSuggestion, MlLearningExperiment } from "../lib/types";
 
 function pct(value?: number): string {
   if (value === undefined || value === null) return "0%";
@@ -13,12 +13,19 @@ function impactClass(suggestion: LearningSuggestion): string {
 
 export function LearningReportCard() {
   const [report, setReport] = useState<LearningReport | null>(null);
+  const [experiments, setExperiments] = useState<MlLearningExperiment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
 
   async function load() {
     try {
       setLoading(true);
-      setReport(await api.getLearningReport());
+      const [nextReport, nextExperiments] = await Promise.all([
+        api.getLearningReport(),
+        api.listMlLearningExperiments(),
+      ]);
+      setReport(nextReport);
+      setExperiments(nextExperiments);
     } catch (error) {
       setReport({
         connected: false,
@@ -32,6 +39,17 @@ export function LearningReportCard() {
   useEffect(() => {
     void load();
   }, []);
+
+  async function trackSuggestion(suggestion: LearningSuggestion) {
+    const key = `${suggestion.factor}:${suggestion.current}:${suggestion.recommended}`;
+    try {
+      setSavingKey(key);
+      const experiment = await api.createMlLearningExperiment(suggestion, report?.stats);
+      setExperiments((current) => [experiment, ...current.filter((item) => item.id !== experiment.id)]);
+    } finally {
+      setSavingKey(null);
+    }
+  }
 
   if (loading) {
     return (
@@ -123,8 +141,39 @@ export function LearningReportCard() {
             <div className="learning-report-card__suggestion" key={`${suggestion.factor}-${suggestion.recommended}`}>
               <span className={impactClass(suggestion)}>{suggestion.impact}</span>
               <div>
-                <strong>{suggestion.factor.replace(/_/g, " ")}: {suggestion.current} {"->"} {suggestion.recommended}</strong>
+                <div className="learning-report-card__suggestion-head">
+                  <strong>{suggestion.factor.replace(/_/g, " ")}: {suggestion.current} {"->"} {suggestion.recommended}</strong>
+                  <button
+                    type="button"
+                    className="button-secondary learning-report-card__track"
+                    onClick={() => void trackSuggestion(suggestion)}
+                    disabled={savingKey === `${suggestion.factor}:${suggestion.current}:${suggestion.recommended}`}
+                  >
+                    {savingKey === `${suggestion.factor}:${suggestion.current}:${suggestion.recommended}` ? "Tracking..." : "Track"}
+                  </button>
+                </div>
                 <p>{suggestion.evidence}</p>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="learning-report-card__experiments">
+        <div className="learning-report-card__subhead">Learning Experiments</div>
+        {experiments.length === 0 ? (
+          <p className="learning-report-card__muted">Track a suggestion to measure it in shadow mode before applying changes.</p>
+        ) : (
+          experiments.slice(0, 5).map((experiment) => (
+            <div className="learning-report-card__experiment" key={experiment.id}>
+              <div>
+                <strong>{experiment.factor.replace(/_/g, " ")}: {experiment.current_value} {"->"} {experiment.recommended_value}</strong>
+                <p>{experiment.evidence || "Collecting candidate results."}</p>
+              </div>
+              <div className="learning-report-card__experiment-metrics">
+                <span>{experiment.status}</span>
+                <small>Base {pct(experiment.baseline_win_rate ?? undefined)} / Candidate {pct(experiment.candidate_win_rate ?? undefined)}</small>
+                <small>Avoided losers {experiment.avoided_losers} · Skipped winners {experiment.skipped_winners}</small>
               </div>
             </div>
           ))
