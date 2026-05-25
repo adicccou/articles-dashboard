@@ -234,6 +234,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
   const [campaignForm, setCampaignForm] = useState<CampaignForm>(emptyCampaignForm);
   const [uploadingPostId, setUploadingPostId] = useState<number | null>(null);
   const [schedulingPostId, setSchedulingPostId] = useState<number | null>(null);
+  const [unpostingPostId, setUnpostingPostId] = useState<number | null>(null);
   const [editingPostId, setEditingPostId] = useState<number | null>(null);
   const [editingPostText, setEditingPostText] = useState("");
   const [savingPostId, setSavingPostId] = useState<number | null>(null);
@@ -321,6 +322,16 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     return results;
   }, [runsById, summary.campaigns, summary.crawler_runs, summary.signals, summary.strategist_posts]);
 
+  const editingPost = useMemo(
+    () => summary.strategist_posts.find((post) => post.id === editingPostId) ?? null,
+    [editingPostId, summary.strategist_posts],
+  );
+  const editingPostRun = editingPost ? runsById.get(editingPost.crawler_run_id) : null;
+  const editingPostIsReply = editingPost
+    ? editingPostRun?.campaign_type === "reply"
+      || Boolean(editingPost.target_external_id || editingPost.target_url || editingPost.target_author || editingPost.target_text)
+    : false;
+
   function openCampaignModal() {
     setCampaignForm(emptyCampaignForm());
     setEditingCampaignId(null);
@@ -350,6 +361,12 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     setCampaignModalOpen(false);
     setEditingCampaignId(null);
     setCampaignForm(emptyCampaignForm());
+  }
+
+  function closeSuggestionEditor() {
+    if (savingPostId) return;
+    setEditingPostId(null);
+    setEditingPostText("");
   }
 
   async function saveCampaign(event: React.FormEvent<HTMLFormElement>) {
@@ -480,6 +497,32 @@ export function StudioPage({ onUpload }: StudioPageProps) {
       setError(err instanceof Error ? err.message : "Failed to schedule post");
     } finally {
       setSchedulingPostId(null);
+    }
+  }
+
+  async function unpostSuggestion(post: StudioStrategistPost) {
+    try {
+      setUnpostingPostId(post.id);
+      const result = await api.unpostStudioStrategistPost(post.id);
+      setSummary((current) => ({
+        ...current,
+        strategist_posts: current.strategist_posts.map((item) => item.id === post.id
+          ? {
+              ...item,
+              status: result.status,
+              scheduled_at: null,
+              social_post_id: null,
+              planner_item_id: null,
+              updated_at: result.updated_at,
+            }
+          : item),
+      }));
+      setFeedback("Suggestion returned to Studio.");
+      await load({ silent: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to unpost suggestion");
+    } finally {
+      setUnpostingPostId(null);
     }
   }
 
@@ -814,7 +857,6 @@ export function StudioPage({ onUpload }: StudioPageProps) {
       ? formatScheduledLabel(post.scheduled_at)
       : null;
     const canModifySuggestion = post.status !== "scheduled" && post.status !== "posted";
-    const isEditingSuggestion = editingPostId === post.id;
     const suggestionLabel = isReplyData ? "Dashboard AI suggestion to reply" : "Post suggestion";
     const updateTitle = isReplyData ? "Generate new reply suggestion" : "Generate new post suggestion";
 
@@ -858,75 +900,47 @@ export function StudioPage({ onUpload }: StudioPageProps) {
             <div className="studio-reply-section__header">
               <span className="studio-id">{suggestionLabel}</span>
               <div className="studio-row-actions">
-                {isEditingSuggestion ? (
-                  <>
-                    <button
-                      className="button-secondary studio-icon-button"
-                      type="button"
-                      aria-label={savingPostId === post.id ? "Saving suggestion" : "Save suggestion"}
-                      title={savingPostId === post.id ? "Saving suggestion" : "Save suggestion"}
-                      disabled={savingPostId === post.id}
-                      onClick={() => void saveSuggestionEdit(post)}
-                    >
-                      <StudioIcon name="save" />
-                    </button>
-                    <button
-                      className="button-secondary studio-icon-button"
-                      type="button"
-                      aria-label="Cancel edit"
-                      title="Cancel edit"
-                      disabled={savingPostId === post.id}
-                      onClick={() => {
-                        setEditingPostId(null);
-                        setEditingPostText("");
-                      }}
-                    >
-                      <StudioIcon name="cancel" />
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      className="button-secondary studio-icon-button"
-                      type="button"
-                      aria-label="Edit suggestion text"
-                      title="Edit suggestion text"
-                      disabled={!canModifySuggestion}
-                      onClick={() => {
-                        setEditingPostId(post.id);
-                        setEditingPostText(post.post_text);
-                      }}
-                    >
-                      <StudioIcon name="edit" />
-                    </button>
-                    <button
-                      className="button-secondary studio-update-button"
-                      type="button"
-                      aria-label={updateTitle}
-                      title={updateTitle}
-                      disabled={!canModifySuggestion || regeneratingPostId === post.id}
-                      onClick={() => void regenerateSuggestion(post)}
-                    >
-                      <StudioIcon name="regenerate" />
-                      <span>{regeneratingPostId === post.id ? "Updating..." : "Update"}</span>
-                    </button>
-                  </>
-                )}
+                <button
+                  className="button-secondary studio-icon-button"
+                  type="button"
+                  aria-label="Edit suggestion text"
+                  title="Edit suggestion text"
+                  disabled={!canModifySuggestion}
+                  onClick={() => {
+                    setEditingPostId(post.id);
+                    setEditingPostText(post.post_text);
+                  }}
+                >
+                  <StudioIcon name="edit" />
+                </button>
+                <button
+                  className="button-secondary studio-update-button"
+                  type="button"
+                  aria-label={updateTitle}
+                  title={updateTitle}
+                  disabled={!canModifySuggestion || regeneratingPostId === post.id}
+                  onClick={() => void regenerateSuggestion(post)}
+                >
+                  <StudioIcon name="regenerate" />
+                  <span>{regeneratingPostId === post.id ? "Updating..." : "Update"}</span>
+                </button>
               </div>
             </div>
-            {isEditingSuggestion ? (
-              <textarea
-                rows={5}
-                value={editingPostText}
-                onChange={(event) => setEditingPostText(event.target.value)}
-              />
-            ) : (
-              <p>{post.post_text}</p>
-            )}
+            <p>{post.post_text}</p>
           </div>
 
           {scheduledLabel ? (
-            <p className="studio-scheduled-label">{scheduledLabel}</p>
+            <div className="studio-scheduled-actions">
+              <p className="studio-scheduled-label">{scheduledLabel}</p>
+              <button
+                className="button-secondary"
+                type="button"
+                disabled={unpostingPostId === post.id}
+                onClick={() => void unpostSuggestion(post)}
+              >
+                {unpostingPostId === post.id ? "Unposting..." : "Unpost"}
+              </button>
+            </div>
           ) : (
             <button type="button" disabled={!canSchedule || schedulingPostId === post.id} onClick={() => void scheduleSuggestion(post)}>
               {schedulingPostId === post.id ? "Scheduling..." : "Schedule it"}
@@ -995,7 +1009,17 @@ export function StudioPage({ onUpload }: StudioPageProps) {
           </div>
         ) : null}
         {scheduledLabel ? (
-          <p className="studio-scheduled-label">{scheduledLabel}</p>
+          <div className="studio-scheduled-actions">
+            <p className="studio-scheduled-label">{scheduledLabel}</p>
+            <button
+              className="button-secondary"
+              type="button"
+              disabled={unpostingPostId === post.id}
+              onClick={() => void unpostSuggestion(post)}
+            >
+              {unpostingPostId === post.id ? "Unposting..." : "Unpost"}
+            </button>
+          </div>
         ) : (
           <button type="button" disabled={!canSchedule || schedulingPostId === post.id} onClick={() => void scheduleSuggestion(post)}>
             {schedulingPostId === post.id ? "Scheduling..." : "Schedule it"}
@@ -1214,6 +1238,64 @@ export function StudioPage({ onUpload }: StudioPageProps) {
           </section>
         </>
       )}
+
+      {editingPost ? (
+        <div
+          className="studio-modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeSuggestionEditor();
+            }
+          }}
+        >
+          <section
+            aria-labelledby="studio-suggestion-editor-title"
+            aria-modal="true"
+            className="studio-suggestion-modal panel"
+            role="dialog"
+          >
+            <div className="studio-suggestion-modal__header">
+              <div>
+                <p className="eyebrow">{editingPostIsReply ? "Reply suggestion" : "Post suggestion"}</p>
+                <h2 id="studio-suggestion-editor-title">Edit suggestion text</h2>
+              </div>
+              <button
+                className="button-secondary studio-icon-button"
+                type="button"
+                aria-label="Close suggestion editor"
+                title="Close suggestion editor"
+                disabled={savingPostId === editingPost.id}
+                onClick={closeSuggestionEditor}
+              >
+                <StudioIcon name="cancel" />
+              </button>
+            </div>
+            <textarea
+              autoFocus
+              className="studio-suggestion-modal__textarea"
+              value={editingPostText}
+              onChange={(event) => setEditingPostText(event.target.value)}
+            />
+            <div className="studio-modal__actions">
+              <button
+                className="button-secondary"
+                type="button"
+                disabled={savingPostId === editingPost.id}
+                onClick={closeSuggestionEditor}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={savingPostId === editingPost.id || !editingPostText.trim()}
+                onClick={() => void saveSuggestionEdit(editingPost)}
+              >
+                {savingPostId === editingPost.id ? "Saving..." : "Save suggestion"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {campaignModalOpen ? (
         <div className="studio-modal-backdrop">

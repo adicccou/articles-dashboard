@@ -1,9 +1,11 @@
 import { jsonResponse, errorResponse, parseJson } from "../lib/http";
+import { DEFAULT_USER_ID, appendScopedFilter, scopedInsertColumns } from "../lib/ownership";
 import type { Env } from "../lib/types";
 
 interface PlannerItemPayload {
   title: string;
   description?: string | null;
+  image_url?: string | null;
   item_type?: "post" | "campaign";
   platform: string;
   status?: "planned" | "drafting" | "approved" | "published" | "archived";
@@ -33,15 +35,30 @@ export async function plannerHasSocialPostLinks(env: Env): Promise<boolean> {
   }
 }
 
-export async function listPlannerItems(env: Env): Promise<Response> {
+export async function plannerHasImageUrl(env: Env): Promise<boolean> {
+  try {
+    const columns = await env.DB.prepare("PRAGMA table_info(planner_items)").all<{ name: string }>();
+    return (columns.results ?? []).some((column) => column.name === "image_url");
+  } catch {
+    return false;
+  }
+}
+
+export async function listPlannerItems(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const hasSocialPostLinks = await plannerHasSocialPostLinks(env);
+    const hasImageUrl = await plannerHasImageUrl(env);
+    const filters: string[] = [];
+    const values: unknown[] = [];
+    await appendScopedFilter(env, "planner_items", filters, values, userId, "pi");
+    const whereClause = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
     const items = await env.DB.prepare(
       `
         SELECT
           pi.id,
           pi.title,
           pi.description,
+          ${hasImageUrl ? "pi.image_url" : "NULL AS image_url"},
           pi.item_type,
           pi.platform,
           pi.status,
@@ -59,12 +76,13 @@ export async function listPlannerItems(env: Env): Promise<Response> {
           pi.updated_at
         FROM planner_items pi
         LEFT JOIN trading_strategies ts ON ts.id = pi.related_strategy_id
+        ${whereClause}
         ORDER BY
           CASE WHEN pi.scheduled_for IS NULL THEN 1 ELSE 0 END,
           pi.scheduled_for ASC,
           pi.created_at DESC
       `,
-    ).all();
+    ).bind(...values).all();
 
     return jsonResponse(items.results ?? []);
   } catch {
@@ -72,7 +90,7 @@ export async function listPlannerItems(env: Env): Promise<Response> {
   }
 }
 
-export async function createPlannerItem(env: Env, request: Request): Promise<Response> {
+export async function createPlannerItem(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const payload = await parseJson<PlannerItemPayload>(request);
     if (!payload.title?.trim() || !payload.platform?.trim()) {
@@ -81,12 +99,16 @@ export async function createPlannerItem(env: Env, request: Request): Promise<Res
 
     const now = new Date().toISOString();
     const hasSocialPostLinks = await plannerHasSocialPostLinks(env);
+    const hasImageUrl = await plannerHasImageUrl(env);
+    const scoped = await scopedInsertColumns(env, "planner_items", userId);
     const item = hasSocialPostLinks
       ? await env.DB.prepare(
         `
         INSERT INTO planner_items (
+          ${scoped.columns.length ? "user_id," : ""}
           title,
           description,
+          ${hasImageUrl ? "image_url," : ""}
           item_type,
           platform,
           status,
@@ -102,13 +124,15 @@ export async function createPlannerItem(env: Env, request: Request): Promise<Res
           created_at,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?)
-        RETURNING id, title, description, item_type, platform, status, scheduled_for, social_post_id, account_id, instruction, interval_minutes, duration_start, duration_end, related_strategy_id, created_by, created_at, updated_at
+        VALUES (${scoped.columns.length ? "?," : ""}?, ?, ${hasImageUrl ? "?, " : ""}?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?)
+        RETURNING id, title, description, ${hasImageUrl ? "image_url," : "NULL AS image_url,"} item_type, platform, status, scheduled_for, social_post_id, account_id, instruction, interval_minutes, duration_start, duration_end, related_strategy_id, created_by, created_at, updated_at
       `,
       )
         .bind(
+          ...scoped.values,
           payload.title.trim(),
           payload.description?.trim() || null,
+          ...(hasImageUrl ? [payload.image_url?.trim() || null] : []),
           payload.item_type ?? "post",
           payload.platform.trim(),
           payload.status ?? "planned",
@@ -127,8 +151,10 @@ export async function createPlannerItem(env: Env, request: Request): Promise<Res
       : await env.DB.prepare(
         `
         INSERT INTO planner_items (
+          ${scoped.columns.length ? "user_id," : ""}
           title,
           description,
+          ${hasImageUrl ? "image_url," : ""}
           item_type,
           platform,
           status,
@@ -143,13 +169,15 @@ export async function createPlannerItem(env: Env, request: Request): Promise<Res
           created_at,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?)
-        RETURNING id, title, description, item_type, platform, status, scheduled_for, NULL AS social_post_id, account_id, instruction, interval_minutes, duration_start, duration_end, related_strategy_id, created_by, created_at, updated_at
+        VALUES (${scoped.columns.length ? "?," : ""}?, ?, ${hasImageUrl ? "?, " : ""}?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?)
+        RETURNING id, title, description, ${hasImageUrl ? "image_url," : "NULL AS image_url,"} item_type, platform, status, scheduled_for, NULL AS social_post_id, account_id, instruction, interval_minutes, duration_start, duration_end, related_strategy_id, created_by, created_at, updated_at
       `,
       )
         .bind(
+          ...scoped.values,
           payload.title.trim(),
           payload.description?.trim() || null,
+          ...(hasImageUrl ? [payload.image_url?.trim() || null] : []),
           payload.item_type ?? "post",
           payload.platform.trim(),
           payload.status ?? "planned",
@@ -175,6 +203,7 @@ export async function updatePlannerItem(
   env: Env,
   plannerItemId: string,
   request: Request,
+  userId = DEFAULT_USER_ID,
 ): Promise<Response> {
   try {
     const id = Number(plannerItemId);
@@ -186,6 +215,7 @@ export async function updatePlannerItem(
     const updates: string[] = [];
     const values: unknown[] = [];
     const hasSocialPostLinks = await plannerHasSocialPostLinks(env);
+    const hasImageUrl = await plannerHasImageUrl(env);
 
     if (payload.title !== undefined) {
       updates.push("title = ?");
@@ -194,6 +224,10 @@ export async function updatePlannerItem(
     if (payload.description !== undefined) {
       updates.push("description = ?");
       values.push(payload.description?.trim() || null);
+    }
+    if (payload.image_url !== undefined && hasImageUrl) {
+      updates.push("image_url = ?");
+      values.push(payload.image_url?.trim() || null);
     }
     if (payload.item_type !== undefined) {
       updates.push("item_type = ?");
@@ -246,12 +280,15 @@ export async function updatePlannerItem(
 
     const now = new Date().toISOString();
     updates.push("updated_at = ?");
-    values.push(now, id);
+    values.push(now);
+    const filters = ["id = ?"];
+    const filterValues: unknown[] = [id];
+    await appendScopedFilter(env, "planner_items", filters, filterValues, userId);
 
     await env.DB.prepare(
-      `UPDATE planner_items SET ${updates.join(", ")} WHERE id = ?`,
+      `UPDATE planner_items SET ${updates.join(", ")} WHERE ${filters.join(" AND ")}`,
     )
-      .bind(...values)
+      .bind(...values, ...filterValues)
       .run();
 
     return jsonResponse({ success: true, updated_at: now });
@@ -260,14 +297,17 @@ export async function updatePlannerItem(
   }
 }
 
-export async function deletePlannerItem(env: Env, plannerItemId: string): Promise<Response> {
+export async function deletePlannerItem(env: Env, plannerItemId: string, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const id = Number(plannerItemId);
     if (Number.isNaN(id)) {
       return errorResponse("Invalid planner item ID", 400);
     }
 
-    await env.DB.prepare("DELETE FROM planner_items WHERE id = ?").bind(id).run();
+    const filters = ["id = ?"];
+    const values: unknown[] = [id];
+    await appendScopedFilter(env, "planner_items", filters, values, userId);
+    await env.DB.prepare(`DELETE FROM planner_items WHERE ${filters.join(" AND ")}`).bind(...values).run();
     return jsonResponse({ success: true });
   } catch {
     return errorResponse("Failed to delete planner item", 500);

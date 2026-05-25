@@ -99,7 +99,7 @@ export function SettingsModal({
       <div className="settings-modal panel" onClick={(event) => event.stopPropagation()}>
         <div className="panel__title-row">
           <div>
-            <p className="assistant-kicker">Workspace Settings</p>
+            <p className="settings-kicker">Workspace Settings</p>
             <h2>Settings</h2>
           </div>
           <button type="button" className="button-secondary" onClick={onClose}>

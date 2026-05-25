@@ -1,5 +1,6 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
+import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId } from "../lib/ownership";
 
 const IMAGE_URL_ALIASES = ["image_url", "imageUrl", "imageURL", "image", "photo", "picture", "media", "media_url", "mediaUrl", "media_urls", "mediaUrls", "url"] as const;
 
@@ -40,6 +41,10 @@ type SocialPostSchemaCapabilities = {
   hasAccountId: boolean;
   hasReplyToId: boolean;
 };
+
+function handlerErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
 
 function extractImageUrls(value: unknown): string[] {
   if (typeof value === "string") {
@@ -92,7 +97,24 @@ function formatImageUrlValue(value: unknown): string | undefined {
   return JSON.stringify(urls);
 }
 
-async function upsertSetting(env: Env, key: string, value: string, updatedAt: string): Promise<void> {
+async function upsertSetting(
+  env: Env,
+  key: string,
+  value: string,
+  updatedAt: string,
+  userId = DEFAULT_USER_ID,
+): Promise<void> {
+  if (await tableHasUserId(env, "app_settings")) {
+    await env.DB.prepare(
+      `INSERT INTO app_settings (user_id, key, value, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    )
+      .bind(ownerId(userId), key, value, updatedAt)
+      .run();
+    return;
+  }
+
   await env.DB.prepare(
     `INSERT INTO app_settings (key, value, updated_at)
      VALUES (?, ?, ?)
@@ -102,9 +124,12 @@ async function upsertSetting(env: Env, key: string, value: string, updatedAt: st
     .run();
 }
 
-async function readSetting(env: Env, key: string): Promise<string | null> {
-  const row = await env.DB.prepare("SELECT value FROM app_settings WHERE key = ?")
-    .bind(key)
+async function readSetting(env: Env, key: string, userId = DEFAULT_USER_ID): Promise<string | null> {
+  const hasUserId = await tableHasUserId(env, "app_settings");
+  const row = await env.DB.prepare(hasUserId
+    ? "SELECT value FROM app_settings WHERE user_id = ? AND key = ?"
+    : "SELECT value FROM app_settings WHERE key = ?")
+    .bind(...(hasUserId ? [ownerId(userId), key] : [key]))
     .first<{ value: string }>();
   return row?.value?.trim() || null;
 }
@@ -182,24 +207,35 @@ async function buildTwitterOAuthHeader(
     .join(", ")}`;
 }
 
-async function getTwitterCredentials(env: Env): Promise<TwitterCredentials | null> {
+async function getTwitterCredentials(
+  env: Env,
+  requestedAccountId?: number,
+  userId = DEFAULT_USER_ID,
+): Promise<TwitterCredentials | null> {
+  const filters = ["platform = 'twitter'", "status = 'active'"];
+  const values: unknown[] = [];
+  if (requestedAccountId) {
+    filters.push("id = ?");
+    values.push(requestedAccountId);
+  }
+  await appendScopedFilter(env, "social_accounts", filters, values, userId);
   const account = await env.DB.prepare(
-    "SELECT id FROM social_accounts WHERE platform = 'twitter' AND status = 'active' ORDER BY updated_at DESC, id DESC LIMIT 1",
-  ).first<{ id: number }>();
+    `SELECT id FROM social_accounts WHERE ${filters.join(" AND ")} ORDER BY updated_at DESC, id DESC LIMIT 1`,
+  ).bind(...values).first<{ id: number }>();
 
   const scopedPrefix = account ? `social_account:${account.id}:` : "";
   const [apiKey, apiSecret, accessToken, accessSecret] = await Promise.all([
-    account ? readSetting(env, `${scopedPrefix}twitter_api_key`) : null,
-    account ? readSetting(env, `${scopedPrefix}twitter_api_secret`) : null,
-    account ? readSetting(env, `${scopedPrefix}twitter_access_token`) : null,
-    account ? readSetting(env, `${scopedPrefix}twitter_access_secret`) : null,
+    account ? readSetting(env, `${scopedPrefix}twitter_api_key`, userId) : null,
+    account ? readSetting(env, `${scopedPrefix}twitter_api_secret`, userId) : null,
+    account ? readSetting(env, `${scopedPrefix}twitter_access_token`, userId) : null,
+    account ? readSetting(env, `${scopedPrefix}twitter_access_secret`, userId) : null,
   ]);
 
   const fallback = await Promise.all([
-    readSetting(env, "twitter_api_key"),
-    readSetting(env, "twitter_api_secret"),
-    readSetting(env, "twitter_access_token"),
-    readSetting(env, "twitter_access_secret"),
+    readSetting(env, "twitter_api_key", userId),
+    readSetting(env, "twitter_api_secret", userId),
+    readSetting(env, "twitter_access_token", userId),
+    readSetting(env, "twitter_access_secret", userId),
   ]);
 
   const credentials = {
@@ -212,8 +248,8 @@ async function getTwitterCredentials(env: Env): Promise<TwitterCredentials | nul
   return Object.values(credentials).every(Boolean) ? credentials : null;
 }
 
-async function deleteTwitterPostExternally(env: Env, externalId: string): Promise<void> {
-  const credentials = await getTwitterCredentials(env);
+async function deleteTwitterPostExternally(env: Env, externalId: string, userId = DEFAULT_USER_ID): Promise<void> {
+  const credentials = await getTwitterCredentials(env, undefined, userId);
   if (!credentials) throw new Error("No active Twitter/X account with API credentials was found.");
 
   const endpoint = `https://api.twitter.com/2/tweets/${encodeURIComponent(externalId)}`;
@@ -267,20 +303,29 @@ function classifyTwitterPublishError(message: string): TwitterPublishError {
 
 // ------------------------------------------------------------------ social posts
 
-export async function listSocialPosts(env: Env, platform: string): Promise<Response> {
+export async function listSocialPosts(env: Env, platform: string, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
+    const filters = ["platform = ?"];
+    const values: unknown[] = [platform];
+    await appendScopedFilter(env, "social_posts", filters, values, userId);
     const posts = await env.DB.prepare(
-      "SELECT * FROM social_posts WHERE platform = ? ORDER BY created_at DESC LIMIT 100",
+      `SELECT * FROM social_posts WHERE ${filters.join(" AND ")} ORDER BY created_at DESC LIMIT 100`,
     )
-      .bind(platform)
+      .bind(...values)
       .all();
     return jsonResponse(posts.results ?? []);
-  } catch {
-    return errorResponse("Failed to list posts", 500);
+  } catch (error) {
+    console.error("Failed to list social posts:", error);
+    return errorResponse(handlerErrorMessage(error, "Failed to list posts"), 500);
   }
 }
 
-export async function createSocialPost(env: Env, platform: string, request: Request): Promise<Response> {
+export async function createSocialPost(
+  env: Env,
+  platform: string,
+  request: Request,
+  userId = DEFAULT_USER_ID,
+): Promise<Response> {
   try {
     const payload = await parseJson<{
       content?: string;
@@ -316,8 +361,19 @@ export async function createSocialPost(env: Env, platform: string, request: Requ
     }
     const now = new Date().toISOString();
     const status = payload.scheduled_at ? "scheduled" : "draft";
-    const columns = ["platform", "content", "image_url", "status", "scheduled_at", "created_by", "created_at", "updated_at"];
-    const values: Array<string | number | null> = [platform, content, imageUrl || null, status, payload.scheduled_at ?? null, "dashboard", now, now];
+    const scoped = await scopedInsertColumns(env, "social_posts", userId);
+    const columns = [...scoped.columns, "platform", "content", "image_url", "status", "scheduled_at", "created_by", "created_at", "updated_at"];
+    const values: Array<string | number | null> = [
+      ...(scoped.values as Array<number>),
+      platform,
+      content,
+      imageUrl || null,
+      status,
+      payload.scheduled_at ?? null,
+      "dashboard",
+      now,
+      now,
+    ];
     if (capabilities.hasTitle) {
       columns.push("title");
       values.push(title || null);
@@ -359,12 +415,18 @@ export async function createSocialPost(env: Env, platform: string, request: Requ
       created_at: now,
       updated_at: now,
     }, { status: 201 });
-  } catch {
-    return errorResponse("Failed to create post", 500);
+  } catch (error) {
+    console.error("Failed to create social post:", error);
+    return errorResponse(handlerErrorMessage(error, "Failed to create post"), 500);
   }
 }
 
-export async function updateSocialPost(env: Env, postId: string, request: Request): Promise<Response> {
+export async function updateSocialPost(
+  env: Env,
+  postId: string,
+  request: Request,
+  userId = DEFAULT_USER_ID,
+): Promise<Response> {
   try {
     const id = Number(postId);
     if (isNaN(id)) return errorResponse("Invalid post ID", 400);
@@ -414,23 +476,32 @@ export async function updateSocialPost(env: Env, postId: string, request: Reques
 
     if (updates.length === 0) return errorResponse("No fields to update", 400);
     updates.push("updated_at = ?");
-    values.push(now, id);
+    values.push(now);
+    const filters = ["id = ?"];
+    const filterValues: unknown[] = [id];
+    await appendScopedFilter(env, "social_posts", filters, filterValues, userId);
 
-    await env.DB.prepare(`UPDATE social_posts SET ${updates.join(", ")} WHERE id = ?`).bind(...values).run();
+    await env.DB.prepare(`UPDATE social_posts SET ${updates.join(", ")} WHERE ${filters.join(" AND ")}`)
+      .bind(...values, ...filterValues)
+      .run();
     return jsonResponse({ success: true, updated_at: now });
-  } catch {
-    return errorResponse("Failed to update post", 500);
+  } catch (error) {
+    console.error("Failed to update social post:", error);
+    return errorResponse(handlerErrorMessage(error, "Failed to update post"), 500);
   }
 }
 
-export async function deleteSocialPost(env: Env, postId: string): Promise<Response> {
+export async function deleteSocialPost(env: Env, postId: string, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const id = Number(postId);
     if (isNaN(id)) return errorResponse("Invalid post ID", 400);
+    const filters = ["id = ?"];
+    const values: unknown[] = [id];
+    await appendScopedFilter(env, "social_posts", filters, values, userId);
     const post = await env.DB.prepare(
-      "SELECT id, platform, status, external_id FROM social_posts WHERE id = ?",
+      `SELECT id, platform, status, external_id FROM social_posts WHERE ${filters.join(" AND ")}`,
     )
-      .bind(id)
+      .bind(...values)
       .first<SocialPostRow>();
     if (!post) return errorResponse("Post not found", 404);
 
@@ -439,12 +510,12 @@ export async function deleteSocialPost(env: Env, postId: string): Promise<Respon
 
     if (isPublished && externalId) {
       if (post.platform === "twitter") {
-        await deleteTwitterPostExternally(env, externalId);
+        await deleteTwitterPostExternally(env, externalId, userId);
       }
     }
 
     await env.DB.prepare("DELETE FROM planner_items WHERE social_post_id = ?").bind(id).run();
-    await env.DB.prepare("DELETE FROM social_posts WHERE id = ?").bind(id).run();
+    await env.DB.prepare(`DELETE FROM social_posts WHERE ${filters.join(" AND ")}`).bind(...values).run();
     const dashboardOnly = isPublished && Boolean(externalId) && post.platform === "threads";
     return jsonResponse({
       success: true,
@@ -482,6 +553,22 @@ type TwitterMentionsResponse = {
   };
 };
 
+type TwitterConversationReply = {
+  id?: string;
+  author_id?: string;
+  conversation_id?: string;
+  text?: string;
+  created_at?: string;
+  referenced_tweets?: Array<{
+    type?: string;
+    id?: string;
+  }>;
+};
+
+type TwitterConversationSearchResponse = {
+  data?: TwitterConversationReply[];
+};
+
 async function fetchTwitterMe(env: Env): Promise<{ id: string; username: string; name?: string }> {
   const credentials = await getTwitterCredentials(env);
   if (!credentials) throw new Error("No active Twitter/X account with API credentials was found.");
@@ -502,6 +589,59 @@ async function fetchTwitterMe(env: Env): Promise<{ id: string; username: string;
     username: payload.data.username,
     name: payload.data.name,
   };
+}
+
+function selectLatestTwitterReply(
+  current: TwitterConversationReply | undefined,
+  candidate: TwitterConversationReply,
+): TwitterConversationReply {
+  const currentTimestamp = String(current?.created_at ?? "");
+  const candidateTimestamp = String(candidate.created_at ?? "");
+  return candidateTimestamp.localeCompare(currentTimestamp) > 0 ? candidate : (current ?? candidate);
+}
+
+async function loadOwnedTwitterRepliesByParent(
+  env: Env,
+  conversationIds: string[],
+  meUsername: string,
+  credentials: TwitterCredentials,
+): Promise<Map<string, TwitterConversationReply>> {
+  const repliesByParent = new Map<string, TwitterConversationReply>();
+
+  for (const conversationId of conversationIds) {
+    const query = `conversation_id:${conversationId} from:${meUsername} -is:retweet`;
+    const endpoint = new URL("https://api.twitter.com/2/tweets/search/recent");
+    endpoint.searchParams.set("query", query);
+    endpoint.searchParams.set("max_results", "25");
+    endpoint.searchParams.set("tweet.fields", "author_id,conversation_id,created_at,text,referenced_tweets");
+    const queryParams = {
+      query,
+      max_results: "25",
+      "tweet.fields": "author_id,conversation_id,created_at,text,referenced_tweets",
+    };
+
+    const response = await fetch(endpoint.toString(), {
+      headers: {
+        Authorization: await buildTwitterOAuthHeader("GET", "https://api.twitter.com/2/tweets/search/recent", credentials, queryParams),
+      },
+    });
+    const payload = await response.json() as TwitterConversationSearchResponse & {
+      detail?: string;
+      title?: string;
+      errors?: Array<{ message?: string }>;
+    };
+    if (!response.ok) {
+      throw new Error(extractTwitterErrorMessage(payload, "Failed to load Twitter/X reply state."));
+    }
+
+    for (const tweet of payload.data ?? []) {
+      const parentId = (tweet.referenced_tweets ?? []).find((reference) => reference.type === "replied_to")?.id?.trim();
+      if (!parentId) continue;
+      repliesByParent.set(parentId, selectLatestTwitterReply(repliesByParent.get(parentId), tweet));
+    }
+  }
+
+  return repliesByParent;
 }
 
 export async function listTwitterComments(env: Env, postId?: string | null, limit?: string | null): Promise<Response> {
@@ -548,12 +688,19 @@ export async function listTwitterComments(env: Env, postId?: string | null, limi
         .filter((user) => user.id)
         .map((user) => [String(user.id), user]),
     );
+    const repliesByParent = await loadOwnedTwitterRepliesByParent(
+      env,
+      Array.from(new Set((payload.data ?? []).map((tweet) => String(tweet.conversation_id ?? "").trim()).filter(Boolean))),
+      me.username,
+      credentials,
+    );
     const comments = (payload.data ?? [])
       .filter((tweet) => tweet.author_id && tweet.author_id !== me.id)
       .filter((tweet) => tweet.conversation_id && targetMap.has(String(tweet.conversation_id)))
       .map((tweet) => {
         const author = users.get(String(tweet.author_id));
         const target = targetMap.get(String(tweet.conversation_id));
+        const ownerReply = tweet.id ? repliesByParent.get(String(tweet.id)) : undefined;
         return {
           platform: "twitter",
           post_id: target?.id ?? null,
@@ -565,11 +712,55 @@ export async function listTwitterComments(env: Env, postId?: string | null, limi
           commented_at: tweet.created_at ?? null,
           external_id: tweet.id ?? null,
           permalink: author?.username && tweet.id ? `https://x.com/${author.username}/status/${tweet.id}` : null,
+          reply_status: ownerReply ? "replied" : "new",
+          owner_reply_text: ownerReply?.text ?? null,
+          owner_replied_at: ownerReply?.created_at ?? null,
+          owner_reply_external_id: ownerReply?.id ?? null,
+          owner_reply_permalink: ownerReply?.id ? `https://x.com/${me.username}/status/${ownerReply.id}` : null,
         };
       });
     return jsonResponse({ data: comments });
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Failed to load Twitter/X comments", 500);
+  }
+}
+
+export async function createTwitterReply(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
+  try {
+    const payload = await parseJson<{ reply_to_id?: string; text?: string; account_id?: number | null }>(request);
+    const replyToId = payload.reply_to_id?.trim() || "";
+    const text = payload.text?.trim() || "";
+    if (!replyToId || !text) {
+      return errorResponse("reply_to_id and text are required", 400);
+    }
+    if (text.length > 280) {
+      return errorResponse("Twitter/X replies must be 280 characters or fewer", 400);
+    }
+
+    const credentials = await getTwitterCredentials(env, payload.account_id ? Number(payload.account_id) : undefined, userId);
+    if (!credentials) return errorResponse("No active Twitter/X account with API credentials was found.", 400);
+
+    const endpoint = "https://api.twitter.com/2/tweets";
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: await buildTwitterOAuthHeader("POST", endpoint, credentials),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text,
+        reply: { in_reply_to_tweet_id: replyToId },
+      }),
+    });
+    const payloadBody = await response.json() as { data?: { id?: string }; detail?: string; title?: string; errors?: Array<{ message?: string }> };
+    if (!response.ok || !payloadBody.data?.id) {
+      throw new Error(extractTwitterErrorMessage(payloadBody, "Twitter/X reply failed"));
+    }
+
+    return jsonResponse({ success: true, external_id: payloadBody.data.id }, { status: 201 });
+  } catch (error) {
+    const classified = classifyTwitterPublishError(error instanceof Error ? error.message : "Failed to publish Twitter/X reply");
+    return errorResponse(classified.message, classified.status);
   }
 }
 
@@ -643,21 +834,27 @@ export async function searchTwitterPosts(env: Env, url: URL): Promise<Response> 
   }
 }
 
-export async function publishTwitterPost(env: Env, postId: string): Promise<Response> {
+export async function publishTwitterPost(env: Env, postId: string, userId = DEFAULT_USER_ID): Promise<Response> {
   const id = Number(postId);
   if (Number.isNaN(id)) return errorResponse("Invalid post ID", 400);
 
   try {
     const capabilities = await getSocialPostSchemaCapabilities(env);
     const replySelect = capabilities.hasReplyToId ? "reply_to_id" : "NULL AS reply_to_id";
-    const post = await env.DB.prepare(`SELECT id, content, status, ${replySelect} FROM social_posts WHERE id = ? AND platform = 'twitter'`)
-      .bind(id)
-      .first<{ id: number; content: string; status: string; reply_to_id: string | null }>();
+    const accountSelect = capabilities.hasAccountId ? "account_id" : "NULL AS account_id";
+    const filters = ["id = ?", "platform = 'twitter'"];
+    const values: unknown[] = [id];
+    await appendScopedFilter(env, "social_posts", filters, values, userId);
+    const post = await env.DB.prepare(
+      `SELECT id, content, status, ${replySelect}, ${accountSelect} FROM social_posts WHERE ${filters.join(" AND ")}`,
+    )
+      .bind(...values)
+      .first<{ id: number; content: string; status: string; reply_to_id: string | null; account_id: number | null }>();
     if (!post) return errorResponse("Twitter/X post not found", 404);
     if (!post.content?.trim()) return errorResponse("Post content is empty", 400);
     if (post.status === "posted") return errorResponse("Post is already published", 400);
 
-    const credentials = await getTwitterCredentials(env);
+    const credentials = await getTwitterCredentials(env, post.account_id ?? undefined, userId);
     if (!credentials) return errorResponse("No active Twitter/X account with API credentials was found.", 400);
 
     const endpoint = "https://api.twitter.com/2/tweets";
@@ -684,16 +881,19 @@ export async function publishTwitterPost(env: Env, postId: string): Promise<Resp
     await env.DB.prepare(
       `UPDATE social_posts
        SET status = 'posted', posted_at = ?, external_id = ?, updated_at = ?
-       WHERE id = ?`,
+       WHERE ${filters.join(" AND ")}`,
     )
-      .bind(now, payload.data.id, now, id)
+      .bind(now, payload.data.id, now, ...values)
       .run();
 
     return jsonResponse({ success: true, external_id: payload.data.id, posted_at: now });
   } catch (error) {
     const now = new Date().toISOString();
-    await env.DB.prepare("UPDATE social_posts SET status = 'failed', updated_at = ? WHERE id = ?")
-      .bind(now, id)
+    const filters = ["id = ?"];
+    const values: unknown[] = [id];
+    await appendScopedFilter(env, "social_posts", filters, values, userId);
+    await env.DB.prepare(`UPDATE social_posts SET status = 'failed', updated_at = ? WHERE ${filters.join(" AND ")}`)
+      .bind(now, ...values)
       .run();
     const failure = classifyTwitterPublishError(error instanceof Error ? error.message : "Failed to publish Twitter/X post");
     return errorResponse(failure.message, failure.status);
@@ -702,8 +902,21 @@ export async function publishTwitterPost(env: Env, postId: string): Promise<Resp
 
 // ------------------------------------------------------------------ twitter accounts
 
-export async function listTwitterAccounts(env: Env): Promise<Response> {
+export async function listTwitterAccounts(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
+    const accountHasUserId = await tableHasUserId(env, "social_accounts");
+    const settingsHasUserId = await tableHasUserId(env, "app_settings");
+    const joinScope = settingsHasUserId
+      ? accountHasUserId
+        ? " AND {alias}.user_id = account.user_id"
+        : " AND {alias}.user_id = ?"
+      : "";
+    const joinValues = settingsHasUserId && !accountHasUserId
+      ? [ownerId(userId), ownerId(userId), ownerId(userId), ownerId(userId)]
+      : [];
+    const filters = ["account.platform = 'twitter'"];
+    const values: unknown[] = [];
+    await appendScopedFilter(env, "social_accounts", filters, values, userId, "account");
     const rows = await env.DB.prepare(
       `SELECT
          account.id,
@@ -725,23 +938,23 @@ export async function listTwitterAccounts(env: Env): Promise<Response> {
             AND access_token.value IS NOT NULL AND TRIM(access_token.value) != ''
             AND access_secret.value IS NOT NULL AND TRIM(access_secret.value) != ''
            THEN 1
-           ELSE 0
+         ELSE 0
          END AS credentials_ready
        FROM social_accounts account
-       LEFT JOIN app_settings api_key ON api_key.key = 'social_account:' || account.id || ':twitter_api_key'
-       LEFT JOIN app_settings api_secret ON api_secret.key = 'social_account:' || account.id || ':twitter_api_secret'
-       LEFT JOIN app_settings access_token ON access_token.key = 'social_account:' || account.id || ':twitter_access_token'
-       LEFT JOIN app_settings access_secret ON access_secret.key = 'social_account:' || account.id || ':twitter_access_secret'
-       WHERE account.platform = 'twitter'
+       LEFT JOIN app_settings api_key ON api_key.key = 'social_account:' || account.id || ':twitter_api_key'${joinScope.replace("{alias}", "api_key")}
+       LEFT JOIN app_settings api_secret ON api_secret.key = 'social_account:' || account.id || ':twitter_api_secret'${joinScope.replace("{alias}", "api_secret")}
+       LEFT JOIN app_settings access_token ON access_token.key = 'social_account:' || account.id || ':twitter_access_token'${joinScope.replace("{alias}", "access_token")}
+       LEFT JOIN app_settings access_secret ON access_secret.key = 'social_account:' || account.id || ':twitter_access_secret'${joinScope.replace("{alias}", "access_secret")}
+       WHERE ${filters.join(" AND ")}
        ORDER BY account.created_at DESC`,
-    ).all();
+    ).bind(...joinValues, ...values).all();
     return jsonResponse(rows.results ?? []);
   } catch {
     return errorResponse("Failed to list accounts", 500);
   }
 }
 
-export async function addTwitterAccount(env: Env, request: Request): Promise<Response> {
+export async function addTwitterAccount(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const payload = await parseJson<TwitterAccountPayload>(request);
     const username = payload.username?.trim().replace(/^@+/, "");
@@ -752,23 +965,24 @@ export async function addTwitterAccount(env: Env, request: Request): Promise<Res
     if (!payload.access_secret?.trim()) return errorResponse("Access secret is required", 400);
 
     const now = new Date().toISOString();
+    const scoped = await scopedInsertColumns(env, "social_accounts", userId);
     const result = await env.DB.prepare(
-      `INSERT INTO social_accounts (platform, username, status, created_at, updated_at)
-       VALUES ('twitter', ?, 'active', ?, ?)`,
+      `INSERT INTO social_accounts (${[...scoped.columns, "platform", "username", "status", "created_at", "updated_at"].join(", ")})
+       VALUES (${[...scoped.columns.map(() => "?"), "?", "?", "?", "?", "?"].join(", ")})`,
     )
-      .bind(username, now, now)
+      .bind(...scoped.values, "twitter", username, "active", now, now)
       .run() as { meta: { last_row_id: number } };
 
     const accountId = result.meta.last_row_id;
     await Promise.all([
-      upsertSetting(env, `social_account:${accountId}:twitter_api_key`, payload.api_key.trim(), now),
-      upsertSetting(env, `social_account:${accountId}:twitter_api_secret`, payload.api_secret.trim(), now),
-      upsertSetting(env, `social_account:${accountId}:twitter_access_token`, payload.access_token.trim(), now),
-      upsertSetting(env, `social_account:${accountId}:twitter_access_secret`, payload.access_secret.trim(), now),
-      upsertSetting(env, "twitter_api_key", payload.api_key.trim(), now),
-      upsertSetting(env, "twitter_api_secret", payload.api_secret.trim(), now),
-      upsertSetting(env, "twitter_access_token", payload.access_token.trim(), now),
-      upsertSetting(env, "twitter_access_secret", payload.access_secret.trim(), now),
+      upsertSetting(env, `social_account:${accountId}:twitter_api_key`, payload.api_key.trim(), now, userId),
+      upsertSetting(env, `social_account:${accountId}:twitter_api_secret`, payload.api_secret.trim(), now, userId),
+      upsertSetting(env, `social_account:${accountId}:twitter_access_token`, payload.access_token.trim(), now, userId),
+      upsertSetting(env, `social_account:${accountId}:twitter_access_secret`, payload.access_secret.trim(), now, userId),
+      upsertSetting(env, "twitter_api_key", payload.api_key.trim(), now, userId),
+      upsertSetting(env, "twitter_api_secret", payload.api_secret.trim(), now, userId),
+      upsertSetting(env, "twitter_access_token", payload.access_token.trim(), now, userId),
+      upsertSetting(env, "twitter_access_secret", payload.access_secret.trim(), now, userId),
     ]);
 
     return jsonResponse(
@@ -780,13 +994,21 @@ export async function addTwitterAccount(env: Env, request: Request): Promise<Res
   }
 }
 
-export async function updateTwitterAccount(env: Env, accountId: string, request: Request): Promise<Response> {
+export async function updateTwitterAccount(
+  env: Env,
+  accountId: string,
+  request: Request,
+  userId = DEFAULT_USER_ID,
+): Promise<Response> {
   try {
     const id = Number(accountId);
     if (isNaN(id)) return errorResponse("Invalid account ID", 400);
 
-    const existing = await env.DB.prepare("SELECT id FROM social_accounts WHERE id = ? AND platform = 'twitter'")
-      .bind(id)
+    const filters = ["id = ?", "platform = 'twitter'"];
+    const filterValues: unknown[] = [id];
+    await appendScopedFilter(env, "social_accounts", filters, filterValues, userId);
+    const existing = await env.DB.prepare(`SELECT id FROM social_accounts WHERE ${filters.join(" AND ")}`)
+      .bind(...filterValues)
       .first<{ id: number }>();
     if (!existing) return errorResponse("Twitter/X account not found", 404);
 
@@ -821,19 +1043,19 @@ export async function updateTwitterAccount(env: Env, accountId: string, request:
 
     if (accountUpdates.length > 0) {
       accountUpdates.push("updated_at = ?");
-      accountValues.push(now, id);
-      await env.DB.prepare(`UPDATE social_accounts SET ${accountUpdates.join(", ")} WHERE id = ? AND platform = 'twitter'`)
-        .bind(...accountValues)
+      accountValues.push(now);
+      await env.DB.prepare(`UPDATE social_accounts SET ${accountUpdates.join(", ")} WHERE ${filters.join(" AND ")}`)
+        .bind(...accountValues, ...filterValues)
         .run();
     } else {
-      await env.DB.prepare("UPDATE social_accounts SET updated_at = ? WHERE id = ? AND platform = 'twitter'")
-        .bind(now, id)
+      await env.DB.prepare(`UPDATE social_accounts SET updated_at = ? WHERE ${filters.join(" AND ")}`)
+        .bind(now, ...filterValues)
         .run();
     }
 
     await Promise.all(credentialUpdates.flatMap(([key, value]) => [
-      upsertSetting(env, `social_account:${id}:${key}`, value, now),
-      upsertSetting(env, key, value, now),
+      upsertSetting(env, `social_account:${id}:${key}`, value, now, userId),
+      upsertSetting(env, key, value, now, userId),
     ]));
 
     return jsonResponse({ success: true, updated_at: now });
@@ -842,12 +1064,20 @@ export async function updateTwitterAccount(env: Env, accountId: string, request:
   }
 }
 
-export async function deleteTwitterAccount(env: Env, accountId: string): Promise<Response> {
+export async function deleteTwitterAccount(env: Env, accountId: string, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const id = Number(accountId);
     if (isNaN(id)) return errorResponse("Invalid account ID", 400);
-    await env.DB.prepare("DELETE FROM social_accounts WHERE id = ? AND platform = 'twitter'").bind(id).run();
-    await env.DB.prepare("DELETE FROM app_settings WHERE key LIKE ?").bind(`social_account:${id}:%`).run();
+    const filters = ["id = ?", "platform = 'twitter'"];
+    const values: unknown[] = [id];
+    await appendScopedFilter(env, "social_accounts", filters, values, userId);
+    await env.DB.prepare(`DELETE FROM social_accounts WHERE ${filters.join(" AND ")}`).bind(...values).run();
+    const settingsHasUserId = await tableHasUserId(env, "app_settings");
+    await env.DB.prepare(settingsHasUserId
+      ? "DELETE FROM app_settings WHERE user_id = ? AND key LIKE ?"
+      : "DELETE FROM app_settings WHERE key LIKE ?")
+      .bind(...(settingsHasUserId ? [ownerId(userId), `social_account:${id}:%`] : [`social_account:${id}:%`]))
+      .run();
     return jsonResponse({ success: true });
   } catch {
     return errorResponse("Failed to delete account", 500);

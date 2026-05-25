@@ -2,6 +2,7 @@ import type { Env } from "../lib/types";
 import type { RedditCampaign } from "../../src/lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 import { getSocialPostSchemaCapabilities } from "./twitter";
+import { DEFAULT_USER_ID, appendScopedFilter, scopedInsertColumns } from "../lib/ownership";
 
 interface CreateCampaignPayload {
   name: string;
@@ -188,6 +189,32 @@ async function fetchRedditPostComments(
     .map((child) => child.data as Record<string, unknown>);
 }
 
+function normalizeRedditUsername(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function getRedditReplyChildren(value: unknown): RedditApiThing[] {
+  if (!value || typeof value !== "object") return [];
+  const listing = value as { data?: { children?: RedditApiThing[] } };
+  return Array.isArray(listing.data?.children) ? listing.data.children : [];
+}
+
+function findLatestOwnedRedditReply(comment: Record<string, unknown>, ownerUsername: string): Record<string, unknown> | null {
+  const replies = getRedditReplyChildren(comment.replies);
+  const ownedReplies = replies
+    .filter((child) => child.kind === "t1" && child.data)
+    .map((child) => child.data as Record<string, unknown>)
+    .filter((reply) => normalizeRedditUsername(reply.author) === ownerUsername);
+
+  if (ownedReplies.length === 0) return null;
+
+  return ownedReplies.reduce<Record<string, unknown>>((latest, reply) => {
+    const latestCreated = Number(latest.created_utc ?? 0);
+    const replyCreated = Number(reply.created_utc ?? 0);
+    return replyCreated > latestCreated ? reply : latest;
+  }, ownedReplies[0]);
+}
+
 async function searchRedditSubmissions(
   account: RedditAccountRow,
   subreddit: string,
@@ -239,11 +266,14 @@ async function submitRedditReply(
   return externalId;
 }
 
-export async function listCampaigns(env: Env): Promise<Response> {
+export async function listCampaigns(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
+    const filters: string[] = [];
+    const values: unknown[] = [];
+    await appendScopedFilter(env, "reddit_campaigns", filters, values, userId);
     const campaigns = await env.DB.prepare(
-      "SELECT * FROM reddit_campaigns ORDER BY created_at DESC",
-    ).all();
+      `SELECT * FROM reddit_campaigns ${filters.length ? `WHERE ${filters.join(" AND ")}` : ""} ORDER BY created_at DESC`,
+    ).bind(...values).all();
 
     return jsonResponse(campaigns.results || []);
   } catch (error) {
@@ -251,7 +281,7 @@ export async function listCampaigns(env: Env): Promise<Response> {
   }
 }
 
-export async function createCampaign(env: Env, request: Request): Promise<Response> {
+export async function createCampaign(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const payload = await parseJson<CreateCampaignPayload>(request);
 
@@ -261,8 +291,10 @@ export async function createCampaign(env: Env, request: Request): Promise<Respon
     }
 
     const now = new Date().toISOString();
+    const scoped = await scopedInsertColumns(env, "reddit_campaigns", userId);
     const result = await env.DB.prepare(
       `INSERT INTO reddit_campaigns (
+        ${scoped.columns.length ? "user_id," : ""}
         reddit_account_id,
         name,
         description,
@@ -280,9 +312,10 @@ export async function createCampaign(env: Env, request: Request): Promise<Respon
         status,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+      ) VALUES (${scoped.columns.length ? "?," : ""}?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
     )
       .bind(
+        ...scoped.values,
         payload.reddit_account_id,
         payload.name,
         payload.description || "",
@@ -321,6 +354,7 @@ export async function updateCampaign(
   env: Env,
   campaignId: string,
   request: Request,
+  userId = DEFAULT_USER_ID,
 ): Promise<Response> {
   try {
     const id = Number(campaignId);
@@ -394,10 +428,12 @@ export async function updateCampaign(
 
     updates.push("updated_at = ?");
     values.push(now);
-    values.push(id);
+    const filters = ["id = ?"];
+    const filterValues: unknown[] = [id];
+    await appendScopedFilter(env, "reddit_campaigns", filters, filterValues, userId);
 
-    const query = `UPDATE reddit_campaigns SET ${updates.join(", ")} WHERE id = ?`;
-    await env.DB.prepare(query).bind(...values).run();
+    const query = `UPDATE reddit_campaigns SET ${updates.join(", ")} WHERE ${filters.join(" AND ")}`;
+    await env.DB.prepare(query).bind(...values, ...filterValues).run();
 
     return jsonResponse({ success: true, updated_at: now });
   } catch (error) {
@@ -405,14 +441,17 @@ export async function updateCampaign(
   }
 }
 
-export async function deleteCampaign(env: Env, campaignId: string): Promise<Response> {
+export async function deleteCampaign(env: Env, campaignId: string, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const id = Number(campaignId);
     if (isNaN(id)) {
       return errorResponse("Invalid campaign ID", 400);
     }
 
-    await env.DB.prepare("DELETE FROM reddit_campaigns WHERE id = ?").bind(id).run();
+    const filters = ["id = ?"];
+    const values: unknown[] = [id];
+    await appendScopedFilter(env, "reddit_campaigns", filters, values, userId);
+    await env.DB.prepare(`DELETE FROM reddit_campaigns WHERE ${filters.join(" AND ")}`).bind(...values).run();
 
     return jsonResponse({ success: true });
   } catch (error) {
@@ -511,21 +550,33 @@ export async function listRedditComments(env: Env, postId?: string | null, limit
     const commentCollections = await Promise.all(
       effectiveTargets.slice(0, 5).map(async (target) => {
         const comments = await fetchRedditPostComments(readyAccount, String(target.external_id), requestedLimit);
-        return comments.map((comment) => ({
-          platform: "reddit",
-          post_id: target.id,
-          post_external_id: target.external_id,
-          post_title: target.title,
-          subreddit: target.subreddit,
-          commenter_username: String(comment.author ?? ""),
-          commenter_name: null,
-          text: String(comment.body ?? ""),
-          commented_at: typeof comment.created_utc === "number"
-            ? new Date(Number(comment.created_utc) * 1000).toISOString()
-            : null,
-          external_id: String(comment.name ?? ""),
-          permalink: comment.permalink ? `https://reddit.com${String(comment.permalink)}` : null,
-        }));
+        return comments
+          .filter((comment) => String(comment.author ?? "").trim().toLowerCase() !== readyAccount.name.trim().toLowerCase())
+          .map((comment) => {
+            const ownerReply = findLatestOwnedRedditReply(comment, readyAccount.name.trim().toLowerCase());
+            return {
+            platform: "reddit",
+            post_id: target.id,
+            post_external_id: target.external_id,
+            post_title: target.title,
+            subreddit: target.subreddit,
+            commenter_username: String(comment.author ?? ""),
+            commenter_name: null,
+            text: String(comment.body ?? ""),
+            commented_at: typeof comment.created_utc === "number"
+              ? new Date(Number(comment.created_utc) * 1000).toISOString()
+              : null,
+            external_id: String(comment.name ?? ""),
+            permalink: comment.permalink ? `https://reddit.com${String(comment.permalink)}` : null,
+            reply_status: ownerReply ? "replied" : "new",
+            owner_reply_text: ownerReply ? String(ownerReply.body ?? "") : null,
+            owner_replied_at: ownerReply && typeof ownerReply.created_utc === "number"
+              ? new Date(Number(ownerReply.created_utc) * 1000).toISOString()
+              : null,
+            owner_reply_external_id: ownerReply ? String(ownerReply.name ?? "") : null,
+            owner_reply_permalink: ownerReply?.permalink ? `https://reddit.com${String(ownerReply.permalink)}` : null,
+          };
+          });
       }),
     );
     const merged = commentCollections.flat().sort((left, right) => {

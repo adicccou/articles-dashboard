@@ -1,4 +1,4 @@
-import type { ArticleAssistPayload, ArticleCoverPayload, ArticleCoverResponse, ArticleInput, ArticleRecord, ArticleStylePayload, ArticleStyleResponse, AuthState, DashboardBootstrap, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, AssistantChatResponse, AssistantMessage, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialAccountInput, SocialPost, StudioApp, StudioCampaign, StudioCrawlerRun, StudioSignal, StudioStrategistPost, StudioSummary, ThreadsCampaignResult, ThreadsMediaResponse, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorkersResponse, MlTradingAssetsResponse, MlTradingDiagnostics, MlTradingSettings } from "./types";
+import type { ArticleAssistPayload, ArticleCoverPayload, ArticleCoverResponse, ArticleInput, ArticleRecord, ArticleStylePayload, ArticleStyleResponse, AuthState, DashboardBootstrap, DashboardUser, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialAccountInput, SocialComment, SocialPost, SocialReplySuggestion, StudioApp, StudioCampaign, StudioCrawlerRun, StudioSignal, StudioStrategistPost, StudioSummary, ThreadsCampaignResult, ThreadsMediaResponse, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorkersResponse, MlTradingAssetsResponse, MlTradingDiagnostics, MlTradingSettings } from "./types";
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -41,6 +41,18 @@ export const api = {
     request<void>("/api/auth/logout", {
       method: "POST",
       body: JSON.stringify({}),
+    }),
+  getProfile: () => request<DashboardUser>("/api/profile"),
+  updateProfile: (payload: Partial<Pick<DashboardUser, "display_name" | "email" | "avatar_url" | "timezone">>) =>
+    request<DashboardUser>("/api/profile", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  listUsers: () => request<DashboardUser[]>("/api/users"),
+  createUser: (payload: { username: string; password: string; display_name?: string; email?: string; role?: "admin" | "member"; timezone?: string }) =>
+    request<DashboardUser>("/api/users", {
+      method: "POST",
+      body: JSON.stringify(payload),
     }),
   getCategories: () => request<ArticleCategory[]>("/api/categories"),
   saveArticle: (payload: ArticleInput, id?: number) =>
@@ -154,11 +166,6 @@ export const api = {
     request<MlTradingSettings>("/api/trading/ml/settings", {
       method: "POST",
       body: JSON.stringify(payload),
-    }),
-  chatWithAssistant: (messages: AssistantMessage[]) =>
-    request<AssistantChatResponse>("/api/assistant/chat", {
-      method: "POST",
-      body: JSON.stringify({ messages }),
     }),
   listPlannerItems: () => request<PlannerItem[]>("/api/planner/items"),
   createPlannerItem: (payload: PlannerItemInput) =>
@@ -346,6 +353,13 @@ export const api = {
         body: JSON.stringify(payload),
       },
     ),
+  unpostStudioStrategistPost: (id: number) =>
+    request<{ success: boolean; status: StudioStrategistPost["status"]; updated_at: string }>(
+      `/api/studio/strategist-posts/${id}/unpost`,
+      {
+        method: "POST",
+      },
+    ),
 
   // Twitter accounts
   listTwitterAccounts: () => request<SocialAccount[]>("/api/social/twitter/accounts"),
@@ -362,6 +376,35 @@ export const api = {
   deleteTwitterAccount: (id: number) =>
     request<{ success: boolean }>(`/api/social/twitter/accounts/${id}`, {
       method: "DELETE",
+    }),
+  listSocialComments: (platform: "twitter" | "threads" | "reddit", postId?: number, limit?: number) => {
+    const params = new URLSearchParams({ platform });
+    if (postId) params.set("post_id", String(postId));
+    if (limit) params.set("limit", String(limit));
+    return request<{ data: SocialComment[] }>(`/api/social/comments?${params.toString()}`);
+  },
+  suggestSocialReply: (payload: {
+    platform: "twitter" | "threads" | "reddit";
+    post_preview?: string | null;
+    post_title?: string | null;
+    subreddit?: string | null;
+    commenter_username?: string | null;
+    commenter_name?: string | null;
+    comment_text: string;
+  }) =>
+    request<SocialReplySuggestion>("/api/social/reply-suggestion", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  createTwitterReply: (reply_to_id: string, text: string) =>
+    request<{ success: boolean; external_id: string }>("/api/social/twitter/replies", {
+      method: "POST",
+      body: JSON.stringify({ reply_to_id, text }),
+    }),
+  createRedditReply: (reply_to_id: string, text: string) =>
+    request<{ success: boolean; external_id: string; account_id: number }>("/api/social/reddit/replies", {
+      method: "POST",
+      body: JSON.stringify({ reply_to_id, text }),
     }),
 
   // Threads accounts
@@ -410,9 +453,9 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(payload),
     }),
-  createThreadsReply: (reply_to_id: string, text: string) =>
+  createThreadsReply: (reply_to_id: string, text: string, image_url?: string) =>
     request<{ success: boolean; external_id: string; account_id: number }>("/api/social/threads/replies", {
       method: "POST",
-      body: JSON.stringify({ reply_to_id, text }),
+      body: JSON.stringify({ reply_to_id, text, image_url }),
     }),
 };

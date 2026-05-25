@@ -10,17 +10,62 @@ import {
 } from "./twitter";
 import {
   createPlannerItem,
+  deletePlannerItem,
   listPlannerItems,
   plannerHasSocialPostLinks,
   updatePlannerItem,
 } from "./planner";
+import {
+  createStudioApp,
+  createStudioCampaign,
+  createStudioCrawlerRun,
+  createStudioStrategistPosts,
+  deleteStudioApp,
+  deleteStudioCampaign,
+  deleteStudioSignal,
+  getStudioSummary,
+  listStudioAccounts,
+  listStudioApps,
+  listStudioCampaigns,
+  listStudioCrawlerRuns,
+  listStudioSignals,
+  listStudioStrategistPosts,
+  regenerateStudioStrategistPost,
+  scheduleStudioStrategistPost,
+  updateStudioApp,
+  updateStudioCampaign,
+  updateStudioStrategistPost,
+} from "./studio";
 
 type JsonValue = null | string | number | boolean | JsonValue[] | { [key: string]: JsonValue };
 
 const SOCIAL_PLATFORMS = ["threads", "twitter", "reddit"] as const;
+const STUDIO_CAMPAIGN_TYPES = ["post", "reply"] as const;
+const STUDIO_APP_STATUSES = ["active", "inactive", "archived"] as const;
+const STUDIO_CAMPAIGN_STATUSES = ["active", "paused", "archived"] as const;
+const STUDIO_POST_STATUSES = ["suggested", "asset_needed", "scheduled", "posted", "dismissed"] as const;
+const STUDIO_MEDIA_TYPES = ["none", "photo", "video"] as const;
 const ACTIVE_PLANNER_STATUSES = new Set(["planned", "drafting", "approved"]);
 const ACTIVE_SOCIAL_STATUSES = new Set(["draft", "approved", "scheduled"]);
 const KL_OFFSET = "+08:00";
+const READ_ONLY_TOOL_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+} as const;
+const PLANNING_TOOL_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false,
+} as const;
+const DESTRUCTIVE_TOOL_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+  openWorldHint: false,
+} as const;
 
 function normalizePlatform(platform: string): (typeof SOCIAL_PLATFORMS)[number] {
   const normalized = platform.trim().toLowerCase();
@@ -61,6 +106,16 @@ function jsonRequest(url: string, body: unknown): Request {
   });
 }
 
+function urlWithParams(requestUrl: string, params: Record<string, string | number | null | undefined>): URL {
+  const url = new URL(requestUrl);
+  url.search = "";
+  for (const [key, value] of Object.entries(params)) {
+    if (value === null || value === undefined || value === "") continue;
+    url.searchParams.set(key, String(value));
+  }
+  return url;
+}
+
 function toolText(value: unknown) {
   return {
     content: [
@@ -86,12 +141,13 @@ async function requireMcpAuth(request: Request, env: Env): Promise<Response | nu
   const configuredToken = await configuredMcpToken(env);
   const authHeader = request.headers.get("Authorization") ?? "";
   const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length).trim() : "";
+  const urlToken = new URL(request.url).searchParams.get("token")?.trim() ?? "";
 
   if (!configuredToken) {
     return new Response("MCP connector token is not configured", { status: 503 });
   }
 
-  if (bearerToken !== configuredToken) {
+  if (bearerToken !== configuredToken && urlToken !== configuredToken) {
     return new Response("Unauthorized", { status: 401 });
   }
 
@@ -292,6 +348,35 @@ async function getPostById(env: Env, id: number): Promise<Record<string, unknown
   throw new Error(`Social post #${id} was not found.`);
 }
 
+async function getStudioStrategistPostById(env: Env, id: number): Promise<Record<string, unknown>> {
+  const post = await env.DB.prepare("SELECT * FROM studio_strategist_posts WHERE id = ?")
+    .bind(id)
+    .first<Record<string, unknown>>();
+  if (!post) throw new Error(`Studio strategist post #${id} was not found.`);
+  return post;
+}
+
+async function deleteStudioStrategistPost(env: Env, postId: number, deleteLinkedSocialPost: boolean) {
+  const post = await getStudioStrategistPostById(env, postId);
+  const socialPostId = Number(post.social_post_id ?? 0);
+  const plannerItemId = Number(post.planner_item_id ?? 0);
+  if (socialPostId && !deleteLinkedSocialPost) {
+    throw new Error("This Studio post is already linked to a social post. Set delete_linked_social_post=true to delete both.");
+  }
+  if (socialPostId) {
+    await readJsonFromHandler(deleteSocialPost(env, String(socialPostId)));
+  } else if (plannerItemId) {
+    await readJsonFromHandler(deletePlannerItem(env, String(plannerItemId)));
+  }
+  await env.DB.prepare("DELETE FROM studio_strategist_posts WHERE id = ?").bind(postId).run();
+  return {
+    success: true,
+    deleted_studio_post_id: postId,
+    deleted_social_post_id: socialPostId || null,
+    deleted_planner_item_id: socialPostId ? null : plannerItemId || null,
+  };
+}
+
 function createBlogposterMcpServer(env: Env, requestUrl: string) {
   const server = new McpServer({
     name: "blogposter-dashboard",
@@ -299,10 +384,348 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
   });
 
   server.registerTool(
+    "get_marketing_studio_summary",
+    {
+      title: "Get marketing studio summary",
+      description: "Read the full Blogposter Marketing Studio state: connected accounts, apps, campaigns, crawler runs, signals, and strategist posts.",
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+      inputSchema: {},
+    },
+    async () => toolText(await readJsonFromHandler(getStudioSummary(env))),
+  );
+
+  server.registerTool(
+    "list_marketing_accounts",
+    {
+      title: "List marketing accounts",
+      description: "List connected social accounts available for Marketing Studio campaigns. Use refs such as twitter:1, threads:2, or reddit:3 in campaign account_refs.",
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+      inputSchema: {},
+    },
+    async () => toolText(await readJsonFromHandler(listStudioAccounts(env))),
+  );
+
+  server.registerTool(
+    "list_marketing_apps",
+    {
+      title: "List marketing apps",
+      description: "List apps/products configured in the Marketing Studio.",
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+      inputSchema: {},
+    },
+    async () => toolText(await readJsonFromHandler(listStudioApps(env))),
+  );
+
+  server.registerTool(
+    "create_marketing_app",
+    {
+      title: "Create marketing app",
+      description: "Create a product/app profile in Marketing Studio with positioning context for AI planning. This only updates the dashboard; it does not publish externally.",
+      annotations: PLANNING_TOOL_ANNOTATIONS,
+      inputSchema: {
+        name: z.string(),
+        website_url: z.string().nullable().optional(),
+        app_store_url: z.string().nullable().optional(),
+        description: z.string().optional(),
+        ai_context: z.string().optional(),
+        status: z.enum(STUDIO_APP_STATUSES).default("active"),
+      },
+    },
+    async (input) => toolText(await readJsonFromHandler(
+      createStudioApp(env, jsonRequest(requestUrl, input)),
+    )),
+  );
+
+  server.registerTool(
+    "update_marketing_app",
+    {
+      title: "Update marketing app",
+      description: "Edit a Marketing Studio app/profile. This only updates the dashboard; it does not publish externally.",
+      annotations: PLANNING_TOOL_ANNOTATIONS,
+      inputSchema: {
+        app_id: z.number().int().positive(),
+        name: z.string().optional(),
+        website_url: z.string().nullable().optional(),
+        app_store_url: z.string().nullable().optional(),
+        description: z.string().optional(),
+        ai_context: z.string().optional(),
+        status: z.enum(STUDIO_APP_STATUSES).optional(),
+      },
+    },
+    async ({ app_id, ...changes }) => toolText(await readJsonFromHandler(
+      updateStudioApp(env, String(app_id), jsonRequest(requestUrl, changes)),
+    )),
+  );
+
+  server.registerTool(
+    "delete_marketing_app",
+    {
+      title: "Delete marketing app",
+      description: "Delete a Marketing Studio app/profile and cascading Studio records for it.",
+      annotations: DESTRUCTIVE_TOOL_ANNOTATIONS,
+      inputSchema: {
+        app_id: z.number().int().positive(),
+      },
+    },
+    async ({ app_id }) => toolText(await readJsonFromHandler(deleteStudioApp(env, String(app_id)))),
+  );
+
+  server.registerTool(
+    "list_marketing_campaigns",
+    {
+      title: "List marketing campaigns",
+      description: "List Marketing Studio campaigns across all apps.",
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+      inputSchema: {},
+    },
+    async () => toolText(await readJsonFromHandler(listStudioCampaigns(env))),
+  );
+
+  server.registerTool(
+    "create_marketing_campaign",
+    {
+      title: "Create marketing campaign",
+      description: "Create a Marketing Studio campaign for post planning or reply campaigns. Use account_refs from list_marketing_accounts. This only updates the dashboard; it does not publish externally.",
+      annotations: PLANNING_TOOL_ANNOTATIONS,
+      inputSchema: {
+        app_id: z.number().int().positive(),
+        name: z.string(),
+        campaign_type: z.enum(STUDIO_CAMPAIGN_TYPES).default("post"),
+        result_limit: z.number().int().positive().max(50).default(10),
+        account_refs: z.array(z.string()).default([]),
+        platforms: z.array(z.enum(SOCIAL_PLATFORMS)).default([]),
+        instructions: z.string().optional(),
+        status: z.enum(STUDIO_CAMPAIGN_STATUSES).default("active"),
+      },
+    },
+    async (input) => toolText(await readJsonFromHandler(
+      createStudioCampaign(env, jsonRequest(requestUrl, input)),
+    )),
+  );
+
+  server.registerTool(
+    "update_marketing_campaign",
+    {
+      title: "Update marketing campaign",
+      description: "Edit a Marketing Studio campaign. This only updates the dashboard; it does not publish externally.",
+      annotations: PLANNING_TOOL_ANNOTATIONS,
+      inputSchema: {
+        campaign_id: z.number().int().positive(),
+        app_id: z.number().int().positive().optional(),
+        name: z.string().optional(),
+        campaign_type: z.enum(STUDIO_CAMPAIGN_TYPES).optional(),
+        result_limit: z.number().int().positive().max(50).optional(),
+        account_refs: z.array(z.string()).optional(),
+        platforms: z.array(z.enum(SOCIAL_PLATFORMS)).optional(),
+        instructions: z.string().optional(),
+        status: z.enum(STUDIO_CAMPAIGN_STATUSES).optional(),
+      },
+    },
+    async ({ campaign_id, ...changes }) => toolText(await readJsonFromHandler(
+      updateStudioCampaign(env, String(campaign_id), jsonRequest(requestUrl, changes)),
+    )),
+  );
+
+  server.registerTool(
+    "delete_marketing_campaign",
+    {
+      title: "Delete marketing campaign",
+      description: "Delete a Marketing Studio campaign. Related crawler runs remain but lose their campaign link.",
+      annotations: DESTRUCTIVE_TOOL_ANNOTATIONS,
+      inputSchema: {
+        campaign_id: z.number().int().positive(),
+      },
+    },
+    async ({ campaign_id }) => toolText(await readJsonFromHandler(deleteStudioCampaign(env, String(campaign_id)))),
+  );
+
+  server.registerTool(
+    "list_marketing_crawler_runs",
+    {
+      title: "List marketing crawler runs",
+      description: "List Marketing Studio crawler/search planning runs.",
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+      inputSchema: {
+        status: z.enum(["pending", "running", "completed", "failed"]).optional(),
+        limit: z.number().int().positive().max(200).default(100),
+      },
+    },
+    async ({ status, limit }) => toolText(await readJsonFromHandler(
+      listStudioCrawlerRuns(env, urlWithParams(requestUrl, { status, limit })),
+    )),
+  );
+
+  server.registerTool(
+    "create_marketing_crawler_run",
+    {
+      title: "Create marketing crawler run",
+      description: "Create a crawler/search planning run. This generates AI crawler instructions and search-query guidance; external crawlers can later save signals for the run. This only updates the dashboard; it does not publish externally.",
+      annotations: PLANNING_TOOL_ANNOTATIONS,
+      inputSchema: {
+        campaign_id: z.number().int().positive().nullable().optional(),
+        app_id: z.number().int().positive().optional(),
+        campaign_type: z.enum(STUDIO_CAMPAIGN_TYPES).default("post"),
+        result_limit: z.number().int().positive().max(50).default(10),
+        account_refs: z.array(z.string()).default([]),
+        platforms: z.array(z.enum(SOCIAL_PLATFORMS)).default([]),
+        instructions: z.string().optional(),
+      },
+    },
+    async (input) => toolText(await readJsonFromHandler(
+      createStudioCrawlerRun(env, jsonRequest(requestUrl, input)),
+    )),
+  );
+
+  server.registerTool(
+    "list_marketing_signals",
+    {
+      title: "List marketing signals",
+      description: "List Marketing Studio crawler signals/pain points.",
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+      inputSchema: {
+        crawler_run_id: z.number().int().positive().optional(),
+        campaign_id: z.number().int().positive().optional(),
+        status: z.enum(["candidate", "filtered", "signal", "rejected"]).optional(),
+      },
+    },
+    async ({ crawler_run_id, campaign_id, status }) => toolText(await readJsonFromHandler(
+      listStudioSignals(env, urlWithParams(requestUrl, { crawler_run_id, campaign_id, status })),
+    )),
+  );
+
+  server.registerTool(
+    "delete_marketing_signal",
+    {
+      title: "Delete marketing signal",
+      description: "Delete one crawler signal from Marketing Studio.",
+      annotations: DESTRUCTIVE_TOOL_ANNOTATIONS,
+      inputSchema: {
+        signal_id: z.number().int().positive(),
+      },
+    },
+    async ({ signal_id }) => toolText(await readJsonFromHandler(deleteStudioSignal(env, String(signal_id)))),
+  );
+
+  server.registerTool(
+    "list_marketing_post_ideas",
+    {
+      title: "List marketing post ideas",
+      description: "List Studio strategist post ideas generated from crawler runs or created by ChatGPT.",
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+      inputSchema: {
+        crawler_run_id: z.number().int().positive().optional(),
+        campaign_id: z.number().int().positive().optional(),
+      },
+    },
+    async ({ crawler_run_id, campaign_id }) => toolText(await readJsonFromHandler(
+      listStudioStrategistPosts(env, urlWithParams(requestUrl, { crawler_run_id, campaign_id })),
+    )),
+  );
+
+  server.registerTool(
+    "save_marketing_post_ideas",
+    {
+      title: "Save marketing post ideas",
+      description: "Save one or more AI-planned post/reply ideas into a Marketing Studio crawler run. Use after creating a crawler run or campaign plan. This only saves a plan inside the dashboard; it does not publish externally.",
+      annotations: PLANNING_TOOL_ANNOTATIONS,
+      inputSchema: {
+        crawler_run_id: z.number().int().positive(),
+        posts: z.array(z.object({
+          platform: z.enum(SOCIAL_PLATFORMS),
+          post_text: z.string(),
+          idea: z.string().optional(),
+          rationale: z.string().optional(),
+          target_url: z.string().nullable().optional(),
+          target_external_id: z.string().nullable().optional(),
+          target_author: z.string().nullable().optional(),
+          target_text: z.string().nullable().optional(),
+          media_type: z.enum(STUDIO_MEDIA_TYPES).default("none"),
+          media_url: z.string().nullable().optional(),
+        })).min(1).max(50),
+      },
+    },
+    async (input) => toolText(await readJsonFromHandler(
+      createStudioStrategistPosts(env, jsonRequest(requestUrl, input)),
+    )),
+  );
+
+  server.registerTool(
+    "update_marketing_post_idea",
+    {
+      title: "Update marketing post idea",
+      description: "Edit a Studio strategist post idea before it is scheduled. This only updates the dashboard; it does not publish externally.",
+      annotations: PLANNING_TOOL_ANNOTATIONS,
+      inputSchema: {
+        post_id: z.number().int().positive(),
+        post_text: z.string().optional(),
+        idea: z.string().optional(),
+        rationale: z.string().optional(),
+        target_url: z.string().nullable().optional(),
+        target_external_id: z.string().nullable().optional(),
+        target_author: z.string().nullable().optional(),
+        target_text: z.string().nullable().optional(),
+        media_type: z.enum(STUDIO_MEDIA_TYPES).optional(),
+        media_url: z.string().nullable().optional(),
+        status: z.enum(STUDIO_POST_STATUSES).optional(),
+      },
+    },
+    async ({ post_id, ...changes }) => toolText(await readJsonFromHandler(
+      updateStudioStrategistPost(env, String(post_id), jsonRequest(requestUrl, changes)),
+    )),
+  );
+
+  server.registerTool(
+    "regenerate_marketing_post_idea",
+    {
+      title: "Regenerate marketing post idea",
+      description: "Ask the dashboard AI to regenerate a stronger version of one Studio strategist post idea. This only updates the dashboard; it does not publish externally.",
+      annotations: PLANNING_TOOL_ANNOTATIONS,
+      inputSchema: {
+        post_id: z.number().int().positive(),
+      },
+    },
+    async ({ post_id }) => toolText(await readJsonFromHandler(regenerateStudioStrategistPost(env, String(post_id)))),
+  );
+
+  server.registerTool(
+    "schedule_marketing_post_idea",
+    {
+      title: "Schedule marketing post idea",
+      description: "Turn a Studio strategist post idea into a real scheduled social post and linked planner item. If scheduled_at is omitted, the dashboard autoschedules it. This only schedules inside the dashboard; it does not publish externally.",
+      annotations: PLANNING_TOOL_ANNOTATIONS,
+      inputSchema: {
+        post_id: z.number().int().positive(),
+        scheduled_at: z.string().nullable().optional(),
+        media_url: z.string().nullable().optional(),
+      },
+    },
+    async ({ post_id, scheduled_at, media_url }) => toolText(await readJsonFromHandler(
+      scheduleStudioStrategistPost(env, String(post_id), jsonRequest(requestUrl, { scheduled_at, media_url })),
+    )),
+  );
+
+  server.registerTool(
+    "delete_marketing_post_idea",
+    {
+      title: "Delete marketing post idea",
+      description: "Delete a Studio strategist post idea. If it already created a linked social post, set delete_linked_social_post=true to delete that queued social post too.",
+      annotations: DESTRUCTIVE_TOOL_ANNOTATIONS,
+      inputSchema: {
+        post_id: z.number().int().positive(),
+        delete_linked_social_post: z.boolean().default(false),
+      },
+    },
+    async ({ post_id, delete_linked_social_post }) => toolText(
+      await deleteStudioStrategistPost(env, post_id, delete_linked_social_post),
+    ),
+  );
+
+  server.registerTool(
     "list_social_posts",
     {
       title: "List social posts",
       description: "List Blogposter social posts for one platform or all platforms.",
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
       inputSchema: {
         platform: z.enum(["threads", "twitter", "reddit", "all"]).default("all"),
         status: z.string().optional().describe("Optional status filter such as draft, scheduled, approved, posted, or failed."),
@@ -328,6 +751,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
     {
       title: "Find next free social slot",
       description: "Find the next available social posting day across Threads, Twitter/X, and Reddit.",
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
       inputSchema: {
         start_date: z.string().optional().describe("Optional YYYY-MM-DD or ISO date to start searching from."),
         preferred_time: z.string().default("09:00").describe("Preferred local HH:mm time."),
@@ -343,7 +767,8 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
     "create_social_post",
     {
       title: "Create social post",
-      description: "Create a Blogposter social post. If autoschedule is true, the server selects the next free cross-platform slot.",
+      description: "Create a queued Blogposter social post. If autoschedule is true, the server selects the next free cross-platform slot. This only saves or schedules inside the dashboard; it does not publish externally.",
+      annotations: PLANNING_TOOL_ANNOTATIONS,
       inputSchema: {
         platform: z.enum(SOCIAL_PLATFORMS),
         content: z.string().optional(),
@@ -381,7 +806,8 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
     "schedule_social_post",
     {
       title: "Schedule social post",
-      description: "Schedule an existing social post and sync the linked dashboard planner item.",
+      description: "Schedule an existing social post and sync the linked dashboard planner item. This only schedules inside the dashboard; it does not publish externally.",
+      annotations: PLANNING_TOOL_ANNOTATIONS,
       inputSchema: {
         post_id: z.number().int().positive(),
         scheduled_at: z.string().optional(),
@@ -409,7 +835,8 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
     "update_social_post",
     {
       title: "Update social post",
-      description: "Update editable fields on an existing social post. Planner schedule is synced when scheduled_at is supplied.",
+      description: "Update editable fields on an existing social post. Planner schedule is synced when scheduled_at is supplied. This only updates the dashboard; it does not publish externally.",
+      annotations: PLANNING_TOOL_ANNOTATIONS,
       inputSchema: {
         post_id: z.number().int().positive(),
         content: z.string().optional(),
@@ -438,7 +865,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
     {
       title: "Delete social post",
       description: "Delete a Blogposter social post and its linked planner item.",
-      annotations: { destructiveHint: true },
+      annotations: DESTRUCTIVE_TOOL_ANNOTATIONS,
       inputSchema: {
         post_id: z.number().int().positive(),
       },
@@ -453,7 +880,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
     {
       title: "Publish social post",
       description: "Publish a queued Blogposter social post immediately through its platform publisher.",
-      annotations: { destructiveHint: true },
+      annotations: DESTRUCTIVE_TOOL_ANNOTATIONS,
       inputSchema: {
         post_id: z.number().int().positive(),
       },

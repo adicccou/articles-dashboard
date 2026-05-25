@@ -182,7 +182,7 @@ export function APIConnectionPanel({
     },
     rules: {
       title: "AI Operating Rules",
-      description: "Set persistent context, voice, and non-negotiable instructions the assistant should follow.",
+      description: "Set persistent context, voice, and non-negotiable instructions for AI-generated work.",
     },
     trading: {
       title: "Trading Platform Connection",
@@ -303,7 +303,7 @@ export function APIConnectionPanel({
           <label className="api-panel__field">
             <span className="api-panel__field-label">Global AI Rules</span>
             <textarea
-              placeholder="Add always-on rules, brand voice, hard constraints, and context the assistant should follow across the dashboard."
+              placeholder="Add always-on rules, brand voice, hard constraints, and context for AI-generated work across the dashboard."
               value={globalRules}
               onChange={(e) => setGlobalRules(e.target.value)}
               className="api-panel__textarea"
@@ -321,7 +321,7 @@ export function APIConnectionPanel({
             />
           </label>
           <p className="api-panel__helper">
-            These rules are stored at the workspace level so the dashboard assistant can follow them whenever it writes, plans, or reviews AI-driven work.
+            These rules are stored at the workspace level for writing, planning, and review workflows.
           </p>
           <div className="api-panel__button-row">
             <button

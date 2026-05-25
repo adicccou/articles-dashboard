@@ -1,4 +1,6 @@
 import type { Env } from "./types";
+import type { DashboardUser } from "./ownership";
+import { authenticateDashboardUser, ensureDefaultUser, getUserById, normalizeUsername } from "./users";
 
 const encoder = new TextEncoder();
 
@@ -38,8 +40,12 @@ function timingSafeEqual(left: string, right: string): boolean {
 }
 
 export async function validateSession(request: Request, env: Env): Promise<boolean> {
+  return Boolean(await getSessionUser(request, env));
+}
+
+export async function getSessionUser(request: Request, env: Env): Promise<DashboardUser | null> {
   const sessionSecret = configuredSessionSecret(env);
-  if (!sessionSecret) return false;
+  if (!sessionSecret) return null;
 
   const cookie = request.headers.get("Cookie") ?? "";
   const sessionCookie = cookie
@@ -47,34 +53,57 @@ export async function validateSession(request: Request, env: Env): Promise<boole
     .map((part) => part.trim())
     .find((part) => part.startsWith("article_dashboard_session="));
 
-  if (!sessionCookie) return false;
+  if (!sessionCookie) return null;
   const raw = sessionCookie.slice("article_dashboard_session=".length);
-  if (!raw) return false;
+  if (!raw) return null;
 
   let decoded = "";
   try {
     decoded = atob(raw);
   } catch {
-    return false;
+    return null;
   }
 
-  const [username, signature, extra] = decoded.split(":");
-  if (extra !== undefined) return false;
-  if (!username || !signature) return false;
-  if (username !== env.ADMIN_USERNAME) return false;
+  const parts = decoded.split(":");
+  if (parts.length === 3) {
+    const [idValue, username, signature] = parts;
+    const id = Number(idValue);
+    if (!Number.isFinite(id) || !username || !signature) return null;
+    const expected = await sign(`${id}:${username}`, sessionSecret);
+    if (!timingSafeEqual(expected, signature)) return null;
+    const user = await getUserById(env, id);
+    if (user?.status === "active" && normalizeUsername(user.username) === normalizeUsername(username)) {
+      return user;
+    }
+    if (id === 1) {
+      const defaultUser = await ensureDefaultUser(env);
+      return normalizeUsername(defaultUser.username) === normalizeUsername(username) ? defaultUser : null;
+    }
+    return null;
+  }
+
+  const [username, signature, extra] = parts;
+  if (extra !== undefined) return null;
+  if (!username || !signature) return null;
+  if (normalizeUsername(username) !== normalizeUsername(env.ADMIN_USERNAME)) return null;
 
   const expected = await sign(username, sessionSecret);
-  return timingSafeEqual(expected, signature);
+  if (!timingSafeEqual(expected, signature)) return null;
+  return ensureDefaultUser(env);
 }
 
-export async function createSessionCookie(username: string, env: Env, remember = true): Promise<string> {
+export async function createSessionCookie(userOrUsername: DashboardUser | string, env: Env, remember = true): Promise<string> {
   const sessionSecret = configuredSessionSecret(env);
   if (!sessionSecret) {
     throw new Error("SESSION_SECRET is not configured");
   }
 
-  const signature = await sign(username, sessionSecret);
-  const value = btoa(`${username}:${signature}`);
+  const user = typeof userOrUsername === "string"
+    ? await ensureDefaultUser(env)
+    : userOrUsername;
+  const payload = `${user.id}:${user.username}`;
+  const signature = await sign(payload, sessionSecret);
+  const value = btoa(`${payload}:${signature}`);
   const parts = [
     `article_dashboard_session=${value}`,
     "Path=/",
@@ -102,7 +131,5 @@ export async function checkCredentials(
   password: string,
   env: Env,
 ): Promise<boolean> {
-  if (username !== env.ADMIN_USERNAME) return false;
-  if (!env.ADMIN_PASSWORD) return false;
-  return timingSafeEqual(password, env.ADMIN_PASSWORD);
+  return Boolean(await authenticateDashboardUser(env, username, password));
 }

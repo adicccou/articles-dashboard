@@ -1,5 +1,6 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
+import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId } from "../lib/ownership";
 import { listSocialPosts, createSocialPost, updateSocialPost, deleteSocialPost, getSocialPostSchemaCapabilities } from "./twitter";
 
 // Re-export post handlers using the 'threads' platform
@@ -63,7 +64,18 @@ type ThreadsGraphError = {
   };
 };
 
-async function upsertSetting(env: Env, key: string, value: string, updatedAt: string): Promise<void> {
+async function upsertSetting(env: Env, key: string, value: string, updatedAt: string, userId = DEFAULT_USER_ID): Promise<void> {
+  if (await tableHasUserId(env, "app_settings")) {
+    await env.DB.prepare(
+      `INSERT INTO app_settings (user_id, key, value, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    )
+      .bind(ownerId(userId), key, value, updatedAt)
+      .run();
+    return;
+  }
+
   await env.DB.prepare(
     `INSERT INTO app_settings (key, value, updated_at)
      VALUES (?, ?, ?)
@@ -78,38 +90,51 @@ function getGraphErrorMessage(payload: unknown, fallback: string): string {
   return graphError.error?.message || fallback;
 }
 
-async function readSetting(env: Env, key: string): Promise<string> {
-  const row = await env.DB.prepare("SELECT value FROM app_settings WHERE key = ?").bind(key).first<{ value: string }>();
+async function readSetting(env: Env, key: string, userId = DEFAULT_USER_ID): Promise<string> {
+  const hasUserId = await tableHasUserId(env, "app_settings");
+  const row = await env.DB.prepare(hasUserId
+    ? "SELECT value FROM app_settings WHERE user_id = ? AND key = ?"
+    : "SELECT value FROM app_settings WHERE key = ?")
+    .bind(...(hasUserId ? [ownerId(userId), key] : [key]))
+    .first<{ value: string }>();
   return row?.value ?? "";
 }
 
-async function getThreadsCredentials(env: Env, requestedAccountId?: number): Promise<ThreadsCredentials | null> {
+async function getThreadsCredentials(
+  env: Env,
+  requestedAccountId?: number,
+  userId = DEFAULT_USER_ID,
+): Promise<ThreadsCredentials | null> {
+  const filters = ["platform = 'threads'", "status = 'active'"];
+  const values: unknown[] = [];
+  if (requestedAccountId) filters.push("id = ?"), values.push(requestedAccountId);
+  await appendScopedFilter(env, "social_accounts", filters, values, userId);
   const requestedAccount = requestedAccountId
-    ? await env.DB.prepare("SELECT id FROM social_accounts WHERE id = ? AND platform = 'threads' AND status = 'active'")
-      .bind(requestedAccountId)
+    ? await env.DB.prepare(`SELECT id FROM social_accounts WHERE ${filters.join(" AND ")}`)
+      .bind(...values)
       .first<{ id: number }>()
     : null;
 
   const account = requestedAccount ?? await env.DB.prepare(
-      "SELECT id FROM social_accounts WHERE platform = 'threads' AND status = 'active' ORDER BY updated_at DESC, id DESC LIMIT 1",
-    ).first<{ id: number }>();
+    `SELECT id FROM social_accounts WHERE ${filters.join(" AND ")} ORDER BY updated_at DESC, id DESC LIMIT 1`,
+  ).bind(...values).first<{ id: number }>();
 
   if (!account?.id) return null;
 
-  const [accessToken, userId] = await Promise.all([
-    readSetting(env, `social_account:${account.id}:threads_access_token`),
-    readSetting(env, `social_account:${account.id}:threads_user_id`),
+  const [accessToken, threadsUserId] = await Promise.all([
+    readSetting(env, `social_account:${account.id}:threads_access_token`, userId),
+    readSetting(env, `social_account:${account.id}:threads_user_id`, userId),
   ]);
 
-  if (!accessToken || !userId) return null;
-  return { accountId: account.id, accessToken, userId };
+  if (!accessToken || !threadsUserId) return null;
+  return { accountId: account.id, accessToken, userId: threadsUserId };
 }
 
 async function postThreadsContainer(
   env: Env,
-  payload: { text: string; imageUrl?: string; replyToId?: string; accountId?: number },
+  payload: { text: string; imageUrl?: string; replyToId?: string; accountId?: number; userId?: number },
 ): Promise<{ containerId: string; credentials: ThreadsCredentials }> {
-  const credentials = await getThreadsCredentials(env, payload.accountId);
+  const credentials = await getThreadsCredentials(env, payload.accountId, payload.userId);
   if (!credentials) throw new Error("No active Threads account with access token was found.");
 
   const containerBody = new URLSearchParams({
@@ -159,14 +184,14 @@ async function publishThreadsContainer(credentials: ThreadsCredentials, containe
 
 async function publishThreadsText(
   env: Env,
-  payload: { text: string; imageUrl?: string; replyToId?: string; accountId?: number },
+  payload: { text: string; imageUrl?: string; replyToId?: string; accountId?: number; userId?: number },
 ): Promise<{ externalId: string; accountId: number }> {
   const { containerId, credentials } = await postThreadsContainer(env, payload);
   const externalId = await publishThreadsContainer(credentials, containerId);
   return { externalId, accountId: credentials.accountId };
 }
 
-async function createThreadsAccount(env: Env, payload: ThreadsAccountPayload): Promise<{
+async function createThreadsAccount(env: Env, payload: ThreadsAccountPayload, userId = DEFAULT_USER_ID): Promise<{
   id: number;
   platform: "threads";
   username: string;
@@ -176,36 +201,43 @@ async function createThreadsAccount(env: Env, payload: ThreadsAccountPayload): P
 }> {
   const username = payload.username.trim().replace(/^@+/, "");
   const now = new Date().toISOString();
-  const existing = await env.DB.prepare("SELECT id, created_at FROM social_accounts WHERE platform = 'threads' AND username = ? ORDER BY id DESC LIMIT 1")
-    .bind(username)
+  const existingFilters = ["platform = 'threads'", "username = ?"];
+  const existingValues: unknown[] = [username];
+  await appendScopedFilter(env, "social_accounts", existingFilters, existingValues, userId);
+  const existing = await env.DB.prepare(`SELECT id, created_at FROM social_accounts WHERE ${existingFilters.join(" AND ")} ORDER BY id DESC LIMIT 1`)
+    .bind(...existingValues)
     .first<{ id: number; created_at: string }>();
   let accountId = existing?.id;
   let createdAt = existing?.created_at ?? now;
 
   if (accountId) {
-    await env.DB.prepare("UPDATE social_accounts SET status = 'active', updated_at = ? WHERE id = ?")
-      .bind(now, accountId)
+    const filters = ["id = ?"];
+    const values: unknown[] = [accountId];
+    await appendScopedFilter(env, "social_accounts", filters, values, userId);
+    await env.DB.prepare(`UPDATE social_accounts SET status = 'active', updated_at = ? WHERE ${filters.join(" AND ")}`)
+      .bind(now, ...values)
       .run();
   } else {
+    const scoped = await scopedInsertColumns(env, "social_accounts", userId);
     const result = await env.DB.prepare(
-      `INSERT INTO social_accounts (platform, username, status, created_at, updated_at)
-       VALUES ('threads', ?, 'active', ?, ?)`,
+      `INSERT INTO social_accounts (${[...scoped.columns, "platform", "username", "status", "created_at", "updated_at"].join(", ")})
+       VALUES (${[...scoped.columns.map(() => "?"), "?", "?", "?", "?", "?"].join(", ")})`,
     )
-      .bind(username, now, now)
+      .bind(...scoped.values, "threads", username, "active", now, now)
       .run() as { meta: { last_row_id: number } };
     accountId = result.meta.last_row_id;
     createdAt = now;
   }
 
   await Promise.all([
-    upsertSetting(env, `social_account:${accountId}:threads_client_id`, payload.client_id.trim(), now),
-    upsertSetting(env, `social_account:${accountId}:threads_client_secret`, payload.client_secret.trim(), now),
-    upsertSetting(env, `social_account:${accountId}:threads_redirect_uri`, payload.redirect_uri.trim(), now),
-    upsertSetting(env, `social_account:${accountId}:threads_scopes`, payload.scopes.trim(), now),
-    upsertSetting(env, `social_account:${accountId}:threads_access_token`, payload.access_token.trim(), now),
-    upsertSetting(env, `social_account:${accountId}:threads_user_id`, payload.user_id.trim(), now),
-    upsertSetting(env, "threads_access_token", payload.access_token.trim(), now),
-    upsertSetting(env, "threads_user_id", payload.user_id.trim(), now),
+    upsertSetting(env, `social_account:${accountId}:threads_client_id`, payload.client_id.trim(), now, userId),
+    upsertSetting(env, `social_account:${accountId}:threads_client_secret`, payload.client_secret.trim(), now, userId),
+    upsertSetting(env, `social_account:${accountId}:threads_redirect_uri`, payload.redirect_uri.trim(), now, userId),
+    upsertSetting(env, `social_account:${accountId}:threads_scopes`, payload.scopes.trim(), now, userId),
+    upsertSetting(env, `social_account:${accountId}:threads_access_token`, payload.access_token.trim(), now, userId),
+    upsertSetting(env, `social_account:${accountId}:threads_user_id`, payload.user_id.trim(), now, userId),
+    upsertSetting(env, "threads_access_token", payload.access_token.trim(), now, userId),
+    upsertSetting(env, "threads_user_id", payload.user_id.trim(), now, userId),
   ]);
 
   return { id: accountId, platform: "threads", username, status: "active", created_at: createdAt, updated_at: now };
@@ -220,18 +252,21 @@ function validateThreadsAppPayload(payload: PendingThreadsOAuth): string | null 
   return null;
 }
 
-export async function listThreadsAccounts(env: Env): Promise<Response> {
+export async function listThreadsAccounts(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
+    const filters = ["platform = 'threads'"];
+    const values: unknown[] = [];
+    await appendScopedFilter(env, "social_accounts", filters, values, userId);
     const rows = await env.DB.prepare(
-      "SELECT id, username, status, created_at, updated_at FROM social_accounts WHERE platform = 'threads' ORDER BY created_at DESC",
-    ).all();
+      `SELECT id, username, status, created_at, updated_at FROM social_accounts WHERE ${filters.join(" AND ")} ORDER BY created_at DESC`,
+    ).bind(...values).all();
     return jsonResponse(rows.results ?? []);
   } catch {
     return errorResponse("Failed to list Threads accounts", 500);
   }
 }
 
-export async function addThreadsAccount(env: Env, request: Request): Promise<Response> {
+export async function addThreadsAccount(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const payload = await parseJson<ThreadsAccountPayload>(request);
     const appError = validateThreadsAppPayload(payload);
@@ -239,13 +274,13 @@ export async function addThreadsAccount(env: Env, request: Request): Promise<Res
     if (!payload.access_token?.trim()) return errorResponse("Access token is required", 400);
     if (!payload.user_id?.trim()) return errorResponse("User ID is required", 400);
 
-    return jsonResponse(await createThreadsAccount(env, payload), { status: 201 });
+    return jsonResponse(await createThreadsAccount(env, payload, userId), { status: 201 });
   } catch {
     return errorResponse("Failed to add Threads account", 500);
   }
 }
 
-export async function authorizeThreadsAccount(env: Env, request: Request): Promise<Response> {
+export async function authorizeThreadsAccount(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const payload = await parseJson<PendingThreadsOAuth>(request);
     const appError = validateThreadsAppPayload(payload);
@@ -259,8 +294,9 @@ export async function authorizeThreadsAccount(env: Env, request: Request): Promi
       client_secret: payload.client_secret.trim(),
       redirect_uri: payload.redirect_uri.trim(),
       scopes: payload.scopes.trim(),
+      user_id: ownerId(userId),
       created_at: now,
-    }), now);
+    }), now, userId);
 
     const authUrl = new URL(THREADS_AUTHORIZE_URL);
     authUrl.searchParams.set("client_id", payload.client_id.trim());
@@ -275,7 +311,7 @@ export async function authorizeThreadsAccount(env: Env, request: Request): Promi
   }
 }
 
-export async function publishThreadsPost(env: Env, postId: string): Promise<Response> {
+export async function publishThreadsPost(env: Env, postId: string, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const id = Number(postId);
     if (Number.isNaN(id)) return errorResponse("Invalid post ID", 400);
@@ -283,8 +319,13 @@ export async function publishThreadsPost(env: Env, postId: string): Promise<Resp
     const capabilities = await getSocialPostSchemaCapabilities(env);
     const accountSelect = capabilities.hasAccountId ? "account_id" : "NULL AS account_id";
     const replySelect = capabilities.hasReplyToId ? "reply_to_id" : "NULL AS reply_to_id";
-    const post = await env.DB.prepare(`SELECT id, content, image_url, status, ${accountSelect}, ${replySelect} FROM social_posts WHERE id = ? AND platform = 'threads'`)
-      .bind(id)
+    const filters = ["id = ?", "platform = 'threads'"];
+    const values: unknown[] = [id];
+    await appendScopedFilter(env, "social_posts", filters, values, userId);
+    const post = await env.DB.prepare(
+      `SELECT id, content, image_url, status, ${accountSelect}, ${replySelect} FROM social_posts WHERE ${filters.join(" AND ")}`,
+    )
+      .bind(...values)
       .first<{ id: number; content: string; image_url: string | null; status: string; account_id: number | null; reply_to_id: string | null }>();
     if (!post) return errorResponse("Threads post not found", 404);
     if (!post.content?.trim() && !post.image_url?.trim()) return errorResponse("Post content is empty", 400);
@@ -296,13 +337,14 @@ export async function publishThreadsPost(env: Env, postId: string): Promise<Resp
       imageUrl: post.image_url?.trim() || undefined,
       replyToId: post.reply_to_id?.trim() || undefined,
       accountId: post.account_id ?? undefined,
+      userId,
     });
     await env.DB.prepare(
       `UPDATE social_posts
        SET status = 'posted', posted_at = ?, external_id = ?, updated_at = ?
-       WHERE id = ?`,
+       WHERE ${filters.join(" AND ")}`,
     )
-      .bind(now, published.externalId, now, id)
+      .bind(now, published.externalId, now, ...values)
       .run();
 
     return jsonResponse({ success: true, external_id: published.externalId, posted_at: now });
@@ -317,9 +359,10 @@ export async function fetchThreadsRepliesData(
     mediaId?: string | null;
     reverse?: string | null;
     limit?: string | null;
+    userId?: number | null;
   },
 ): Promise<Array<Record<string, unknown>>> {
-  const credentials = await getThreadsCredentials(env);
+  const credentials = await getThreadsCredentials(env, undefined, options?.userId ?? DEFAULT_USER_ID);
   if (!credentials) return [];
 
   const mediaId = options?.mediaId?.trim();
@@ -340,12 +383,32 @@ export async function fetchThreadsRepliesData(
   return Array.isArray(payload.data) ? payload.data : [];
 }
 
-export async function searchThreads(env: Env, url: URL): Promise<Response> {
+function isThreadsTrue(value: unknown): boolean {
+  return value === true || value === "true";
+}
+
+function readThreadsReplyParentId(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const id = typeof record.id === "string" ? record.id.trim() : "";
+  return id || null;
+}
+
+function selectLatestThreadsReply(
+  current: Record<string, unknown> | undefined,
+  candidate: Record<string, unknown>,
+): Record<string, unknown> {
+  const currentTimestamp = String(current?.timestamp ?? "");
+  const candidateTimestamp = String(candidate.timestamp ?? "");
+  return candidateTimestamp.localeCompare(currentTimestamp) > 0 ? candidate : (current ?? candidate);
+}
+
+export async function searchThreads(env: Env, url: URL, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const q = url.searchParams.get("q")?.trim();
     if (!q) return errorResponse("Search query is required", 400);
     const requestedAccountId = Number(url.searchParams.get("account_id") || 0) || undefined;
-    const credentials = await getThreadsCredentials(env, requestedAccountId);
+    const credentials = await getThreadsCredentials(env, requestedAccountId, userId);
     if (!credentials) return errorResponse("No active Threads account with access token was found.", 400);
     const baseParams: Record<string, string> = {
       q,
@@ -375,12 +438,13 @@ export async function searchThreads(env: Env, url: URL): Promise<Response> {
   }
 }
 
-export async function listThreadsReplies(env: Env, url: URL): Promise<Response> {
+export async function listThreadsReplies(env: Env, url: URL, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const replies = await fetchThreadsRepliesData(env, {
       mediaId: url.searchParams.get("media_id"),
       reverse: url.searchParams.get("reverse"),
       limit: url.searchParams.get("limit"),
+      userId,
     });
     return jsonResponse({ data: replies });
   } catch (error) {
@@ -390,52 +454,91 @@ export async function listThreadsReplies(env: Env, url: URL): Promise<Response> 
 
 export async function listThreadsComments(env: Env, postId?: string | null, limit?: string | null): Promise<Response> {
   try {
-    let mediaId = "";
-    if (postId) {
-      const row = await env.DB.prepare(
-        "SELECT external_id FROM social_posts WHERE id = ? AND platform = 'threads' AND status = 'posted'",
+    const requestedLimit = Math.max(1, Math.min(Number(limit || 20) || 20, 50));
+    const targets = postId
+      ? await env.DB.prepare(
+        "SELECT id, external_id, content FROM social_posts WHERE id = ? AND platform = 'threads' AND status = 'posted'",
       )
         .bind(Number(postId))
-        .first<{ external_id: string | null }>();
-      mediaId = row?.external_id?.trim() || "";
-    }
-    const replies = await fetchThreadsRepliesData(env, {
-      mediaId: mediaId || null,
-      limit,
-      reverse: "true",
-    });
-    const mapped = replies.map((reply) => ({
-      platform: "threads",
-      post_id: postId ? Number(postId) : null,
-      post_external_id: typeof reply.root_post === "object" && reply.root_post && "id" in reply.root_post
-        ? String((reply.root_post as { id?: string }).id || "")
-        : mediaId || null,
-      commenter_username: reply.username ? String(reply.username) : null,
-      commenter_name: null,
-      text: reply.text ? String(reply.text) : "",
-      commented_at: reply.timestamp ? String(reply.timestamp) : null,
-      external_id: reply.id ? String(reply.id) : null,
-      permalink: reply.permalink ? String(reply.permalink) : null,
-    }));
-    return jsonResponse({ data: mapped });
+        .all<{ id: number; external_id: string | null; content: string | null }>()
+      : await env.DB.prepare(
+        "SELECT id, external_id, content FROM social_posts WHERE platform = 'threads' AND status = 'posted' ORDER BY posted_at DESC, updated_at DESC LIMIT 10",
+      )
+        .all<{ id: number; external_id: string | null; content: string | null }>();
+    const targetRows = (targets.results ?? []).filter((row) => row.external_id?.trim());
+    if (targetRows.length === 0) return jsonResponse({ data: [] });
+
+    const conversations = await Promise.all(
+      targetRows.map(async (target) => {
+        const replies = await fetchThreadsRepliesData(env, {
+          mediaId: String(target.external_id).trim(),
+          limit: String(requestedLimit),
+          reverse: "true",
+        });
+        const ownerRepliesByParent = new Map<string, Record<string, unknown>>();
+        replies
+          .filter((reply) => Boolean(reply.id))
+          .filter((reply) => isThreadsTrue(reply.is_reply))
+          .filter((reply) => isThreadsTrue(reply.is_reply_owned_by_me))
+          .forEach((reply) => {
+            const parentId = readThreadsReplyParentId(reply.replied_to);
+            if (!parentId) return;
+            ownerRepliesByParent.set(parentId, selectLatestThreadsReply(ownerRepliesByParent.get(parentId), reply));
+          });
+
+        return replies
+          .filter((reply) => Boolean(reply.id))
+          .filter((reply) => isThreadsTrue(reply.is_reply))
+          .filter((reply) => !isThreadsTrue(reply.is_reply_owned_by_me))
+          .map((reply) => {
+            const ownerReply = ownerRepliesByParent.get(String(reply.id));
+            return {
+            platform: "threads",
+            post_id: target.id,
+            post_external_id: String(target.external_id).trim(),
+            post_preview: target.content?.slice(0, 120) ?? null,
+            commenter_username: reply.username ? String(reply.username) : null,
+            commenter_name: null,
+            text: reply.text ? String(reply.text) : "",
+            commented_at: reply.timestamp ? String(reply.timestamp) : null,
+            external_id: reply.id ? String(reply.id) : null,
+            permalink: reply.permalink ? String(reply.permalink) : null,
+            reply_status: ownerReply ? "replied" : "new",
+            owner_reply_text: ownerReply?.text ? String(ownerReply.text) : null,
+            owner_replied_at: ownerReply?.timestamp ? String(ownerReply.timestamp) : null,
+            owner_reply_external_id: ownerReply?.id ? String(ownerReply.id) : null,
+            owner_reply_permalink: ownerReply?.permalink ? String(ownerReply.permalink) : null,
+          };
+          });
+      }),
+    );
+
+    const merged = conversations
+      .flat()
+      .sort((left, right) => String(right.commented_at ?? "").localeCompare(String(left.commented_at ?? "")))
+      .slice(0, requestedLimit);
+    return jsonResponse({ data: merged });
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Failed to load Threads comments", 500);
   }
 }
 
-export async function createThreadsReply(env: Env, request: Request): Promise<Response> {
+export async function createThreadsReply(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
-    const payload = await parseJson<{ reply_to_id: string; text: string; account_id?: number }>(request);
+    const payload = await parseJson<{ reply_to_id: string; text: string; account_id?: number; image_url?: string | null }>(request);
     const replyToId = payload.reply_to_id?.trim();
     const text = payload.text?.trim();
+    const imageUrl = payload.image_url?.trim() || undefined;
     if (!replyToId) return errorResponse("Reply target ID is required", 400);
     if (!text) return errorResponse("Reply text is required", 400);
     if (text.length > 500) return errorResponse("Threads replies must be 500 characters or fewer", 400);
 
     const published = await publishThreadsText(env, {
       text,
+      imageUrl,
       replyToId,
       accountId: payload.account_id,
+      userId,
     });
 
     return jsonResponse({ success: true, external_id: published.externalId, account_id: published.accountId });
@@ -472,7 +575,8 @@ export async function handleThreadsOAuthCallback(env: Env, url: URL): Promise<Re
       });
     }
 
-    const pending = JSON.parse(row.value) as PendingThreadsOAuth & { created_at?: string };
+    const pending = JSON.parse(row.value) as PendingThreadsOAuth & { created_at?: string; user_id?: number };
+    const pendingUserId = ownerId(pending.user_id);
 
     const shortTokenResponse = await fetch(THREADS_TOKEN_URL, {
       method: "POST",
@@ -529,7 +633,7 @@ export async function handleThreadsOAuthCallback(env: Env, url: URL): Promise<Re
       scopes: pending.scopes,
       access_token: longToken.access_token,
       user_id: profile.id,
-    });
+    }, pendingUserId);
     await env.DB.prepare("DELETE FROM app_settings WHERE key = ?").bind(stateKey).run();
 
     return new Response(
@@ -550,13 +654,21 @@ export async function handleThreadsOAuthCallback(env: Env, url: URL): Promise<Re
   }
 }
 
-export async function updateThreadsAccount(env: Env, accountId: string, request: Request): Promise<Response> {
+export async function updateThreadsAccount(
+  env: Env,
+  accountId: string,
+  request: Request,
+  userId = DEFAULT_USER_ID,
+): Promise<Response> {
   try {
     const id = Number(accountId);
     if (isNaN(id)) return errorResponse("Invalid account ID", 400);
 
-    const existing = await env.DB.prepare("SELECT id FROM social_accounts WHERE id = ? AND platform = 'threads'")
-      .bind(id)
+    const filters = ["id = ?", "platform = 'threads'"];
+    const filterValues: unknown[] = [id];
+    await appendScopedFilter(env, "social_accounts", filters, filterValues, userId);
+    const existing = await env.DB.prepare(`SELECT id FROM social_accounts WHERE ${filters.join(" AND ")}`)
+      .bind(...filterValues)
       .first<{ id: number }>();
     if (!existing) return errorResponse("Threads account not found", 404);
 
@@ -593,20 +705,20 @@ export async function updateThreadsAccount(env: Env, accountId: string, request:
 
     if (accountUpdates.length > 0) {
       accountUpdates.push("updated_at = ?");
-      accountValues.push(now, id);
-      await env.DB.prepare(`UPDATE social_accounts SET ${accountUpdates.join(", ")} WHERE id = ? AND platform = 'threads'`)
-        .bind(...accountValues)
+      accountValues.push(now);
+      await env.DB.prepare(`UPDATE social_accounts SET ${accountUpdates.join(", ")} WHERE ${filters.join(" AND ")}`)
+        .bind(...accountValues, ...filterValues)
         .run();
     } else {
-      await env.DB.prepare("UPDATE social_accounts SET updated_at = ? WHERE id = ? AND platform = 'threads'")
-        .bind(now, id)
+      await env.DB.prepare(`UPDATE social_accounts SET updated_at = ? WHERE ${filters.join(" AND ")}`)
+        .bind(now, ...filterValues)
         .run();
     }
 
     await Promise.all(settingUpdates.flatMap(([key, value]) => {
-      const updates = [upsertSetting(env, `social_account:${id}:${key}`, value, now)];
+      const updates = [upsertSetting(env, `social_account:${id}:${key}`, value, now, userId)];
       if (key === "threads_access_token" || key === "threads_user_id") {
-        updates.push(upsertSetting(env, key, value, now));
+        updates.push(upsertSetting(env, key, value, now, userId));
       }
       return updates;
     }));
@@ -617,12 +729,20 @@ export async function updateThreadsAccount(env: Env, accountId: string, request:
   }
 }
 
-export async function deleteThreadsAccount(env: Env, accountId: string): Promise<Response> {
+export async function deleteThreadsAccount(env: Env, accountId: string, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const id = Number(accountId);
     if (isNaN(id)) return errorResponse("Invalid account ID", 400);
-    await env.DB.prepare("DELETE FROM social_accounts WHERE id = ? AND platform = 'threads'").bind(id).run();
-    await env.DB.prepare("DELETE FROM app_settings WHERE key LIKE ?").bind(`social_account:${id}:%`).run();
+    const filters = ["id = ?", "platform = 'threads'"];
+    const values: unknown[] = [id];
+    await appendScopedFilter(env, "social_accounts", filters, values, userId);
+    await env.DB.prepare(`DELETE FROM social_accounts WHERE ${filters.join(" AND ")}`).bind(...values).run();
+    const settingsHasUserId = await tableHasUserId(env, "app_settings");
+    await env.DB.prepare(settingsHasUserId
+      ? "DELETE FROM app_settings WHERE user_id = ? AND key LIKE ?"
+      : "DELETE FROM app_settings WHERE key LIKE ?")
+      .bind(...(settingsHasUserId ? [ownerId(userId), `social_account:${id}:%`] : [`social_account:${id}:%`]))
+      .run();
     return jsonResponse({ success: true });
   } catch {
     return errorResponse("Failed to delete Threads account", 500);

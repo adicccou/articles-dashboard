@@ -3,6 +3,7 @@ import { errorResponse, jsonResponse, parseJson } from "../lib/http";
 import { callAiText } from "../lib/ai";
 import { getSocialPostSchemaCapabilities } from "./twitter";
 import { plannerHasSocialPostLinks } from "./planner";
+import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId } from "../lib/ownership";
 
 type StudioStatus = "active" | "inactive" | "archived";
 type StudioCampaignType = "post" | "reply";
@@ -294,10 +295,13 @@ function sourcePostKey(platform: string, value: { target_url?: unknown; target_e
   return externalId ? `${normalizedPlatform}:external:${externalId}` : `${normalizedPlatform}:unknown`;
 }
 
-async function readStudioAiSettings(env: Env): Promise<StudioAiSettings> {
+async function readStudioAiSettings(env: Env, userId = DEFAULT_USER_ID): Promise<StudioAiSettings> {
+  const hasUserId = await tableHasUserId(env, "app_settings");
   const rows = await env.DB.prepare(
-    "SELECT key, value FROM app_settings WHERE key IN ('gemini_api_key', 'gemini_flash_model', 'gemini_pro_model', 'global_ai_rules')",
-  ).all<{ key: string; value: string }>();
+    hasUserId
+      ? "SELECT key, value FROM app_settings WHERE user_id = ? AND key IN ('gemini_api_key', 'gemini_flash_model', 'gemini_pro_model', 'global_ai_rules')"
+      : "SELECT key, value FROM app_settings WHERE key IN ('gemini_api_key', 'gemini_flash_model', 'gemini_pro_model', 'global_ai_rules')",
+  ).bind(...(hasUserId ? [ownerId(userId)] : [])).all<{ key: string; value: string }>();
 
   const settings: StudioAiSettings = {
     geminiApiKey: "",
@@ -617,6 +621,7 @@ async function replaceSignalsForRun(
   signals: StudioSignalPayload[],
   now: string,
   replaceExisting = true,
+  userId = DEFAULT_USER_ID,
 ): Promise<number[]> {
   const runId = Number(run.id);
   const campaignId = run.campaign_id ?? null;
@@ -624,8 +629,12 @@ async function replaceSignalsForRun(
   const runPlatforms = decodeList(run.platforms);
   const createdIds: number[] = [];
   if (replaceExisting) {
-    await env.DB.prepare("DELETE FROM studio_signals WHERE crawler_run_id = ?").bind(runId).run();
+    const deleteFilters = ["crawler_run_id = ?"];
+    const deleteValues: unknown[] = [runId];
+    await appendScopedFilter(env, "studio_signals", deleteFilters, deleteValues, userId);
+    await env.DB.prepare(`DELETE FROM studio_signals WHERE ${deleteFilters.join(" AND ")}`).bind(...deleteValues).run();
   }
+  const scoped = await scopedInsertColumns(env, "studio_signals", userId);
   for (const signal of signals.slice(0, 100)) {
     const platform = normalizePlatform(signal.platform) || runPlatforms[0] || "threads";
     if (!["twitter", "threads", "reddit"].includes(platform)) continue;
@@ -636,13 +645,15 @@ async function replaceSignalsForRun(
     if (!title && !snippet && !painPoint && !evidence) continue;
     const result = await env.DB.prepare(
       `INSERT INTO studio_signals (
+        ${scoped.columns.length ? "user_id," : ""}
         crawler_run_id, campaign_id, app_id, platform, source, query, title, url, author,
         snippet, pain_point, audience, evidence, opportunity_score, noise_reason, status,
         raw_data, created_at, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      VALUES (${scoped.columns.length ? "?," : ""}?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
       .bind(
+        ...scoped.values,
         runId,
         campaignId,
         appId,
@@ -719,6 +730,7 @@ async function chooseAutoSchedule(
   accountId: number | null,
   platform: string,
   campaignType: StudioCampaignType,
+  userId = DEFAULT_USER_ID,
 ): Promise<string> {
   const timeZone = await readWorkspaceTimeZone(env);
   const now = new Date();
@@ -731,6 +743,9 @@ async function chooseAutoSchedule(
       ? "reply_to_id IS NOT NULL"
       : "reply_to_id IS NULL"
     : "1 = 1";
+  const hasSocialUserId = await tableHasUserId(env, "social_posts");
+  const socialOwnerClause = hasSocialUserId ? "AND user_id = ?" : "";
+  const socialOwnerValues = hasSocialUserId ? [ownerId(userId)] : [];
   let activeSocialRows: { results?: Array<{ value: string }> } = { results: [] };
   if (socialPostAccountId !== null) {
     activeSocialRows = await env.DB.prepare(
@@ -739,8 +754,9 @@ async function chooseAutoSchedule(
        WHERE scheduled_at IS NOT NULL
          AND status IN ('scheduled', 'approved')
          AND ${accountWhere}
-         AND ${socialTypeWhere}`,
-    ).bind(socialPostAccountId).all<{ value: string }>();
+         AND ${socialTypeWhere}
+         ${socialOwnerClause}`,
+    ).bind(socialPostAccountId, ...socialOwnerValues).all<{ value: string }>();
   } else if (accountId === null) {
     activeSocialRows = await env.DB.prepare(
       `SELECT scheduled_at AS value
@@ -748,13 +764,17 @@ async function chooseAutoSchedule(
        WHERE scheduled_at IS NOT NULL
          AND status IN ('scheduled', 'approved')
          AND ${accountWhere}
-         AND ${socialTypeWhere}`,
-    ).all<{ value: string }>();
+         AND ${socialTypeWhere}
+         ${socialOwnerClause}`,
+    ).bind(...socialOwnerValues).all<{ value: string }>();
   }
   const hasSocialPostLinks = await plannerHasSocialPostLinks(env);
   const plannerSocialLinkFilter = hasSocialPostLinks && socialPostAccountId === accountId
     ? "AND social_post_id IS NULL"
     : "";
+  const hasPlannerUserId = await tableHasUserId(env, "planner_items");
+  const plannerOwnerClause = hasPlannerUserId ? "AND user_id = ?" : "";
+  const plannerOwnerValues = hasPlannerUserId ? [ownerId(userId)] : [];
   const plannerRows = accountId
     ? await env.DB.prepare(
       `SELECT scheduled_for AS value
@@ -762,16 +782,18 @@ async function chooseAutoSchedule(
        WHERE scheduled_for IS NOT NULL
          AND status IN ('planned', 'drafting', 'approved')
          AND account_id = ?
-         ${plannerSocialLinkFilter}`,
-    ).bind(accountId).all<{ value: string }>()
+         ${plannerSocialLinkFilter}
+         ${plannerOwnerClause}`,
+    ).bind(accountId, ...plannerOwnerValues).all<{ value: string }>()
     : await env.DB.prepare(
       `SELECT scheduled_for AS value
        FROM planner_items
        WHERE scheduled_for IS NOT NULL
          AND status IN ('planned', 'drafting', 'approved')
          AND account_id IS NULL
-         ${plannerSocialLinkFilter}`,
-    ).all<{ value: string }>();
+         ${plannerSocialLinkFilter}
+         ${plannerOwnerClause}`,
+    ).bind(...plannerOwnerValues).all<{ value: string }>();
   const byDay = new Map<string, Date[]>();
   for (const row of [...(activeSocialRows.results ?? []), ...(plannerRows.results ?? [])]) {
     const parsed = new Date(row.value);
@@ -816,30 +838,44 @@ async function chooseAutoSchedule(
   ).toISOString();
 }
 
-async function enqueueStudioNotification(env: Env, text: string, relatedType: string, relatedId: number): Promise<void> {
+async function enqueueStudioNotification(
+  env: Env,
+  text: string,
+  relatedType: string,
+  relatedId: number,
+  userId = DEFAULT_USER_ID,
+): Promise<void> {
   const now = nowIso();
+  const scoped = await scopedInsertColumns(env, "studio_notifications", userId);
   await env.DB.prepare(
-    `INSERT INTO studio_notifications (type, status, text, related_type, related_id, created_at, updated_at)
-     VALUES ('studio_post_scheduled', 'pending', ?, ?, ?, ?, ?)`,
+    `INSERT INTO studio_notifications (${[...scoped.columns, "type", "status", "text", "related_type", "related_id", "created_at", "updated_at"].join(", ")})
+     VALUES (${[...scoped.columns.map(() => "?"), "'studio_post_scheduled'", "'pending'", "?", "?", "?", "?", "?"].join(", ")})`,
   )
-    .bind(text, relatedType, relatedId, now, now)
+    .bind(...scoped.values, text, relatedType, relatedId, now, now)
     .run();
 }
 
-export async function listStudioAccounts(env: Env): Promise<Response> {
+export async function listStudioAccounts(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
+    const socialFilters = ["platform IN ('twitter', 'threads')"];
+    const socialValues: unknown[] = [];
+    await appendScopedFilter(env, "social_accounts", socialFilters, socialValues, userId);
+    const redditFilters: string[] = [];
+    const redditValues: unknown[] = [];
+    await appendScopedFilter(env, "reddit_accounts", redditFilters, redditValues, userId);
     const [socialRows, redditRows] = await Promise.all([
       env.DB.prepare(
         `SELECT id, platform, username, status, created_at, updated_at
          FROM social_accounts
-         WHERE platform IN ('twitter', 'threads')
+         WHERE ${socialFilters.join(" AND ")}
          ORDER BY platform ASC, updated_at DESC`,
-      ).all<Record<string, unknown>>(),
+      ).bind(...socialValues).all<Record<string, unknown>>(),
       env.DB.prepare(
         `SELECT id, 'reddit' AS platform, name AS username, status, created_at, updated_at
          FROM reddit_accounts
+         ${redditFilters.length ? `WHERE ${redditFilters.join(" AND ")}` : ""}
          ORDER BY updated_at DESC`,
-      ).all<Record<string, unknown>>(),
+      ).bind(...redditValues).all<Record<string, unknown>>(),
     ]);
     const accounts = [...(socialRows.results ?? []), ...(redditRows.results ?? [])].map((row) => {
       const platform = normalizePlatform(row.platform);
@@ -861,27 +897,34 @@ export async function listStudioAccounts(env: Env): Promise<Response> {
   }
 }
 
-export async function listStudioApps(env: Env): Promise<Response> {
+export async function listStudioApps(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
-    const apps = await env.DB.prepare("SELECT * FROM studio_apps ORDER BY updated_at DESC, id DESC").all<Record<string, unknown>>();
+    const filters: string[] = [];
+    const values: unknown[] = [];
+    await appendScopedFilter(env, "studio_apps", filters, values, userId);
+    const apps = await env.DB.prepare(
+      `SELECT * FROM studio_apps ${filters.length ? `WHERE ${filters.join(" AND ")}` : ""} ORDER BY updated_at DESC, id DESC`,
+    ).bind(...values).all<Record<string, unknown>>();
     return jsonResponse((apps.results ?? []).map(mapApp));
   } catch {
     return errorResponse("Failed to load Studio apps", 500);
   }
 }
 
-export async function createStudioApp(env: Env, request: Request): Promise<Response> {
+export async function createStudioApp(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const payload = await parseJson<StudioAppPayload>(request);
     const name = cleanText(payload.name);
     if (!name) return errorResponse("App name is required", 400);
     const now = nowIso();
+    const scoped = await scopedInsertColumns(env, "studio_apps", userId);
     const app = await env.DB.prepare(
-      `INSERT INTO studio_apps (name, website_url, app_store_url, description, ai_context, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO studio_apps (${[...scoped.columns, "name", "website_url", "app_store_url", "description", "ai_context", "status", "created_at", "updated_at"].join(", ")})
+       VALUES (${[...scoped.columns.map(() => "?"), "?", "?", "?", "?", "?", "?", "?", "?"].join(", ")})
        RETURNING *`,
     )
       .bind(
+        ...scoped.values,
         name,
         cleanText(payload.website_url) || null,
         cleanText(payload.app_store_url) || null,
@@ -898,7 +941,7 @@ export async function createStudioApp(env: Env, request: Request): Promise<Respo
   }
 }
 
-export async function updateStudioApp(env: Env, appId: string, request: Request): Promise<Response> {
+export async function updateStudioApp(env: Env, appId: string, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const id = Number(appId);
     if (!Number.isFinite(id)) return errorResponse("Invalid app ID", 400);
@@ -914,40 +957,52 @@ export async function updateStudioApp(env: Env, appId: string, request: Request)
     if (updates.length === 0) return errorResponse("No app fields to update", 400);
     const now = nowIso();
     updates.push("updated_at = ?");
-    values.push(now, id);
-    await env.DB.prepare(`UPDATE studio_apps SET ${updates.join(", ")} WHERE id = ?`).bind(...values).run();
+    values.push(now);
+    const filters = ["id = ?"];
+    const filterValues: unknown[] = [id];
+    await appendScopedFilter(env, "studio_apps", filters, filterValues, userId);
+    await env.DB.prepare(`UPDATE studio_apps SET ${updates.join(", ")} WHERE ${filters.join(" AND ")}`)
+      .bind(...values, ...filterValues)
+      .run();
     return jsonResponse({ success: true, updated_at: now });
   } catch {
     return errorResponse("Failed to update Studio app", 500);
   }
 }
 
-export async function deleteStudioApp(env: Env, appId: string): Promise<Response> {
+export async function deleteStudioApp(env: Env, appId: string, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const id = Number(appId);
     if (!Number.isFinite(id)) return errorResponse("Invalid app ID", 400);
-    await env.DB.prepare("DELETE FROM studio_apps WHERE id = ?").bind(id).run();
+    const filters = ["id = ?"];
+    const values: unknown[] = [id];
+    await appendScopedFilter(env, "studio_apps", filters, values, userId);
+    await env.DB.prepare(`DELETE FROM studio_apps WHERE ${filters.join(" AND ")}`).bind(...values).run();
     return jsonResponse({ success: true });
   } catch {
     return errorResponse("Failed to delete Studio app", 500);
   }
 }
 
-export async function listStudioCampaigns(env: Env): Promise<Response> {
+export async function listStudioCampaigns(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
+    const filters: string[] = [];
+    const values: unknown[] = [];
+    await appendScopedFilter(env, "studio_campaigns", filters, values, userId, "sc");
     const campaigns = await env.DB.prepare(
       `SELECT sc.*, sa.name AS app_name
        FROM studio_campaigns sc
        JOIN studio_apps sa ON sa.id = sc.app_id
+       ${filters.length ? `WHERE ${filters.join(" AND ")}` : ""}
        ORDER BY sc.updated_at DESC, sc.id DESC`,
-    ).all<Record<string, unknown>>();
+    ).bind(...values).all<Record<string, unknown>>();
     return jsonResponse((campaigns.results ?? []).map(mapCampaign));
   } catch {
     return errorResponse("Failed to load Studio campaigns", 500);
   }
 }
 
-export async function createStudioCampaign(env: Env, request: Request): Promise<Response> {
+export async function createStudioCampaign(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const payload = await parseJson<StudioCampaignPayload>(request);
     const appId = Number(payload.app_id);
@@ -962,13 +1017,15 @@ export async function createStudioCampaign(env: Env, request: Request): Promise<
     if (accountRefs.length === 0) return errorResponse("Select at least one connected account", 400);
     const now = nowIso();
     const hasResultLimit = await tableHasColumn(env, "studio_campaigns", "result_limit");
+    const scoped = await scopedInsertColumns(env, "studio_campaigns", userId);
     const campaign = hasResultLimit
       ? await env.DB.prepare(
-        `INSERT INTO studio_campaigns (app_id, name, campaign_type, result_limit, account_refs, platforms, instructions, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO studio_campaigns (${[...scoped.columns, "app_id", "name", "campaign_type", "result_limit", "account_refs", "platforms", "instructions", "status", "created_at", "updated_at"].join(", ")})
+         VALUES (${[...scoped.columns.map(() => "?"), "?", "?", "?", "?", "?", "?", "?", "?", "?", "?"].join(", ")})
          RETURNING *`,
       )
         .bind(
+          ...scoped.values,
           appId,
           name,
           campaignType,
@@ -982,11 +1039,12 @@ export async function createStudioCampaign(env: Env, request: Request): Promise<
         )
         .first<Record<string, unknown>>()
       : await env.DB.prepare(
-        `INSERT INTO studio_campaigns (app_id, name, campaign_type, account_refs, platforms, instructions, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO studio_campaigns (${[...scoped.columns, "app_id", "name", "campaign_type", "account_refs", "platforms", "instructions", "status", "created_at", "updated_at"].join(", ")})
+         VALUES (${[...scoped.columns.map(() => "?"), "?", "?", "?", "?", "?", "?", "?", "?", "?"].join(", ")})
          RETURNING *`,
       )
         .bind(
+          ...scoped.values,
           appId,
           name,
           campaignType,
@@ -1004,7 +1062,7 @@ export async function createStudioCampaign(env: Env, request: Request): Promise<
   }
 }
 
-export async function updateStudioCampaign(env: Env, campaignId: string, request: Request): Promise<Response> {
+export async function updateStudioCampaign(env: Env, campaignId: string, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const id = Number(campaignId);
     if (!Number.isFinite(id)) return errorResponse("Invalid campaign ID", 400);
@@ -1025,30 +1083,42 @@ export async function updateStudioCampaign(env: Env, campaignId: string, request
     if (updates.length === 0) return errorResponse("No campaign fields to update", 400);
     const now = nowIso();
     updates.push("updated_at = ?");
-    values.push(now, id);
-    await env.DB.prepare(`UPDATE studio_campaigns SET ${updates.join(", ")} WHERE id = ?`).bind(...values).run();
+    values.push(now);
+    const filters = ["id = ?"];
+    const filterValues: unknown[] = [id];
+    await appendScopedFilter(env, "studio_campaigns", filters, filterValues, userId);
+    await env.DB.prepare(`UPDATE studio_campaigns SET ${updates.join(", ")} WHERE ${filters.join(" AND ")}`)
+      .bind(...values, ...filterValues)
+      .run();
     return jsonResponse({ success: true, updated_at: now });
   } catch {
     return errorResponse("Failed to update Studio campaign", 500);
   }
 }
 
-export async function deleteStudioCampaign(env: Env, campaignId: string): Promise<Response> {
+export async function deleteStudioCampaign(env: Env, campaignId: string, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const id = Number(campaignId);
     if (!Number.isFinite(id)) return errorResponse("Invalid campaign ID", 400);
-    await env.DB.prepare("DELETE FROM studio_campaigns WHERE id = ?").bind(id).run();
+    const filters = ["id = ?"];
+    const values: unknown[] = [id];
+    await appendScopedFilter(env, "studio_campaigns", filters, values, userId);
+    await env.DB.prepare(`DELETE FROM studio_campaigns WHERE ${filters.join(" AND ")}`).bind(...values).run();
     return jsonResponse({ success: true });
   } catch {
     return errorResponse("Failed to delete Studio campaign", 500);
   }
 }
 
-export async function listStudioCrawlerRuns(env: Env, url?: URL): Promise<Response> {
+export async function listStudioCrawlerRuns(env: Env, url?: URL, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const status = url?.searchParams.get("status")?.trim();
     const limit = Math.max(1, Math.min(Number(url?.searchParams.get("limit") || 100), 200));
-    const where = status ? "WHERE scr.status = ?" : "";
+    const filters: string[] = [];
+    const values: unknown[] = [];
+    if (status) filters.push("scr.status = ?"), values.push(status);
+    await appendScopedFilter(env, "studio_crawler_runs", filters, values, userId, "scr");
+    const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
     const query = `
       SELECT scr.*, sa.name AS app_name, sa.website_url AS app_website_url, sa.app_store_url AS app_store_url,
              sa.description AS app_description, sa.ai_context AS app_ai_context, sc.name AS campaign_name
@@ -1059,16 +1129,14 @@ export async function listStudioCrawlerRuns(env: Env, url?: URL): Promise<Respon
       ORDER BY scr.created_at DESC
       LIMIT ?`;
     const statement = env.DB.prepare(query);
-    const result = status
-      ? await statement.bind(status, limit).all<Record<string, unknown>>()
-      : await statement.bind(limit).all<Record<string, unknown>>();
+    const result = await statement.bind(...values, limit).all<Record<string, unknown>>();
     return jsonResponse((result.results ?? []).map(mapCrawlerRun));
   } catch {
     return errorResponse("Failed to load Studio crawler runs", 500);
   }
 }
 
-export async function createStudioCrawlerRun(env: Env, request: Request): Promise<Response> {
+export async function createStudioCrawlerRun(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const payload = await parseJson<StudioCrawlerPayload>(request);
     let appId = Number(payload.app_id || 0);
@@ -1079,8 +1147,11 @@ export async function createStudioCrawlerRun(env: Env, request: Request): Promis
     let resultLimit = normalizeResultLimit(payload.result_limit);
     const campaignId = payload.campaign_id ? Number(payload.campaign_id) : null;
     if (campaignId) {
-      const campaign = await env.DB.prepare("SELECT * FROM studio_campaigns WHERE id = ?")
-        .bind(campaignId)
+      const campaignFilters = ["id = ?"];
+      const campaignValues: unknown[] = [campaignId];
+      await appendScopedFilter(env, "studio_campaigns", campaignFilters, campaignValues, userId);
+      const campaign = await env.DB.prepare(`SELECT * FROM studio_campaigns WHERE ${campaignFilters.join(" AND ")}`)
+        .bind(...campaignValues)
         .first<Record<string, unknown>>();
       if (!campaign) return errorResponse("Campaign not found", 404);
       appId = Number(campaign.app_id);
@@ -1093,8 +1164,11 @@ export async function createStudioCrawlerRun(env: Env, request: Request): Promis
     if (!Number.isFinite(appId) || appId <= 0) return errorResponse("App selection is required", 400);
     if (platforms.length === 0) return errorResponse("Select at least one social platform", 400);
     if (!instructions) return errorResponse("Crawler instructions are required", 400);
-    const app = await env.DB.prepare("SELECT * FROM studio_apps WHERE id = ?")
-      .bind(appId)
+    const appFilters = ["id = ?"];
+    const appValues: unknown[] = [appId];
+    await appendScopedFilter(env, "studio_apps", appFilters, appValues, userId);
+    const app = await env.DB.prepare(`SELECT * FROM studio_apps WHERE ${appFilters.join(" AND ")}`)
+      .bind(...appValues)
       .first<Record<string, unknown>>();
     if (!app) return errorResponse("App not found", 404);
     const { brief, generatedByAi, aiError } = await buildCrawlerBrief({
@@ -1116,13 +1190,15 @@ export async function createStudioCrawlerRun(env: Env, request: Request): Promis
       quality_attempts: 0,
     });
     const hasResultLimit = await tableHasColumn(env, "studio_crawler_runs", "result_limit");
+    const scoped = await scopedInsertColumns(env, "studio_crawler_runs", userId);
     const run = hasResultLimit
       ? await env.DB.prepare(
-        `INSERT INTO studio_crawler_runs (campaign_id, app_id, campaign_type, result_limit, account_refs, platforms, instructions, status, raw_data, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+        `INSERT INTO studio_crawler_runs (${[...scoped.columns, "campaign_id", "app_id", "campaign_type", "result_limit", "account_refs", "platforms", "instructions", "status", "raw_data", "created_at", "updated_at"].join(", ")})
+         VALUES (${[...scoped.columns.map(() => "?"), "?", "?", "?", "?", "?", "?", "?", "'pending'", "?", "?", "?"].join(", ")})
          RETURNING *`,
       )
         .bind(
+          ...scoped.values,
           campaignId,
           appId,
           campaignType,
@@ -1136,11 +1212,12 @@ export async function createStudioCrawlerRun(env: Env, request: Request): Promis
         )
         .first<Record<string, unknown>>()
       : await env.DB.prepare(
-        `INSERT INTO studio_crawler_runs (campaign_id, app_id, campaign_type, account_refs, platforms, instructions, status, raw_data, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+        `INSERT INTO studio_crawler_runs (${[...scoped.columns, "campaign_id", "app_id", "campaign_type", "account_refs", "platforms", "instructions", "status", "raw_data", "created_at", "updated_at"].join(", ")})
+         VALUES (${[...scoped.columns.map(() => "?"), "?", "?", "?", "?", "?", "?", "'pending'", "?", "?", "?"].join(", ")})
          RETURNING *`,
       )
         .bind(
+          ...scoped.values,
           campaignId,
           appId,
           campaignType,
@@ -1158,7 +1235,7 @@ export async function createStudioCrawlerRun(env: Env, request: Request): Promis
   }
 }
 
-export async function updateStudioCrawlerRun(env: Env, runId: string, request: Request): Promise<Response> {
+export async function updateStudioCrawlerRun(env: Env, runId: string, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const id = Number(runId);
     if (!Number.isFinite(id)) return errorResponse("Invalid crawler run ID", 400);
@@ -1179,16 +1256,24 @@ export async function updateStudioCrawlerRun(env: Env, runId: string, request: R
     const now = nowIso();
     if (updates.length > 0) {
       updates.push("updated_at = ?");
-      values.push(now, id);
-      await env.DB.prepare(`UPDATE studio_crawler_runs SET ${updates.join(", ")} WHERE id = ?`).bind(...values).run();
+      values.push(now);
+      const filters = ["id = ?"];
+      const filterValues: unknown[] = [id];
+      await appendScopedFilter(env, "studio_crawler_runs", filters, filterValues, userId);
+      await env.DB.prepare(`UPDATE studio_crawler_runs SET ${updates.join(", ")} WHERE ${filters.join(" AND ")}`)
+        .bind(...values, ...filterValues)
+        .run();
     }
     let signalIds: number[] = [];
     if (payload.signals !== undefined) {
-      const run = await env.DB.prepare("SELECT * FROM studio_crawler_runs WHERE id = ?")
-        .bind(id)
+      const filters = ["id = ?"];
+      const values: unknown[] = [id];
+      await appendScopedFilter(env, "studio_crawler_runs", filters, values, userId);
+      const run = await env.DB.prepare(`SELECT * FROM studio_crawler_runs WHERE ${filters.join(" AND ")}`)
+        .bind(...values)
         .first<Record<string, unknown>>();
       if (!run) return errorResponse("Crawler run not found", 404);
-      signalIds = await replaceSignalsForRun(env, run, Array.isArray(payload.signals) ? payload.signals : [], now);
+      signalIds = await replaceSignalsForRun(env, run, Array.isArray(payload.signals) ? payload.signals : [], now, true, userId);
     }
     return jsonResponse({ success: true, updated_at: now, signal_count: signalIds.length, signal_ids: signalIds });
   } catch {
@@ -1196,7 +1281,7 @@ export async function updateStudioCrawlerRun(env: Env, runId: string, request: R
   }
 }
 
-export async function listStudioSignals(env: Env, url?: URL): Promise<Response> {
+export async function listStudioSignals(env: Env, url?: URL, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const filters: string[] = [];
     const values: unknown[] = [];
@@ -1206,6 +1291,7 @@ export async function listStudioSignals(env: Env, url?: URL): Promise<Response> 
     if (runId) filters.push("ss.crawler_run_id = ?"), values.push(Number(runId));
     if (campaignId) filters.push("ss.campaign_id = ?"), values.push(Number(campaignId));
     if (status) filters.push("ss.status = ?"), values.push(status);
+    await appendScopedFilter(env, "studio_signals", filters, values, userId, "ss");
     const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
     const signals = await env.DB.prepare(
       `SELECT ss.*, sa.name AS app_name, sc.name AS campaign_name, scr.status AS crawler_status
@@ -1225,28 +1311,34 @@ export async function listStudioSignals(env: Env, url?: URL): Promise<Response> 
   }
 }
 
-export async function deleteStudioSignal(env: Env, signalId: string): Promise<Response> {
+export async function deleteStudioSignal(env: Env, signalId: string, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const id = Number(signalId);
     if (!Number.isFinite(id) || id <= 0) return errorResponse("Invalid signal ID", 400);
-    const existing = await env.DB.prepare("SELECT id FROM studio_signals WHERE id = ?")
-      .bind(id)
+    const filters = ["id = ?"];
+    const values: unknown[] = [id];
+    await appendScopedFilter(env, "studio_signals", filters, values, userId);
+    const existing = await env.DB.prepare(`SELECT id FROM studio_signals WHERE ${filters.join(" AND ")}`)
+      .bind(...values)
       .first<{ id: number }>();
     if (!existing) return errorResponse("Crawler result not found", 404);
-    await env.DB.prepare("DELETE FROM studio_signals WHERE id = ?").bind(id).run();
+    await env.DB.prepare(`DELETE FROM studio_signals WHERE ${filters.join(" AND ")}`).bind(...values).run();
     return jsonResponse({ success: true });
   } catch {
     return errorResponse("Failed to delete crawler result", 500);
   }
 }
 
-export async function createStudioSignals(env: Env, request: Request): Promise<Response> {
+export async function createStudioSignals(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const payload = await parseJson<StudioSignalsBulkPayload>(request);
     const runId = Number(payload.crawler_run_id);
     if (!Number.isFinite(runId) || runId <= 0) return errorResponse("Crawler run ID is required", 400);
-    const run = await env.DB.prepare("SELECT * FROM studio_crawler_runs WHERE id = ?")
-      .bind(runId)
+    const runFilters = ["id = ?"];
+    const runValues: unknown[] = [runId];
+    await appendScopedFilter(env, "studio_crawler_runs", runFilters, runValues, userId);
+    const run = await env.DB.prepare(`SELECT * FROM studio_crawler_runs WHERE ${runFilters.join(" AND ")}`)
+      .bind(...runValues)
       .first<Record<string, unknown>>();
     if (!run) return errorResponse("Crawler run not found", 404);
     const now = nowIso();
@@ -1257,6 +1349,7 @@ export async function createStudioSignals(env: Env, request: Request): Promise<R
       incomingSignals,
       now,
       payload.replace_existing !== false,
+      userId,
     );
     const existingRawData = safeParseJson<Record<string, unknown>>(run.raw_data, {});
     const quality = assessCrawlerSignalQuality(run, incomingSignals);
@@ -1302,8 +1395,9 @@ export async function createStudioSignals(env: Env, request: Request): Promise<R
       updates.push("finished_at = COALESCE(finished_at, ?)");
       values.push(now);
     }
-    values.push(runId);
-    await env.DB.prepare(`UPDATE studio_crawler_runs SET ${updates.join(", ")} WHERE id = ?`).bind(...values).run();
+    await env.DB.prepare(`UPDATE studio_crawler_runs SET ${updates.join(", ")} WHERE ${runFilters.join(" AND ")}`)
+      .bind(...values, ...runValues)
+      .run();
     return jsonResponse({
       success: true,
       count: signalIds.length,
@@ -1317,7 +1411,7 @@ export async function createStudioSignals(env: Env, request: Request): Promise<R
   }
 }
 
-export async function listStudioStrategistPosts(env: Env, url?: URL): Promise<Response> {
+export async function listStudioStrategistPosts(env: Env, url?: URL, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const filters: string[] = [];
     const values: unknown[] = [];
@@ -1325,6 +1419,7 @@ export async function listStudioStrategistPosts(env: Env, url?: URL): Promise<Re
     const campaignId = url?.searchParams.get("campaign_id");
     if (runId) filters.push("ssp.crawler_run_id = ?"), values.push(Number(runId));
     if (campaignId) filters.push("ssp.campaign_id = ?"), values.push(Number(campaignId));
+    await appendScopedFilter(env, "studio_strategist_posts", filters, values, userId, "ssp");
     const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
     const posts = await env.DB.prepare(
       `SELECT ssp.*, sa.name AS app_name, sc.name AS campaign_name, scr.status AS crawler_status
@@ -1343,13 +1438,16 @@ export async function listStudioStrategistPosts(env: Env, url?: URL): Promise<Re
   }
 }
 
-export async function createStudioStrategistPosts(env: Env, request: Request): Promise<Response> {
+export async function createStudioStrategistPosts(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const payload = await parseJson<StudioStrategistBulkPayload>(request);
     const runId = Number(payload.crawler_run_id);
     if (!Number.isFinite(runId) || runId <= 0) return errorResponse("Crawler run ID is required", 400);
-    const run = await env.DB.prepare("SELECT * FROM studio_crawler_runs WHERE id = ?")
-      .bind(runId)
+    const runFilters = ["id = ?"];
+    const runValues: unknown[] = [runId];
+    await appendScopedFilter(env, "studio_crawler_runs", runFilters, runValues, userId);
+    const run = await env.DB.prepare(`SELECT * FROM studio_crawler_runs WHERE ${runFilters.join(" AND ")}`)
+      .bind(...runValues)
       .first<Record<string, unknown>>();
     if (!run) return errorResponse("Crawler run not found", 404);
     const rawPosts = Array.isArray(payload.posts) ? payload.posts : [];
@@ -1376,8 +1474,12 @@ export async function createStudioStrategistPosts(env: Env, request: Request): P
       }
       posts.push(post);
     }
-    await env.DB.prepare("DELETE FROM studio_strategist_posts WHERE crawler_run_id = ?").bind(runId).run();
+    const deleteFilters = ["crawler_run_id = ?"];
+    const deleteValues: unknown[] = [runId];
+    await appendScopedFilter(env, "studio_strategist_posts", deleteFilters, deleteValues, userId);
+    await env.DB.prepare(`DELETE FROM studio_strategist_posts WHERE ${deleteFilters.join(" AND ")}`).bind(...deleteValues).run();
     const now = nowIso();
+    const scoped = await scopedInsertColumns(env, "studio_strategist_posts", userId);
     const createdIds: number[] = [];
     for (const post of posts) {
       const platform = normalizePlatform(post.platform);
@@ -1387,13 +1489,15 @@ export async function createStudioStrategistPosts(env: Env, request: Request): P
       const status: StudioPostStatus = mediaType === "none" || cleanText(post.media_url) ? "suggested" : "asset_needed";
       const result = await env.DB.prepare(
         `INSERT INTO studio_strategist_posts (
+          ${scoped.columns.length ? "user_id," : ""}
           crawler_run_id, campaign_id, app_id, platform, post_text, idea, rationale,
           target_url, target_external_id, target_author, target_text,
           media_type, media_url, status, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        VALUES (${scoped.columns.length ? "?," : ""}?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
         .bind(
+          ...scoped.values,
           runId,
           run.campaign_id ?? null,
           run.app_id,
@@ -1425,7 +1529,12 @@ export async function createStudioStrategistPosts(env: Env, request: Request): P
   }
 }
 
-export async function updateStudioStrategistPost(env: Env, postId: string, request: Request): Promise<Response> {
+export async function updateStudioStrategistPost(
+  env: Env,
+  postId: string,
+  request: Request,
+  userId = DEFAULT_USER_ID,
+): Promise<Response> {
   try {
     const id = Number(postId);
     if (!Number.isFinite(id)) return errorResponse("Invalid strategist post ID", 400);
@@ -1445,18 +1554,26 @@ export async function updateStudioStrategistPost(env: Env, postId: string, reque
     if (updates.length === 0) return errorResponse("No strategist post fields to update", 400);
     const now = nowIso();
     updates.push("updated_at = ?");
-    values.push(now, id);
-    await env.DB.prepare(`UPDATE studio_strategist_posts SET ${updates.join(", ")} WHERE id = ?`).bind(...values).run();
+    values.push(now);
+    const filters = ["id = ?"];
+    const filterValues: unknown[] = [id];
+    await appendScopedFilter(env, "studio_strategist_posts", filters, filterValues, userId);
+    await env.DB.prepare(`UPDATE studio_strategist_posts SET ${updates.join(", ")} WHERE ${filters.join(" AND ")}`)
+      .bind(...values, ...filterValues)
+      .run();
     return jsonResponse({ success: true, updated_at: now });
   } catch {
     return errorResponse("Failed to update Studio strategist post", 500);
   }
 }
 
-export async function regenerateStudioStrategistPost(env: Env, postId: string): Promise<Response> {
+export async function regenerateStudioStrategistPost(env: Env, postId: string, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const id = Number(postId);
     if (!Number.isFinite(id)) return errorResponse("Invalid strategist post ID", 400);
+    const filters = ["ssp.id = ?"];
+    const values: unknown[] = [id];
+    await appendScopedFilter(env, "studio_strategist_posts", filters, values, userId, "ssp");
     const post = await env.DB.prepare(
       `SELECT ssp.*, sa.name AS app_name, sa.description AS app_description, sa.ai_context AS app_ai_context,
               sc.name AS campaign_name, sc.instructions AS campaign_instructions,
@@ -1465,14 +1582,14 @@ export async function regenerateStudioStrategistPost(env: Env, postId: string): 
        JOIN studio_apps sa ON sa.id = ssp.app_id
        LEFT JOIN studio_campaigns sc ON sc.id = ssp.campaign_id
        LEFT JOIN studio_crawler_runs scr ON scr.id = ssp.crawler_run_id
-       WHERE ssp.id = ?`,
+       WHERE ${filters.join(" AND ")}`,
     )
-      .bind(id)
+      .bind(...values)
       .first<Record<string, unknown>>();
     if (!post) return errorResponse("Strategist post not found", 404);
     if (post.status === "posted") return errorResponse("Posted suggestions cannot be regenerated.", 400);
 
-    const settings = await readStudioAiSettings(env);
+    const settings = await readStudioAiSettings(env, userId);
     if (!settings.geminiApiKey) return errorResponse("No Gemini API key is configured", 500);
 
     const campaignType: StudioCampaignType = post.crawler_campaign_type === "reply" ? "reply" : "post";
@@ -1566,18 +1683,26 @@ export async function regenerateStudioStrategistPost(env: Env, postId: string): 
   }
 }
 
-export async function scheduleStudioStrategistPost(env: Env, postId: string, request: Request): Promise<Response> {
+export async function scheduleStudioStrategistPost(
+  env: Env,
+  postId: string,
+  request: Request,
+  userId = DEFAULT_USER_ID,
+): Promise<Response> {
   try {
     const id = Number(postId);
     if (!Number.isFinite(id)) return errorResponse("Invalid strategist post ID", 400);
     const payload = await parseJson<{ scheduled_at?: string | null; media_url?: string | null }>(request);
+    const postFilters = ["ssp.id = ?"];
+    const postValues: unknown[] = [id];
+    await appendScopedFilter(env, "studio_strategist_posts", postFilters, postValues, userId, "ssp");
     const post = await env.DB.prepare(
       `SELECT ssp.*, scr.account_refs, scr.campaign_type, scr.instructions AS crawler_instructions
        FROM studio_strategist_posts ssp
        JOIN studio_crawler_runs scr ON scr.id = ssp.crawler_run_id
-       WHERE ssp.id = ?`,
+       WHERE ${postFilters.join(" AND ")}`,
     )
-      .bind(id)
+      .bind(...postValues)
       .first<Record<string, unknown>>();
     if (!post) return errorResponse("Strategist post not found", 404);
     if (post.status === "scheduled") return errorResponse("Strategist post is already scheduled", 400);
@@ -1594,7 +1719,7 @@ export async function scheduleStudioStrategistPost(env: Env, postId: string, req
     if (campaignType === "reply" && !replyToId) {
       return errorResponse("Reply suggestions need a target post/comment ID before scheduling.", 400);
     }
-    const scheduledAt = payload.scheduled_at || await chooseAutoSchedule(env, accountId, platform, campaignType);
+    const scheduledAt = payload.scheduled_at || await chooseAutoSchedule(env, accountId, platform, campaignType, userId);
     const subreddit = platform === "reddit"
       ? extractSubreddit(`${post.crawler_instructions ?? ""}\n${post.idea ?? ""}\n${post.rationale ?? ""}\n${post.post_text ?? ""}`)
       : null;
@@ -1602,8 +1727,10 @@ export async function scheduleStudioStrategistPost(env: Env, postId: string, req
       return errorResponse("Reddit Studio posts need a subreddit in the campaign or crawler instructions, for example r/SaaS or subreddit: SaaS.", 400);
     }
     const capabilities = await getSocialPostSchemaCapabilities(env);
-    const columns = ["platform", "content", "image_url", "status", "scheduled_at", "created_by", "created_at", "updated_at"];
+    const scopedSocial = await scopedInsertColumns(env, "social_posts", userId);
+    const columns = [...scopedSocial.columns, "platform", "content", "image_url", "status", "scheduled_at", "created_by", "created_at", "updated_at"];
     const values: Array<string | number | null> = [
+      ...(scopedSocial.values as number[]),
       platform,
       cleanText(post.post_text),
       mediaUrl,
@@ -1638,6 +1765,7 @@ export async function scheduleStudioStrategistPost(env: Env, postId: string, req
     const socialPostId = socialResult.meta.last_row_id;
     let plannerItemId: number | null = null;
     const hasSocialPostLinks = await plannerHasSocialPostLinks(env);
+    const scopedPlanner = await scopedInsertColumns(env, "planner_items", userId);
     const plannerTitle = `${PLATFORM_LABELS[platform] ?? platform} ${campaignType}: ${cleanText(post.idea) || cleanText(post.post_text).slice(0, 72)}`;
     const plannerDescription = campaignType === "reply" && cleanText(post.target_url)
       ? `${cleanText(post.post_text)}\n\nTarget: ${cleanText(post.target_url)}`
@@ -1645,19 +1773,21 @@ export async function scheduleStudioStrategistPost(env: Env, postId: string, req
     const plannerResult = hasSocialPostLinks
       ? await env.DB.prepare(
         `INSERT INTO planner_items (
+          ${scopedPlanner.columns.length ? "user_id," : ""}
           title, description, item_type, platform, status, scheduled_for, social_post_id, account_id, instruction, created_by, created_at, updated_at
         )
-        VALUES (?, ?, 'post', ?, 'approved', ?, ?, ?, ?, 'studio', ?, ?)`,
+        VALUES (${scopedPlanner.columns.length ? "?," : ""}?, ?, 'post', ?, 'approved', ?, ?, ?, ?, 'studio', ?, ?)`,
       )
-        .bind(plannerTitle, plannerDescription, platform, scheduledAt, socialPostId, accountId, cleanText(post.rationale), now, now)
+        .bind(...scopedPlanner.values, plannerTitle, plannerDescription, platform, scheduledAt, socialPostId, accountId, cleanText(post.rationale), now, now)
         .run() as { meta: { last_row_id: number } }
       : await env.DB.prepare(
         `INSERT INTO planner_items (
+          ${scopedPlanner.columns.length ? "user_id," : ""}
           title, description, item_type, platform, status, scheduled_for, account_id, instruction, created_by, created_at, updated_at
         )
-        VALUES (?, ?, 'post', ?, 'approved', ?, ?, ?, 'studio', ?, ?)`,
+        VALUES (${scopedPlanner.columns.length ? "?," : ""}?, ?, 'post', ?, 'approved', ?, ?, ?, 'studio', ?, ?)`,
       )
-        .bind(plannerTitle, plannerDescription, platform, scheduledAt, accountId, cleanText(post.rationale), now, now)
+        .bind(...scopedPlanner.values, plannerTitle, plannerDescription, platform, scheduledAt, accountId, cleanText(post.rationale), now, now)
         .run() as { meta: { last_row_id: number } };
     plannerItemId = plannerResult.meta.last_row_id;
     await env.DB.prepare(
@@ -1672,6 +1802,7 @@ export async function scheduleStudioStrategistPost(env: Env, postId: string, req
       `"${cleanText(post.post_text)}" planned as "${PLATFORM_LABELS[platform] ?? platform}" ${campaignType} at ${scheduledAt}`,
       "studio_strategist_post",
       id,
+      userId,
     );
     return jsonResponse({
       success: true,
@@ -1685,17 +1816,116 @@ export async function scheduleStudioStrategistPost(env: Env, postId: string, req
   }
 }
 
-export async function listStudioNotifications(env: Env, url?: URL): Promise<Response> {
+export async function unpostStudioStrategistPost(
+  env: Env,
+  postId: string,
+  userId = DEFAULT_USER_ID,
+): Promise<Response> {
+  try {
+    const id = Number(postId);
+    if (!Number.isFinite(id)) return errorResponse("Invalid strategist post ID", 400);
+
+    const postFilters = ["id = ?"];
+    const postValues: unknown[] = [id];
+    await appendScopedFilter(env, "studio_strategist_posts", postFilters, postValues, userId);
+    const post = await env.DB.prepare(`SELECT * FROM studio_strategist_posts WHERE ${postFilters.join(" AND ")}`)
+      .bind(...postValues)
+      .first<Record<string, unknown>>();
+    if (!post) return errorResponse("Strategist post not found", 404);
+    if (post.status === "posted") return errorResponse("Already posted suggestions cannot be unposted from Studio.", 400);
+
+    const socialPostId = Number(post.social_post_id ?? 0) || null;
+    const plannerItemId = Number(post.planner_item_id ?? 0) || null;
+    const hasPlannerSocialPostLinks = socialPostId ? await plannerHasSocialPostLinks(env) : false;
+
+    if (socialPostId) {
+      const socialFilters = ["id = ?"];
+      const socialValues: unknown[] = [socialPostId];
+      await appendScopedFilter(env, "social_posts", socialFilters, socialValues, userId);
+      const socialPost = await env.DB.prepare(
+        `SELECT id, status, external_id FROM social_posts WHERE ${socialFilters.join(" AND ")}`,
+      )
+        .bind(...socialValues)
+        .first<Record<string, unknown>>();
+      if (socialPost?.status === "posted" || cleanText(socialPost?.external_id)) {
+        return errorResponse("This suggestion is already published and cannot be unposted from Studio.", 400);
+      }
+    }
+
+    if (plannerItemId) {
+      const plannerFilters = ["id = ?"];
+      const plannerValues: unknown[] = [plannerItemId];
+      await appendScopedFilter(env, "planner_items", plannerFilters, plannerValues, userId);
+      await env.DB.prepare(`DELETE FROM planner_items WHERE ${plannerFilters.join(" AND ")}`)
+        .bind(...plannerValues)
+        .run();
+    }
+
+    if (socialPostId && hasPlannerSocialPostLinks) {
+      const linkedPlannerFilters = ["social_post_id = ?"];
+      const linkedPlannerValues: unknown[] = [socialPostId];
+      await appendScopedFilter(env, "planner_items", linkedPlannerFilters, linkedPlannerValues, userId);
+      await env.DB.prepare(`DELETE FROM planner_items WHERE ${linkedPlannerFilters.join(" AND ")}`)
+        .bind(...linkedPlannerValues)
+        .run();
+    }
+
+    if (socialPostId) {
+      const socialFilters = ["id = ?"];
+      const socialValues: unknown[] = [socialPostId];
+      await appendScopedFilter(env, "social_posts", socialFilters, socialValues, userId);
+      await env.DB.prepare(`DELETE FROM social_posts WHERE ${socialFilters.join(" AND ")}`)
+        .bind(...socialValues)
+        .run();
+    }
+
+    const nextStatus: StudioPostStatus = (post.media_type === "photo" || post.media_type === "video") && !cleanText(post.media_url)
+      ? "asset_needed"
+      : "suggested";
+    const now = nowIso();
+    await env.DB.prepare(
+      `UPDATE studio_strategist_posts
+       SET status = ?, social_post_id = NULL, planner_item_id = NULL, scheduled_at = NULL, updated_at = ?
+       WHERE ${postFilters.join(" AND ")}`,
+    )
+      .bind(nextStatus, now, ...postValues)
+      .run();
+
+    await enqueueStudioNotification(
+      env,
+      `"${cleanText(post.post_text)}" returned to Studio suggestions.`,
+      "studio_strategist_post",
+      id,
+      userId,
+    );
+
+    return jsonResponse({
+      success: true,
+      strategist_post_id: id,
+      status: nextStatus,
+      deleted_social_post_id: socialPostId,
+      deleted_planner_item_id: plannerItemId,
+      updated_at: now,
+    });
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Failed to unpost Studio suggestion", 500);
+  }
+}
+
+export async function listStudioNotifications(env: Env, url?: URL, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const status = url?.searchParams.get("status") || "pending";
     const limit = Math.max(1, Math.min(Number(url?.searchParams.get("limit") || 20), 50));
+    const filters = ["status = ?"];
+    const values: unknown[] = [status];
+    await appendScopedFilter(env, "studio_notifications", filters, values, userId);
     const rows = await env.DB.prepare(
       `SELECT * FROM studio_notifications
-       WHERE status = ?
+       WHERE ${filters.join(" AND ")}
        ORDER BY created_at ASC
        LIMIT ?`,
     )
-      .bind(status, limit)
+      .bind(...values, limit)
       .all();
     return jsonResponse(rows.results ?? []);
   } catch {
@@ -1703,18 +1933,26 @@ export async function listStudioNotifications(env: Env, url?: URL): Promise<Resp
   }
 }
 
-export async function updateStudioNotification(env: Env, notificationId: string, request: Request): Promise<Response> {
+export async function updateStudioNotification(
+  env: Env,
+  notificationId: string,
+  request: Request,
+  userId = DEFAULT_USER_ID,
+): Promise<Response> {
   try {
     const id = Number(notificationId);
     if (!Number.isFinite(id)) return errorResponse("Invalid notification ID", 400);
     const payload = await parseJson<StudioNotificationPayload>(request);
     const now = nowIso();
+    const filters = ["id = ?"];
+    const values: unknown[] = [id];
+    await appendScopedFilter(env, "studio_notifications", filters, values, userId);
     await env.DB.prepare(
       `UPDATE studio_notifications
        SET status = ?, error_message = ?, sent_at = CASE WHEN ? = 'sent' THEN ? ELSE sent_at END, updated_at = ?
-       WHERE id = ?`,
+       WHERE ${filters.join(" AND ")}`,
     )
-      .bind(payload.status ?? "sent", cleanText(payload.error_message) || null, payload.status ?? "sent", now, now, id)
+      .bind(payload.status ?? "sent", cleanText(payload.error_message) || null, payload.status ?? "sent", now, now, ...values)
       .run();
     return jsonResponse({ success: true, updated_at: now });
   } catch {
@@ -1722,14 +1960,14 @@ export async function updateStudioNotification(env: Env, notificationId: string,
   }
 }
 
-export async function getStudioSummary(env: Env): Promise<Response> {
+export async function getStudioSummary(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
   const [accounts, apps, campaigns, crawlerRuns, signals, posts] = await Promise.all([
-    listStudioAccounts(env).then((response) => response.json()),
-    listStudioApps(env).then((response) => response.json()),
-    listStudioCampaigns(env).then((response) => response.json()),
-    listStudioCrawlerRuns(env).then((response) => response.json()),
-    listStudioSignals(env).then((response) => response.json()),
-    listStudioStrategistPosts(env).then((response) => response.json()),
+    listStudioAccounts(env, userId).then((response) => response.json()),
+    listStudioApps(env, userId).then((response) => response.json()),
+    listStudioCampaigns(env, userId).then((response) => response.json()),
+    listStudioCrawlerRuns(env, undefined, userId).then((response) => response.json()),
+    listStudioSignals(env, undefined, userId).then((response) => response.json()),
+    listStudioStrategistPosts(env, undefined, userId).then((response) => response.json()),
   ]);
   return jsonResponse({ accounts, apps, campaigns, crawler_runs: crawlerRuns, signals, strategist_posts: posts });
 }

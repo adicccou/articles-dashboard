@@ -1,8 +1,7 @@
 import { forwardRef, useEffect, useState } from "react";
-import type { SocialAccount, SocialPost, PlannerItem, ThreadsMedia } from "../lib/types";
+import type { SocialAccount, SocialPost, PlannerItem } from "../lib/types";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
-import { formatDisplayDateTime } from "../lib/datetime";
 import { SocialPublisherWorkspace, type SocialAgentToolbarHandle, type SocialWorkspaceFeedback } from "../components/SocialPublisherWorkspace";
 import { KnowledgeBaseEditor } from "../components/KnowledgeBaseEditor";
 
@@ -22,8 +21,6 @@ export const ThreadsAgentPage = forwardRef<SocialAgentToolbarHandle>(function Th
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [newPost, setNewPost] = useState("");
   const [adding, setAdding] = useState(false);
-  const [replyLookupResults, setReplyLookupResults] = useState<ThreadsMedia[]>([]);
-  const [replyLookupError, setReplyLookupError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<SocialWorkspaceFeedback | null>(null);
@@ -55,19 +52,6 @@ export const ThreadsAgentPage = forwardRef<SocialAgentToolbarHandle>(function Th
       setPlannerItems(asArray<PlannerItem>(plannerData));
       setAccounts(loadedAccounts);
       setError(null);
-      if (loadedAccounts.length > 0) {
-        try {
-          const repliesData = await api.listThreadsReplies();
-          setReplyLookupResults(repliesData.data ?? []);
-          setReplyLookupError(null);
-        } catch (replyErr) {
-          setReplyLookupResults([]);
-          setReplyLookupError(replyErr instanceof Error ? replyErr.message : "Failed to load Threads replies");
-        }
-      } else {
-        setReplyLookupResults([]);
-        setReplyLookupError(null);
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
     } finally {
@@ -97,24 +81,6 @@ export const ThreadsAgentPage = forwardRef<SocialAgentToolbarHandle>(function Th
       .map((post) => post.scheduled_at)
       .filter((value): value is string => Boolean(value)),
   ];
-  const replyCount = replyLookupResults.length;
-
-  function renderThreadsResult(item: ThreadsMedia) {
-    const displayName = item.username ? `@${item.username}` : "Threads post";
-    return (
-      <article className="social-thread-card" key={item.id}>
-        <div className="social-thread-card__header">
-          <strong>{displayName}</strong>
-          <span>{item.timestamp ? formatDisplayDateTime(item.timestamp) : item.media_type || "THREADS"}</span>
-        </div>
-        <p>{item.text || "No text returned for this media."}</p>
-        <div className="social-thread-card__meta">
-          <code>{item.id}</code>
-          {item.permalink ? <a href={item.permalink} target="_blank" rel="noreferrer">Open</a> : null}
-        </div>
-      </article>
-    );
-  }
 
   return (
     <>
@@ -136,21 +102,6 @@ export const ThreadsAgentPage = forwardRef<SocialAgentToolbarHandle>(function Th
         posts={posts}
         accounts={accounts}
         feedback={feedback}
-        replyCount={replyCount}
-        repliesContent={
-          <div className="threads-replies-tab stack">
-            <div className="threads-results-list">
-              <div className="panel__title-row">
-                <h3>Published / account replies</h3>
-              </div>
-              {replyLookupError ? <p className="error">{replyLookupError}</p> : null}
-              {replyLookupResults.map(renderThreadsResult)}
-              {!replyLookupError && replyLookupResults.length === 0 ? (
-                <p className="social-empty">No replies loaded yet.</p>
-              ) : null}
-            </div>
-          </div>
-        }
         newPost={newPost}
         adding={adding}
         error={error}
@@ -248,8 +199,8 @@ export const ThreadsAgentPage = forwardRef<SocialAgentToolbarHandle>(function Th
           {
             key: "redirect_uri",
             label: "Redirect URI",
-            placeholder: "https://dashboard.adilet-melisov.workers.dev/api/threads/auth/callback",
-            defaultValue: "https://dashboard.adilet-melisov.workers.dev/api/threads/auth/callback",
+            placeholder: "https://marketing-dashboard.adilet-melisov.workers.dev/api/threads/auth/callback",
+            defaultValue: "https://marketing-dashboard.adilet-melisov.workers.dev/api/threads/auth/callback",
           },
           {
             key: "scopes",

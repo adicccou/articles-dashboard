@@ -9,6 +9,7 @@ import { TradingHubPage } from "./TradingHubPage";
 import { PlannerPage } from "./PlannerPage";
 import { ViewErrorBoundary } from "../components/ViewErrorBoundary";
 import { StatisticsPage } from "./StatisticsPage";
+import { RepliesPage } from "./RepliesPage";
 import { formatDisplayDateTime } from "../lib/datetime";
 import "../styles/trading-page.css";
 
@@ -79,6 +80,10 @@ export function DashboardPage({
 
     if (view === "reddit") {
       return <SocialAgentsPage />;
+    }
+
+    if (view === "replies") {
+      return <RepliesPage />;
     }
 
     if (view === "studio") {

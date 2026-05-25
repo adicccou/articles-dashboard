@@ -1,4 +1,5 @@
 import { errorResponse, jsonResponse, parseJson } from "../lib/http";
+import { DEFAULT_USER_ID, ownerId, tableHasUserId } from "../lib/ownership";
 import type { Env } from "../lib/types";
 
 type StoredSettings = {
@@ -82,8 +83,20 @@ const DEFAULTS: StoredSettings = {
   threads_user_id: "",
 };
 
-async function readSettings(env: Env): Promise<StoredSettings> {
-  const rows = await env.DB.prepare("SELECT key, value, updated_at FROM app_settings").all<{
+async function readSettings(env: Env, userId = DEFAULT_USER_ID): Promise<StoredSettings> {
+  const hasUserId = await tableHasUserId(env, "app_settings");
+  const statement = env.DB.prepare(
+    hasUserId
+      ? "SELECT key, value, updated_at FROM app_settings WHERE user_id = ?"
+      : "SELECT key, value, updated_at FROM app_settings",
+  );
+  const rows = hasUserId
+    ? await statement.bind(ownerId(userId)).all<{
+      key: string;
+      value: string;
+      updated_at: string;
+    }>()
+    : await statement.all<{
     key: string;
     value: string;
     updated_at: string;
@@ -99,7 +112,24 @@ async function readSettings(env: Env): Promise<StoredSettings> {
   return merged;
 }
 
-async function upsertSetting(env: Env, key: keyof StoredSettings, value: string, updatedAt: string): Promise<void> {
+async function upsertSetting(
+  env: Env,
+  key: keyof StoredSettings,
+  value: string,
+  updatedAt: string,
+  userId = DEFAULT_USER_ID,
+): Promise<void> {
+  if (await tableHasUserId(env, "app_settings")) {
+    await env.DB.prepare(
+      `INSERT INTO app_settings (user_id, key, value, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    )
+      .bind(ownerId(userId), key, value, updatedAt)
+      .run();
+    return;
+  }
+
   await env.DB.prepare(
     `INSERT INTO app_settings (key, value, updated_at)
      VALUES (?, ?, ?)
@@ -594,9 +624,9 @@ async function getActiveStrategy(env: Env): Promise<ActiveStrategy | undefined> 
   }
 }
 
-export async function getAppSettings(env: Env): Promise<Response> {
+export async function getAppSettings(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
-    const settings = await readSettings(env);
+    const settings = await readSettings(env, userId);
     return jsonResponse(publicSettings(settings));
   } catch {
     return errorResponse("Failed to load app settings", 500);
@@ -613,10 +643,16 @@ export async function getInternalAgentSettings(env: Env): Promise<Response> {
   }
 }
 
-export async function updateAppSettings(env: Env, request: Request, dashboardOrigin?: string): Promise<Response> {
+export async function updateAppSettings(
+  env: Env,
+  request: Request,
+  dashboardOrigin?: string,
+  userId = DEFAULT_USER_ID,
+): Promise<Response> {
   try {
+    const settingUserId = ownerId(userId);
     const payload = await parseJson<SettingsPayload>(request);
-    const current = await readSettings(env);
+    const current = await readSettings(env, settingUserId);
     const savedActiveStrategy = await getActiveStrategy(env);
     const normalizedPayload = Object.fromEntries(
       Object.entries(payload).filter(([, value]) => value !== undefined && value !== null),
@@ -626,39 +662,41 @@ export async function updateAppSettings(env: Env, request: Request, dashboardOri
       ...(normalizedPayload as Partial<StoredSettings>),
     };
     const updatedAt = new Date().toISOString();
+    const saveSetting = (key: keyof StoredSettings, value: string) =>
+      upsertSetting(env, key, value, updatedAt, settingUserId);
 
-    await upsertSetting(env, "gemini_api_key", next.gemini_api_key, updatedAt);
-    await upsertSetting(env, "gemini_flash_model", next.gemini_flash_model, updatedAt);
-    await upsertSetting(env, "gemini_pro_model", next.gemini_pro_model, updatedAt);
-    await upsertSetting(env, "global_ai_rules", next.global_ai_rules, updatedAt);
-    await upsertSetting(env, "social_agent_rules", next.social_agent_rules, updatedAt);
-    await upsertSetting(env, "workspace_timezone", next.workspace_timezone, updatedAt);
-    await upsertSetting(env, "trading_agent_url", next.trading_agent_url, updatedAt);
-    await upsertSetting(env, "trading_agent_token", next.trading_agent_token, updatedAt);
-    await upsertSetting(env, "ctrader_client_id", next.ctrader_client_id, updatedAt);
-    await upsertSetting(env, "ctrader_client_secret", next.ctrader_client_secret, updatedAt);
-    await upsertSetting(env, "ctrader_access_token", next.ctrader_access_token, updatedAt);
-    await upsertSetting(env, "ctrader_demo_account_id", next.ctrader_demo_account_id, updatedAt);
-    await upsertSetting(env, "ctrader_live_account_id", next.ctrader_live_account_id, updatedAt);
-    await upsertSetting(env, "custom_lean_active", next.custom_lean_active, updatedAt);
-    await upsertSetting(env, "custom_lean_risk_usd_min", next.custom_lean_risk_usd_min, updatedAt);
-    await upsertSetting(env, "custom_lean_risk_usd_max", next.custom_lean_risk_usd_max, updatedAt);
-    await upsertSetting(env, "custom_lean_worker_risk_overrides", next.custom_lean_worker_risk_overrides, updatedAt);
-    await upsertSetting(env, "custom_lean_max_open_trades_per_worker", next.custom_lean_max_open_trades_per_worker, updatedAt);
-    await upsertSetting(env, "custom_lean_execution_mode", next.custom_lean_execution_mode, updatedAt);
-    await upsertSetting(env, "ml_trading_active", next.ml_trading_active, updatedAt);
-    await upsertSetting(env, "ml_trading_risk_usd_min", next.ml_trading_risk_usd_min, updatedAt);
-    await upsertSetting(env, "ml_trading_risk_usd_max", next.ml_trading_risk_usd_max, updatedAt);
-    await upsertSetting(env, "ml_trading_asset_risk_overrides", next.ml_trading_asset_risk_overrides, updatedAt);
-    await upsertSetting(env, "ml_trading_enabled_assets", next.ml_trading_enabled_assets, updatedAt);
+    await saveSetting("gemini_api_key", next.gemini_api_key);
+    await saveSetting("gemini_flash_model", next.gemini_flash_model);
+    await saveSetting("gemini_pro_model", next.gemini_pro_model);
+    await saveSetting("global_ai_rules", next.global_ai_rules);
+    await saveSetting("social_agent_rules", next.social_agent_rules);
+    await saveSetting("workspace_timezone", next.workspace_timezone);
+    await saveSetting("trading_agent_url", next.trading_agent_url);
+    await saveSetting("trading_agent_token", next.trading_agent_token);
+    await saveSetting("ctrader_client_id", next.ctrader_client_id);
+    await saveSetting("ctrader_client_secret", next.ctrader_client_secret);
+    await saveSetting("ctrader_access_token", next.ctrader_access_token);
+    await saveSetting("ctrader_demo_account_id", next.ctrader_demo_account_id);
+    await saveSetting("ctrader_live_account_id", next.ctrader_live_account_id);
+    await saveSetting("custom_lean_active", next.custom_lean_active);
+    await saveSetting("custom_lean_risk_usd_min", next.custom_lean_risk_usd_min);
+    await saveSetting("custom_lean_risk_usd_max", next.custom_lean_risk_usd_max);
+    await saveSetting("custom_lean_worker_risk_overrides", next.custom_lean_worker_risk_overrides);
+    await saveSetting("custom_lean_max_open_trades_per_worker", next.custom_lean_max_open_trades_per_worker);
+    await saveSetting("custom_lean_execution_mode", next.custom_lean_execution_mode);
+    await saveSetting("ml_trading_active", next.ml_trading_active);
+    await saveSetting("ml_trading_risk_usd_min", next.ml_trading_risk_usd_min);
+    await saveSetting("ml_trading_risk_usd_max", next.ml_trading_risk_usd_max);
+    await saveSetting("ml_trading_asset_risk_overrides", next.ml_trading_asset_risk_overrides);
+    await saveSetting("ml_trading_enabled_assets", next.ml_trading_enabled_assets);
     next.ctrader_account_id = resolveCtraderAccountId(next, normalizeExecutionMode(next.custom_lean_execution_mode));
-    await upsertSetting(env, "ctrader_account_id", next.ctrader_account_id, updatedAt);
-    await upsertSetting(env, "twitter_api_key", next.twitter_api_key, updatedAt);
-    await upsertSetting(env, "twitter_api_secret", next.twitter_api_secret, updatedAt);
-    await upsertSetting(env, "twitter_access_token", next.twitter_access_token, updatedAt);
-    await upsertSetting(env, "twitter_access_secret", next.twitter_access_secret, updatedAt);
-    await upsertSetting(env, "threads_access_token", next.threads_access_token, updatedAt);
-    await upsertSetting(env, "threads_user_id", next.threads_user_id, updatedAt);
+    await saveSetting("ctrader_account_id", next.ctrader_account_id);
+    await saveSetting("twitter_api_key", next.twitter_api_key);
+    await saveSetting("twitter_api_secret", next.twitter_api_secret);
+    await saveSetting("twitter_access_token", next.twitter_access_token);
+    await saveSetting("twitter_access_secret", next.twitter_access_secret);
+    await saveSetting("threads_access_token", next.threads_access_token);
+    await saveSetting("threads_user_id", next.threads_user_id);
 
     let syncResult: { ok: boolean; message: string } | null = null;
     if (
@@ -808,18 +846,18 @@ function cleanMlTradingSettingsPayload(payload: Record<string, unknown>, current
   };
 }
 
-export async function getCustomLeanSettings(env: Env): Promise<Response> {
+export async function getCustomLeanSettings(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
-    const settings = await readSettings(env);
+    const settings = await readSettings(env, userId);
     return jsonResponse(publicCustomLeanSettings(settings));
   } catch {
     return errorResponse("Failed to load Nautilus settings", 500);
   }
 }
 
-export async function getMlTradingSettings(env: Env): Promise<Response> {
+export async function getMlTradingSettings(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
-    const settings = await readSettings(env);
+    const settings = await readSettings(env, userId);
     return jsonResponse(publicMlTradingSettings(settings));
   } catch {
     return errorResponse("Failed to load ML Trading settings", 500);
@@ -830,24 +868,28 @@ export async function updateCustomLeanSettings(
   env: Env,
   request: Request,
   dashboardOrigin?: string,
+  userId = DEFAULT_USER_ID,
 ): Promise<Response> {
   try {
+    const settingUserId = ownerId(userId);
     const payload = await parseJson<Record<string, unknown>>(request);
-    const current = await readSettings(env);
+    const current = await readSettings(env, settingUserId);
     const next = cleanCustomLeanSettingsPayload(payload, current);
     const activeStrategy = await getActiveStrategy(env);
     const updatedAt = new Date().toISOString();
+    const saveSetting = (key: keyof StoredSettings, value: string) =>
+      upsertSetting(env, key, value, updatedAt, settingUserId);
 
-    await upsertSetting(env, "custom_lean_active", next.custom_lean_active, updatedAt);
-    await upsertSetting(env, "custom_lean_risk_usd_min", next.custom_lean_risk_usd_min, updatedAt);
-    await upsertSetting(env, "custom_lean_risk_usd_max", next.custom_lean_risk_usd_max, updatedAt);
-    await upsertSetting(env, "custom_lean_worker_risk_overrides", next.custom_lean_worker_risk_overrides, updatedAt);
-    await upsertSetting(env, "custom_lean_worker_confidence_overrides", next.custom_lean_worker_confidence_overrides, updatedAt);
-    await upsertSetting(env, "custom_lean_max_open_trades_per_worker", next.custom_lean_max_open_trades_per_worker, updatedAt);
-    await upsertSetting(env, "custom_lean_execution_mode", next.custom_lean_execution_mode, updatedAt);
-    await upsertSetting(env, "custom_lean_disabled_worker_ids", next.custom_lean_disabled_worker_ids, updatedAt);
-    await upsertSetting(env, "custom_lean_deleted_worker_ids", next.custom_lean_deleted_worker_ids, updatedAt);
-    await upsertSetting(env, "ctrader_account_id", next.ctrader_account_id, updatedAt);
+    await saveSetting("custom_lean_active", next.custom_lean_active);
+    await saveSetting("custom_lean_risk_usd_min", next.custom_lean_risk_usd_min);
+    await saveSetting("custom_lean_risk_usd_max", next.custom_lean_risk_usd_max);
+    await saveSetting("custom_lean_worker_risk_overrides", next.custom_lean_worker_risk_overrides);
+    await saveSetting("custom_lean_worker_confidence_overrides", next.custom_lean_worker_confidence_overrides);
+    await saveSetting("custom_lean_max_open_trades_per_worker", next.custom_lean_max_open_trades_per_worker);
+    await saveSetting("custom_lean_execution_mode", next.custom_lean_execution_mode);
+    await saveSetting("custom_lean_disabled_worker_ids", next.custom_lean_disabled_worker_ids);
+    await saveSetting("custom_lean_deleted_worker_ids", next.custom_lean_deleted_worker_ids);
+    await saveSetting("ctrader_account_id", next.ctrader_account_id);
 
     let syncResult: { ok: boolean; message: string } | null = null;
     try {
@@ -872,20 +914,24 @@ export async function updateMlTradingSettings(
   env: Env,
   request: Request,
   dashboardOrigin?: string,
+  userId = DEFAULT_USER_ID,
 ): Promise<Response> {
   try {
+    const settingUserId = ownerId(userId);
     const payload = await parseJson<Record<string, unknown>>(request);
-    const current = await readSettings(env);
+    const current = await readSettings(env, settingUserId);
     const next = cleanMlTradingSettingsPayload(payload, current);
     const activeStrategy = await getActiveStrategy(env);
     const updatedAt = new Date().toISOString();
+    const saveSetting = (key: keyof StoredSettings, value: string) =>
+      upsertSetting(env, key, value, updatedAt, settingUserId);
 
-    await upsertSetting(env, "ml_trading_active", next.ml_trading_active, updatedAt);
-    await upsertSetting(env, "ml_trading_risk_usd_min", next.ml_trading_risk_usd_min, updatedAt);
-    await upsertSetting(env, "ml_trading_risk_usd_max", next.ml_trading_risk_usd_max, updatedAt);
-    await upsertSetting(env, "ml_trading_asset_risk_overrides", next.ml_trading_asset_risk_overrides, updatedAt);
-    await upsertSetting(env, "ml_trading_asset_confidence_overrides", next.ml_trading_asset_confidence_overrides, updatedAt);
-    await upsertSetting(env, "ml_trading_enabled_assets", next.ml_trading_enabled_assets, updatedAt);
+    await saveSetting("ml_trading_active", next.ml_trading_active);
+    await saveSetting("ml_trading_risk_usd_min", next.ml_trading_risk_usd_min);
+    await saveSetting("ml_trading_risk_usd_max", next.ml_trading_risk_usd_max);
+    await saveSetting("ml_trading_asset_risk_overrides", next.ml_trading_asset_risk_overrides);
+    await saveSetting("ml_trading_asset_confidence_overrides", next.ml_trading_asset_confidence_overrides);
+    await saveSetting("ml_trading_enabled_assets", next.ml_trading_enabled_assets);
 
     let syncResult: { ok: boolean; message: string } | null = null;
     try {
@@ -906,9 +952,13 @@ export async function updateMlTradingSettings(
   }
 }
 
-export async function syncAgentFromSettings(env: Env, dashboardOrigin?: string): Promise<Response> {
+export async function syncAgentFromSettings(
+  env: Env,
+  dashboardOrigin?: string,
+  userId = DEFAULT_USER_ID,
+): Promise<Response> {
   try {
-    const settings = await readSettings(env);
+    const settings = await readSettings(env, userId);
     const activeStrategy = await getActiveStrategy(env);
     const result = await syncTradingAgent(settings, activeStrategy, dashboardOrigin);
     return jsonResponse(result);
@@ -1021,8 +1071,8 @@ async function fetchTradingAgentJson(
   return payload;
 }
 
-export async function getLeanStatus(env: Env): Promise<Response> {
-  const settings = await readSettings(env);
+export async function getLeanStatus(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
+  const settings = await readSettings(env, userId);
   if (!settings.trading_agent_url || !settings.trading_agent_token) {
     return jsonResponse({ connected: false, error: "Trading agent not configured" });
   }
@@ -1047,8 +1097,8 @@ export async function getLeanStatus(env: Env): Promise<Response> {
   }
 }
 
-export async function getLearningReport(env: Env): Promise<Response> {
-  const settings = await readSettings(env);
+export async function getLearningReport(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
+  const settings = await readSettings(env, userId);
   if (!settings.trading_agent_url || !settings.trading_agent_token) {
     return jsonResponse({ connected: false, error: "Trading agent not configured" });
   }
@@ -1073,8 +1123,8 @@ export async function getLearningReport(env: Env): Promise<Response> {
   }
 }
 
-export async function getCustomLeanWorkers(env: Env): Promise<Response> {
-  const settings = await readSettings(env);
+export async function getCustomLeanWorkers(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
+  const settings = await readSettings(env, userId);
   try {
     const data = await fetchTradingAgentJson(settings, "/nautilus/workers");
     const assets = Array.isArray(data)
@@ -1177,8 +1227,8 @@ export async function getCustomLeanWorkers(env: Env): Promise<Response> {
   }
 }
 
-export async function getCustomLeanDiagnostics(env: Env): Promise<Response> {
-  const settings = await readSettings(env);
+export async function getCustomLeanDiagnostics(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
+  const settings = await readSettings(env, userId);
   try {
     const data = await fetchTradingAgentJson(settings, "/nautilus/diagnostics");
     return jsonResponse(data);
@@ -1187,8 +1237,8 @@ export async function getCustomLeanDiagnostics(env: Env): Promise<Response> {
   }
 }
 
-export async function getMlTradingAssets(env: Env): Promise<Response> {
-  const settings = await readSettings(env);
+export async function getMlTradingAssets(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
+  const settings = await readSettings(env, userId);
   try {
     const data = await fetchTradingAgentJson(settings, "/ml-trading/assets");
     const assets = Array.isArray(data)
@@ -1273,8 +1323,8 @@ export async function getMlTradingAssets(env: Env): Promise<Response> {
   }
 }
 
-export async function getMlTradingDiagnostics(env: Env): Promise<Response> {
-  const settings = await readSettings(env);
+export async function getMlTradingDiagnostics(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
+  const settings = await readSettings(env, userId);
   try {
     const data = await fetchTradingAgentJson(settings, "/ml-trading/diagnostics");
     return jsonResponse(data);

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
-import { formatDisplayDateTime } from "../lib/datetime";
 import type { StudioAccount, StudioStrategistPost, StudioSummary } from "../lib/types";
 import "../styles/statistics-page.css";
 
@@ -28,11 +27,6 @@ function platformLabel(platform: StudioAccount["platform"]) {
   if (platform === "twitter") return "Twitter/X";
   if (platform === "threads") return "Threads";
   return "Reddit";
-}
-
-function postStatusLabel(status: StudioStrategistPost["status"]) {
-  if (status === "asset_needed") return "Asset needed";
-  return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
 function recentSort<T extends { scheduled_at?: string | null; created_at: string }>(items: T[]) {
@@ -263,46 +257,6 @@ export function StatisticsPage() {
                   )}
                 </section>
               </div>
-
-              <section className="stats-posts-section">
-                <div className="panel__title-row">
-                  <div>
-                    <h3>Posts</h3>
-                    <p className="muted">Recent strategist output for {selectedApp.name}.</p>
-                  </div>
-                  <span className="stats-count-pill">{appPosts.length}</span>
-                </div>
-
-                {appPosts.length === 0 ? (
-                  <p className="stats-empty">No posts yet for this app.</p>
-                ) : (
-                  <div className="stats-post-list">
-                    <div className="stats-post-list__row stats-post-list__row--header">
-                      <span>Post</span>
-                      <span>Platform</span>
-                      <span>Status</span>
-                      <span>Campaign</span>
-                      <span>Scheduled</span>
-                    </div>
-                    {appPosts.slice(0, 12).map((post) => (
-                      <div className="stats-post-list__row" key={post.id}>
-                        <span>
-                          <strong>{post.post_text}</strong>
-                          {post.target_text ? <small>{post.target_text}</small> : null}
-                        </span>
-                        <span>{platformLabel(post.platform)}</span>
-                        <span>
-                          <span className={`stats-post-status stats-post-status--${post.status}`}>
-                            {postStatusLabel(post.status)}
-                          </span>
-                        </span>
-                        <span>{post.campaign_name || "Manual"}</span>
-                        <span>{post.scheduled_at ? formatDisplayDateTime(post.scheduled_at) : "Not scheduled"}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
             </>
           ) : null}
         </>

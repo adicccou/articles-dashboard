@@ -1,6 +1,20 @@
+export type DashboardUser = {
+  id: number;
+  username: string;
+  display_name: string;
+  email: string | null;
+  avatar_url: string | null;
+  role: "owner" | "admin" | "member";
+  status: "active" | "inactive";
+  timezone: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type AuthState = {
   authenticated: boolean;
   username?: string;
+  user?: DashboardUser;
 };
 
 export type Site = {
@@ -509,71 +523,6 @@ export type MlTradingSettings = {
   } | null;
 };
 
-export type AssistantMessage = {
-  role: "user" | "assistant";
-  content: string;
-};
-
-export type AssistantContext = {
-  overview: {
-    total_sites: number;
-    total_articles: number;
-    draft_articles: number;
-    published_articles: number;
-    reddit_campaigns: number;
-    active_reddit_campaigns: number;
-    trading_strategies: number;
-    active_trading_strategies: number;
-    total_closed_trades: number;
-    total_open_trades: number;
-  };
-  recent_articles: Array<{
-    title: string;
-    status: string;
-    updated_at: string;
-  }>;
-  reddit_campaigns: Array<{
-    name: string;
-    subreddit: string;
-    status: string;
-    approval_method: string;
-  }>;
-  trading_strategies: Array<{
-    name: string;
-    assets: string[];
-    strategy_type: string;
-    status: string;
-    total_trades: number;
-    win_rate: number;
-    total_pips: number;
-  }>;
-  planner_items: Array<{
-    id: number;
-    title: string;
-    platform: string;
-    status: string;
-    scheduled_for: string | null;
-  }>;
-  trading_notes: Array<{
-    id: number;
-    title: string;
-    note_type: string;
-    strategy_name: string | null;
-    created_at: string;
-  }>;
-};
-
-export type AssistantChatResponse = {
-  message: string;
-  context: AssistantContext;
-  action_results?: Array<{
-    type: string;
-    count?: number;
-    ids?: number[];
-    message: string;
-  }>;
-};
-
 export type AppSettings = {
   ai_api_connected: boolean;
   gemini_api_connected?: boolean;
@@ -686,6 +635,7 @@ export type TradingNote = {
 export type PlannerItemInput = {
   title: string;
   description?: string | null;
+  image_url?: string | null;
   item_type?: "post" | "campaign";
   platform: string;
   status?: "planned" | "drafting" | "approved" | "published" | "archived";
@@ -739,6 +689,30 @@ export type SocialPost = {
   created_by: string;
   created_at: string;
   updated_at: string;
+};
+
+export type SocialComment = {
+  platform: "twitter" | "threads" | "reddit";
+  post_id: number | null;
+  post_external_id: string | null;
+  post_preview?: string | null;
+  post_title?: string | null;
+  subreddit?: string | null;
+  commenter_username: string | null;
+  commenter_name: string | null;
+  text: string;
+  commented_at: string | null;
+  external_id: string | null;
+  permalink: string | null;
+  reply_status?: "new" | "replied";
+  owner_reply_text?: string | null;
+  owner_replied_at?: string | null;
+  owner_reply_external_id?: string | null;
+  owner_reply_permalink?: string | null;
+};
+
+export type SocialReplySuggestion = {
+  reply_text: string;
 };
 
 export type StudioAccount = {

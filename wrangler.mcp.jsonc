@@ -13,6 +13,6 @@
     }
   ],
   "vars": {
-    "DASHBOARD_API_URL": "https://dashboard.adilet-melisov.workers.dev"
+    "DASHBOARD_API_URL": "https://marketing-dashboard.adilet-melisov.workers.dev"
   }
 }

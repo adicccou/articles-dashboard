@@ -1,5 +1,6 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
+import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns } from "../lib/ownership";
 
 interface OAuthState {
   accountName: string;
@@ -12,6 +13,7 @@ const REDDIT_TOKEN_URL = "https://www.reddit.com/api/v1/access_token";
 export async function handleAuthorizeRequest(
   env: Env,
   request: Request,
+  userId = DEFAULT_USER_ID,
 ): Promise<Response> {
   try {
     const payload = await parseJson<{ account_name: string }>(request);
@@ -52,7 +54,7 @@ export async function handleAuthorizeRequest(
       { auth_url: authUrl },
       {
         headers: {
-          "Set-Cookie": `reddit_oauth_state=${state}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`,
+          "Set-Cookie": `reddit_oauth_state=${state}.${ownerId(userId)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`,
         },
       },
     );
@@ -88,7 +90,8 @@ export async function handleOAuthCallback(
     // Verify state from cookie
     const cookies = request.headers.get("cookie") || "";
     const stateMatch = cookies.match(/reddit_oauth_state=([^;]+)/);
-    const cookieState = stateMatch ? stateMatch[1] : null;
+    const [cookieState, ownerValue] = stateMatch ? stateMatch[1].split(".") : [null, null];
+    const owner = ownerId(ownerValue ? Number(ownerValue) : DEFAULT_USER_ID);
 
     if (cookieState !== state) {
       return new Response("<html><body><h1>Invalid State Parameter</h1></body></html>", {
@@ -160,11 +163,13 @@ export async function handleOAuthCallback(
     const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000).toISOString();
     const now = new Date().toISOString();
 
+    const scoped = await scopedInsertColumns(env, "reddit_accounts", owner);
     const result = await env.DB.prepare(
-      `INSERT INTO reddit_accounts (name, access_token, refresh_token, token_expires_at, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'active', ?, ?)`,
+      `INSERT INTO reddit_accounts (${[...scoped.columns, "name", "access_token", "refresh_token", "token_expires_at", "status", "created_at", "updated_at"].join(", ")})
+       VALUES (${[...scoped.columns.map(() => "?"), "?", "?", "?", "?", "'active'", "?", "?"].join(", ")})`,
     )
       .bind(
+        ...scoped.values,
         redditUsername,
         tokenData.access_token,
         tokenData.refresh_token || "",
@@ -211,11 +216,14 @@ export async function handleOAuthCallback(
   }
 }
 
-export async function listRedditAccounts(env: Env): Promise<Response> {
+export async function listRedditAccounts(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
+    const filters: string[] = [];
+    const values: unknown[] = [];
+    await appendScopedFilter(env, "reddit_accounts", filters, values, userId);
     const accounts = await env.DB.prepare(
-      "SELECT id, name, status, created_at, updated_at FROM reddit_accounts ORDER BY created_at DESC",
-    ).all();
+      `SELECT id, name, status, created_at, updated_at FROM reddit_accounts ${filters.length ? `WHERE ${filters.join(" AND ")}` : ""} ORDER BY created_at DESC`,
+    ).bind(...values).all();
 
     return jsonResponse(accounts.results || []);
   } catch (error) {
@@ -227,6 +235,7 @@ export async function updateRedditAccount(
   env: Env,
   accountId: string,
   request: Request,
+  userId = DEFAULT_USER_ID,
 ): Promise<Response> {
   try {
     const id = Number(accountId);
@@ -234,8 +243,11 @@ export async function updateRedditAccount(
       return errorResponse("Invalid account ID", 400);
     }
 
-    const existing = await env.DB.prepare("SELECT id FROM reddit_accounts WHERE id = ?")
-      .bind(id)
+    const filters = ["id = ?"];
+    const filterValues: unknown[] = [id];
+    await appendScopedFilter(env, "reddit_accounts", filters, filterValues, userId);
+    const existing = await env.DB.prepare(`SELECT id FROM reddit_accounts WHERE ${filters.join(" AND ")}`)
+      .bind(...filterValues)
       .first<{ id: number }>();
     if (!existing) return errorResponse("Reddit account not found", 404);
 
@@ -263,9 +275,9 @@ export async function updateRedditAccount(
 
     const now = new Date().toISOString();
     updates.push("updated_at = ?");
-    values.push(now, id);
-    await env.DB.prepare(`UPDATE reddit_accounts SET ${updates.join(", ")} WHERE id = ?`)
-      .bind(...values)
+    values.push(now);
+    await env.DB.prepare(`UPDATE reddit_accounts SET ${updates.join(", ")} WHERE ${filters.join(" AND ")}`)
+      .bind(...values, ...filterValues)
       .run();
 
     return jsonResponse({ success: true, updated_at: now });
@@ -277,6 +289,7 @@ export async function updateRedditAccount(
 export async function deleteRedditAccount(
   env: Env,
   accountId: string,
+  userId = DEFAULT_USER_ID,
 ): Promise<Response> {
   try {
     const id = Number(accountId);
@@ -284,7 +297,10 @@ export async function deleteRedditAccount(
       return errorResponse("Invalid account ID", 400);
     }
 
-    await env.DB.prepare("DELETE FROM reddit_accounts WHERE id = ?").bind(id).run();
+    const filters = ["id = ?"];
+    const values: unknown[] = [id];
+    await appendScopedFilter(env, "reddit_accounts", filters, values, userId);
+    await env.DB.prepare(`DELETE FROM reddit_accounts WHERE ${filters.join(" AND ")}`).bind(...values).run();
 
     return jsonResponse({ success: true });
   } catch (error) {

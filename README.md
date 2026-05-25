@@ -1,6 +1,9 @@
-# Article Dashboard
+# Blogposter Dashboards
 
-Standalone multi-site editorial dashboard built with React, Vite, Cloudflare Workers, D1, and R2.
+React, Vite, Cloudflare Workers, D1, and R2 dashboard workspace split into two deployable projects:
+
+- `marketing-dashboard`: articles, replies, Studio, planner, statistics, and social configuration.
+- `trading-dashboard`: trading workers, ML trading, runtime diagnostics, trading settings, and agent sync.
 
 ## MVP included
 
@@ -14,19 +17,27 @@ Standalone multi-site editorial dashboard built with React, Vite, Cloudflare Wor
 - Image upload to R2
 - Public article API by site
 
-## Project structure
+## Local projects
 
-```text
-src/
-  app/
-  components/
-  lib/
-  pages/
-  styles/
-worker/
-  lib/
-migrations/
+Both projects share the same codebase and D1/R2 bindings, but they are pinned by build mode and Worker config so the UI and API surface cannot flip between dashboards by query string.
+
+```bash
+npm run dev:marketing  # http://localhost:5190
+npm run dev:trading    # http://localhost:5191
+
+npm run build:marketing
+npm run build:trading
+
+npm run deploy:marketing
+npm run deploy:trading
 ```
+
+Project configs:
+
+- `wrangler.marketing.jsonc` deploys `marketing-dashboard`
+- `wrangler.trading.jsonc` deploys `trading-dashboard`
+- `.env.marketing` pins the frontend to marketing
+- `.env.trading` pins the frontend to trading
 
 ## Local setup
 
@@ -43,7 +54,7 @@ wrangler d1 create article_dashboard
 wrangler r2 bucket create article-dashboard-media
 ```
 
-3. Update [wrangler.jsonc](/Users/adi/Documents/Blogposter/article-dashboard/wrangler.jsonc) with the returned D1 database ID and bucket name if you change it.
+3. Update the Wrangler config for the project you are deploying if you change the D1 database ID or bucket name.
 
 4. Set secrets:
 
@@ -69,7 +80,8 @@ npm run db:migrate:local
 6. Start development:
 
 ```bash
-npm run dev
+npm run dev:marketing
+npm run dev:trading
 ```
 
 ## Public API
