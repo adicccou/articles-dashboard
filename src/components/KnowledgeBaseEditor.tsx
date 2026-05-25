@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { PencilSquareIcon } from "@heroicons/react/24/solid";
 import type { KnowledgeBase, KnowledgeBaseVersion } from "../lib/types";
 import { api } from "../lib/api";
 import { formatDisplayDateTime } from "../lib/datetime";
@@ -96,8 +97,8 @@ export function KnowledgeBaseEditor({ type, entityId, onSaved }: KnowledgeBaseEd
           <div className="kb-editor__header">
             <h3>{kb?.title || "Knowledge Base"}</h3>
             <div className="kb-editor__actions">
-              <button onClick={handleEdit} className="btn btn-primary">
-                Edit
+              <button onClick={handleEdit} className="btn btn-primary dashboard-icon-button" aria-label="Edit knowledge base" title="Edit">
+                <PencilSquareIcon aria-hidden="true" />
               </button>
             </div>
           </div>

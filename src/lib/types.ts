@@ -148,6 +148,10 @@ export type RedditAccount = {
   id: number;
   name: string;
   status: "active" | "inactive";
+  connection_mode?: "official_api" | "playwright";
+  playwright_login?: string;
+  playwright_profile_key?: string;
+  playwright_ready?: boolean | number;
   created_at: string;
   updated_at: string;
 };
@@ -678,7 +682,11 @@ export type SocialAccount = {
   platform: "twitter" | "threads" | "reddit";
   username: string;
   status: "active" | "inactive";
+  connection_mode?: "official_api" | "playwright";
   credentials_ready?: boolean | number;
+  playwright_login?: string;
+  playwright_profile_key?: string;
+  playwright_ready?: boolean | number;
   created_at: string;
   updated_at: string;
 };

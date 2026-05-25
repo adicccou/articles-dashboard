@@ -3,7 +3,7 @@ import { errorResponse, jsonResponse, parseJson } from "../lib/http";
 import { callAiText } from "../lib/ai";
 import { getSocialPostSchemaCapabilities } from "./twitter";
 import { plannerHasSocialPostLinks } from "./planner";
-import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
+import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, scopedInsertColumnsFromRecord, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
 
 type StudioStatus = "active" | "inactive" | "archived";
 type StudioCampaignType = "post" | "reply";
@@ -624,7 +624,7 @@ async function replaceSignalsForRun(
   signals: StudioSignalPayload[],
   now: string,
   replaceExisting = true,
-  userId = DEFAULT_USER_ID,
+  userId: number | null = DEFAULT_USER_ID,
 ): Promise<number[]> {
   const runId = Number(run.id);
   const campaignId = run.campaign_id ?? null;
@@ -637,7 +637,9 @@ async function replaceSignalsForRun(
     await appendScopedFilter(env, "studio_signals", deleteFilters, deleteValues, userId);
     await env.DB.prepare(`DELETE FROM studio_signals WHERE ${deleteFilters.join(" AND ")}`).bind(...deleteValues).run();
   }
-  const scoped = await scopedInsertColumns(env, "studio_signals", userId);
+  const scoped = userId === null
+    ? await scopedInsertColumnsFromRecord(env, "studio_signals", run)
+    : await scopedInsertColumns(env, "studio_signals", userId);
   for (const signal of signals.slice(0, 100)) {
     const platform = normalizePlatform(signal.platform) || runPlatforms[0] || "threads";
     if (!["twitter", "threads", "reddit"].includes(platform)) continue;
@@ -648,7 +650,7 @@ async function replaceSignalsForRun(
     if (!title && !snippet && !painPoint && !evidence) continue;
     const result = await env.DB.prepare(
       `INSERT INTO studio_signals (
-        ${scoped.columns.length ? "user_id," : ""}
+        ${scoped.columns.length ? `${scoped.columns.join(", ")},` : ""}
         crawler_run_id, campaign_id, app_id, platform, source, query, title, url, author,
         snippet, pain_point, audience, evidence, opportunity_score, noise_reason, status,
         raw_data, created_at, updated_at
@@ -1005,7 +1007,12 @@ export async function listStudioCampaigns(env: Env, userId = DEFAULT_USER_ID): P
   }
 }
 
-export async function createStudioCampaign(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
+export async function createStudioCampaign(
+  env: Env,
+  request: Request,
+  userId = DEFAULT_USER_ID,
+  actorUserId?: number | null,
+): Promise<Response> {
   try {
     const payload = await parseJson<StudioCampaignPayload>(request);
     const appId = Number(payload.app_id);
@@ -1020,45 +1027,41 @@ export async function createStudioCampaign(env: Env, request: Request, userId = 
     if (accountRefs.length === 0) return errorResponse("Select at least one connected account", 400);
     const now = nowIso();
     const hasResultLimit = await tableHasColumn(env, "studio_campaigns", "result_limit");
+    const hasCreatedByUserId = await tableHasColumn(env, "studio_campaigns", "created_by_user_id");
     const scoped = await scopedInsertColumns(env, "studio_campaigns", userId);
-    const campaign = hasResultLimit
-      ? await env.DB.prepare(
-        `INSERT INTO studio_campaigns (${[...scoped.columns, "app_id", "name", "campaign_type", "result_limit", "account_refs", "platforms", "instructions", "status", "created_at", "updated_at"].join(", ")})
-         VALUES (${[...scoped.columns.map(() => "?"), "?", "?", "?", "?", "?", "?", "?", "?", "?", "?"].join(", ")})
-         RETURNING *`,
-      )
-        .bind(
-          ...scoped.values,
-          appId,
-          name,
-          campaignType,
-          resultLimit,
-          stringifyJson(accountRefs),
-          stringifyJson(platforms),
-          cleanText(payload.instructions),
-          payload.status ?? "active",
-          now,
-          now,
-        )
-        .first<Record<string, unknown>>()
-      : await env.DB.prepare(
-        `INSERT INTO studio_campaigns (${[...scoped.columns, "app_id", "name", "campaign_type", "account_refs", "platforms", "instructions", "status", "created_at", "updated_at"].join(", ")})
-         VALUES (${[...scoped.columns.map(() => "?"), "?", "?", "?", "?", "?", "?", "?", "?", "?"].join(", ")})
-         RETURNING *`,
-      )
-        .bind(
-          ...scoped.values,
-          appId,
-          name,
-          campaignType,
-          stringifyJson(accountRefs),
-          stringifyJson(platforms),
-          cleanText(payload.instructions),
-          payload.status ?? "active",
-          now,
-          now,
-        )
-        .first<Record<string, unknown>>();
+    const columns = [...scoped.columns];
+    const placeholders = [...scoped.columns.map(() => "?")];
+    const values: unknown[] = [...scoped.values];
+    if (hasCreatedByUserId) {
+      columns.push("created_by_user_id");
+      placeholders.push("?");
+      values.push(ownerId(actorUserId));
+    }
+    columns.push("app_id", "name", "campaign_type");
+    placeholders.push("?", "?", "?");
+    values.push(appId, name, campaignType);
+    if (hasResultLimit) {
+      columns.push("result_limit");
+      placeholders.push("?");
+      values.push(resultLimit);
+    }
+    columns.push("account_refs", "platforms", "instructions", "status", "created_at", "updated_at");
+    placeholders.push("?", "?", "?", "?", "?", "?");
+    values.push(
+      stringifyJson(accountRefs),
+      stringifyJson(platforms),
+      cleanText(payload.instructions),
+      payload.status ?? "active",
+      now,
+      now,
+    );
+    const campaign = await env.DB.prepare(
+      `INSERT INTO studio_campaigns (${columns.join(", ")})
+       VALUES (${placeholders.join(", ")})
+       RETURNING *`,
+    )
+      .bind(...values)
+      .first<Record<string, unknown>>();
     return jsonResponse(mapCampaign(campaign ?? {}), { status: 201 });
   } catch {
     return errorResponse("Failed to create Studio campaign", 500);
@@ -1113,7 +1116,7 @@ export async function deleteStudioCampaign(env: Env, campaignId: string, userId 
   }
 }
 
-export async function listStudioCrawlerRuns(env: Env, url?: URL, userId = DEFAULT_USER_ID): Promise<Response> {
+export async function listStudioCrawlerRuns(env: Env, url?: URL, userId: number | null = DEFAULT_USER_ID): Promise<Response> {
   try {
     const status = url?.searchParams.get("status")?.trim();
     const limit = Math.max(1, Math.min(Number(url?.searchParams.get("limit") || 100), 200));
@@ -1139,7 +1142,12 @@ export async function listStudioCrawlerRuns(env: Env, url?: URL, userId = DEFAUL
   }
 }
 
-export async function createStudioCrawlerRun(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
+export async function createStudioCrawlerRun(
+  env: Env,
+  request: Request,
+  userId = DEFAULT_USER_ID,
+  actorUserId?: number | null,
+): Promise<Response> {
   try {
     const payload = await parseJson<StudioCrawlerPayload>(request);
     let appId = Number(payload.app_id || 0);
@@ -1148,6 +1156,7 @@ export async function createStudioCrawlerRun(env: Env, request: Request, userId 
     let instructions = cleanText(payload.instructions);
     let campaignType: StudioCampaignType = payload.campaign_type === "reply" ? "reply" : "post";
     let resultLimit = normalizeResultLimit(payload.result_limit);
+    let requestedByUserId = ownerId(actorUserId);
     const campaignId = payload.campaign_id ? Number(payload.campaign_id) : null;
     if (campaignId) {
       const campaignFilters = ["id = ?"];
@@ -1163,6 +1172,9 @@ export async function createStudioCrawlerRun(env: Env, request: Request, userId 
       if (!instructions) instructions = cleanText(campaign.instructions);
       campaignType = campaign.campaign_type === "reply" ? "reply" : "post";
       resultLimit = normalizeResultLimit(campaign.result_limit, resultLimit);
+      if (!actorUserId) {
+        requestedByUserId = ownerId(Number(campaign.created_by_user_id ?? campaign.user_id ?? DEFAULT_USER_ID));
+      }
     }
     if (!Number.isFinite(appId) || appId <= 0) return errorResponse("App selection is required", 400);
     if (platforms.length === 0) return errorResponse("Select at least one social platform", 400);
@@ -1187,58 +1199,55 @@ export async function createStudioCrawlerRun(env: Env, request: Request, userId 
     const rawData = JSON.stringify({
       user_instructions: instructions,
       requested_results: resultLimit,
+      requested_by_user_id: requestedByUserId,
       crawler_playbook: brief,
       crawler_playbook_generated_by_ai: generatedByAi,
       crawler_playbook_error: aiError ?? null,
       quality_attempts: 0,
     });
     const hasResultLimit = await tableHasColumn(env, "studio_crawler_runs", "result_limit");
+    const hasRequestedByUserId = await tableHasColumn(env, "studio_crawler_runs", "requested_by_user_id");
     const scoped = await scopedInsertColumns(env, "studio_crawler_runs", userId);
-    const run = hasResultLimit
-      ? await env.DB.prepare(
-        `INSERT INTO studio_crawler_runs (${[...scoped.columns, "campaign_id", "app_id", "campaign_type", "result_limit", "account_refs", "platforms", "instructions", "status", "raw_data", "created_at", "updated_at"].join(", ")})
-         VALUES (${[...scoped.columns.map(() => "?"), "?", "?", "?", "?", "?", "?", "?", "'pending'", "?", "?", "?"].join(", ")})
-         RETURNING *`,
-      )
-        .bind(
-          ...scoped.values,
-          campaignId,
-          appId,
-          campaignType,
-          resultLimit,
-          stringifyJson(accountRefs),
-          stringifyJson(platforms),
-          crawlerInstructions,
-          rawData,
-          now,
-          now,
-        )
-        .first<Record<string, unknown>>()
-      : await env.DB.prepare(
-        `INSERT INTO studio_crawler_runs (${[...scoped.columns, "campaign_id", "app_id", "campaign_type", "account_refs", "platforms", "instructions", "status", "raw_data", "created_at", "updated_at"].join(", ")})
-         VALUES (${[...scoped.columns.map(() => "?"), "?", "?", "?", "?", "?", "?", "'pending'", "?", "?", "?"].join(", ")})
-         RETURNING *`,
-      )
-        .bind(
-          ...scoped.values,
-          campaignId,
-          appId,
-          campaignType,
-          stringifyJson(accountRefs),
-          stringifyJson(platforms),
-          crawlerInstructions,
-          rawData,
-          now,
-          now,
-        )
-        .first<Record<string, unknown>>();
+    const columns = [...scoped.columns];
+    const placeholders = [...scoped.columns.map(() => "?")];
+    const values: unknown[] = [...scoped.values];
+    if (hasRequestedByUserId) {
+      columns.push("requested_by_user_id");
+      placeholders.push("?");
+      values.push(requestedByUserId);
+    }
+    columns.push("campaign_id", "app_id", "campaign_type");
+    placeholders.push("?", "?", "?");
+    values.push(campaignId, appId, campaignType);
+    if (hasResultLimit) {
+      columns.push("result_limit");
+      placeholders.push("?");
+      values.push(resultLimit);
+    }
+    columns.push("account_refs", "platforms", "instructions", "status", "raw_data", "created_at", "updated_at");
+    placeholders.push("?", "?", "?", "'pending'", "?", "?", "?");
+    values.push(
+      stringifyJson(accountRefs),
+      stringifyJson(platforms),
+      crawlerInstructions,
+      rawData,
+      now,
+      now,
+    );
+    const run = await env.DB.prepare(
+      `INSERT INTO studio_crawler_runs (${columns.join(", ")})
+       VALUES (${placeholders.join(", ")})
+       RETURNING *`,
+    )
+      .bind(...values)
+      .first<Record<string, unknown>>();
     return jsonResponse(mapCrawlerRun(run ?? {}), { status: 201 });
   } catch {
     return errorResponse("Failed to create Studio crawler run", 500);
   }
 }
 
-export async function updateStudioCrawlerRun(env: Env, runId: string, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
+export async function updateStudioCrawlerRun(env: Env, runId: string, request: Request, userId: number | null = DEFAULT_USER_ID): Promise<Response> {
   try {
     const id = Number(runId);
     if (!Number.isFinite(id)) return errorResponse("Invalid crawler run ID", 400);
@@ -1284,7 +1293,7 @@ export async function updateStudioCrawlerRun(env: Env, runId: string, request: R
   }
 }
 
-export async function listStudioSignals(env: Env, url?: URL, userId = DEFAULT_USER_ID): Promise<Response> {
+export async function listStudioSignals(env: Env, url?: URL, userId: number | null = DEFAULT_USER_ID): Promise<Response> {
   try {
     const filters: string[] = [];
     const values: unknown[] = [];
@@ -1332,7 +1341,7 @@ export async function deleteStudioSignal(env: Env, signalId: string, userId = DE
   }
 }
 
-export async function createStudioSignals(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
+export async function createStudioSignals(env: Env, request: Request, userId: number | null = DEFAULT_USER_ID): Promise<Response> {
   try {
     const payload = await parseJson<StudioSignalsBulkPayload>(request);
     const runId = Number(payload.crawler_run_id);
@@ -1414,7 +1423,7 @@ export async function createStudioSignals(env: Env, request: Request, userId = D
   }
 }
 
-export async function listStudioStrategistPosts(env: Env, url?: URL, userId = DEFAULT_USER_ID): Promise<Response> {
+export async function listStudioStrategistPosts(env: Env, url?: URL, userId: number | null = DEFAULT_USER_ID): Promise<Response> {
   try {
     const filters: string[] = [];
     const values: unknown[] = [];
@@ -1441,7 +1450,7 @@ export async function listStudioStrategistPosts(env: Env, url?: URL, userId = DE
   }
 }
 
-export async function createStudioStrategistPosts(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
+export async function createStudioStrategistPosts(env: Env, request: Request, userId: number | null = DEFAULT_USER_ID): Promise<Response> {
   try {
     const payload = await parseJson<StudioStrategistBulkPayload>(request);
     const runId = Number(payload.crawler_run_id);
@@ -1482,7 +1491,9 @@ export async function createStudioStrategistPosts(env: Env, request: Request, us
     await appendScopedFilter(env, "studio_strategist_posts", deleteFilters, deleteValues, userId);
     await env.DB.prepare(`DELETE FROM studio_strategist_posts WHERE ${deleteFilters.join(" AND ")}`).bind(...deleteValues).run();
     const now = nowIso();
-    const scoped = await scopedInsertColumns(env, "studio_strategist_posts", userId);
+    const scoped = userId === null
+      ? await scopedInsertColumnsFromRecord(env, "studio_strategist_posts", run)
+      : await scopedInsertColumns(env, "studio_strategist_posts", userId);
     const createdIds: number[] = [];
     for (const post of posts) {
       const platform = normalizePlatform(post.platform);
@@ -1492,7 +1503,7 @@ export async function createStudioStrategistPosts(env: Env, request: Request, us
       const status: StudioPostStatus = mediaType === "none" || cleanText(post.media_url) ? "suggested" : "asset_needed";
       const result = await env.DB.prepare(
         `INSERT INTO studio_strategist_posts (
-          ${scoped.columns.length ? "user_id," : ""}
+          ${scoped.columns.length ? `${scoped.columns.join(", ")},` : ""}
           crawler_run_id, campaign_id, app_id, platform, post_text, idea, rationale,
           target_url, target_external_id, target_author, target_text,
           media_type, media_url, status, created_at, updated_at
@@ -1915,7 +1926,7 @@ export async function unpostStudioStrategistPost(
   }
 }
 
-export async function listStudioNotifications(env: Env, url?: URL, userId = DEFAULT_USER_ID): Promise<Response> {
+export async function listStudioNotifications(env: Env, url?: URL, userId: number | null = DEFAULT_USER_ID): Promise<Response> {
   try {
     const status = url?.searchParams.get("status") || "pending";
     const limit = Math.max(1, Math.min(Number(url?.searchParams.get("limit") || 20), 50));

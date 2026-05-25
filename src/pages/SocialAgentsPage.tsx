@@ -1,4 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import {
+  ArrowPathIcon,
+  PlusIcon,
+} from "@heroicons/react/24/solid";
+import type { IconType } from "react-icons";
+import { FaLinkedinIn } from "react-icons/fa6";
+import { SiReddit, SiThreads, SiX } from "react-icons/si";
 import { RedditAgentPage } from "./RedditAgentPage";
 import { TwitterAgentPage } from "./TwitterAgentPage";
 import { ThreadsAgentPage } from "./ThreadsAgentPage";
@@ -7,11 +14,11 @@ import "../styles/social-agents-page.css";
 
 type Platform = "reddit" | "twitter" | "threads" | "linkedin";
 
-const PLATFORMS: { id: Platform; label: string; icon: string; available: boolean }[] = [
-  { id: "reddit",   label: "Reddit",   icon: "🟠", available: true },
-  { id: "twitter",  label: "Twitter",  icon: "𝕏",  available: true },
-  { id: "threads",  label: "Threads",  icon: "🧵", available: true },
-  { id: "linkedin", label: "LinkedIn", icon: "💼", available: false },
+const PLATFORMS: { id: Platform; label: string; Icon: IconType; available: boolean }[] = [
+  { id: "reddit", label: "Reddit", Icon: SiReddit, available: true },
+  { id: "twitter", label: "Twitter", Icon: SiX, available: true },
+  { id: "threads", label: "Threads", Icon: SiThreads, available: true },
+  { id: "linkedin", label: "LinkedIn", Icon: FaLinkedinIn, available: false },
 ];
 
 const SOCIAL_PLATFORM_STORAGE_KEY = "dashboard:social-platform";
@@ -66,7 +73,7 @@ export function SocialAgentsPage() {
               disabled={!p.available}
               title={!p.available ? "Coming soon" : undefined}
             >
-              <span className="social-tab__icon">{p.icon}</span>
+              <p.Icon className={`social-tab__icon social-tab__icon--${p.id}`} aria-hidden="true" />
               {p.label}
               {!p.available && <span className="ui-tab__badge social-tab__badge">soon</span>}
             </button>
@@ -76,7 +83,8 @@ export function SocialAgentsPage() {
         {activeToolbarRef ? (
           <div className="social-platform-actions">
             <button type="button" onClick={() => activeToolbarRef.current?.openComposer()}>
-              + Post
+              <PlusIcon aria-hidden="true" className="h-4 w-4" />
+              Post
             </button>
             <button
               type="button"
@@ -85,7 +93,7 @@ export function SocialAgentsPage() {
               title="Refresh"
               onClick={() => activeToolbarRef.current?.reload()}
             >
-              ↻
+              <ArrowPathIcon aria-hidden="true" className="h-4 w-4" />
             </button>
           </div>
         ) : null}

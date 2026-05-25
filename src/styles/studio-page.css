@@ -79,7 +79,23 @@
 }
 
 .studio-tabs {
-  padding: 16px 20px;
+  padding: 16px 0;
+}
+
+.studio-overview {
+  overflow: hidden;
+  padding: 0;
+}
+
+.studio-overview__bar {
+  border-bottom: 0;
+  padding: 20px 0;
+}
+
+.studio-overview__campaigns {
+  display: grid;
+  gap: 0;
+  padding: 0;
 }
 
 .studio-tabs__heading {
@@ -88,6 +104,13 @@
   gap: 16px;
   justify-content: space-between;
   width: 100%;
+}
+
+.studio-tabs__title-wrap {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
 }
 
 .studio-tabs__title {

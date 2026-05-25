@@ -3,8 +3,10 @@
   gap: 20px;
 }
 
-.replies-toolbar {
+.social-platform-bar.replies-toolbar {
   align-items: center;
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .replies-tab__badge {
@@ -14,6 +16,26 @@
 .replies-panel {
   display: grid;
   gap: 18px;
+}
+
+.replies-overview {
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.replies-overview__bar {
+  border-bottom: 0;
+}
+
+.replies-overview__content {
+  display: grid;
+  gap: 0;
+  padding: 0;
+}
+
+.replies-overview__content > .panel__title-row {
+  padding: 20px 0 16px;
 }
 
 .replies-panel__header {

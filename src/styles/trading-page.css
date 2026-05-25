@@ -503,6 +503,7 @@
 .custom-lean-worker__delete svg {
   fill: currentColor;
   height: 16px;
+  stroke: none;
   width: 16px;
 }
 

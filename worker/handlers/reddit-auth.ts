@@ -1,6 +1,7 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
-import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns } from "../lib/ownership";
+import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
+import { defaultPlaywrightProfileKey, playwrightUserSettingKey } from "../lib/playwright-accounts";
 
 interface OAuthState {
   accountName: string;
@@ -9,6 +10,65 @@ interface OAuthState {
 
 const REDDIT_OAUTH_URL = "https://www.reddit.com/api/v1/authorize";
 const REDDIT_TOKEN_URL = "https://www.reddit.com/api/v1/access_token";
+
+async function upsertSetting(env: Env, key: string, value: string, updatedAt: string, userId = DEFAULT_USER_ID): Promise<void> {
+  if (await tableHasWorkspaceId(env, "app_settings")) {
+    await env.DB.prepare(
+      `INSERT INTO app_settings (workspace_id, key, value, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(workspace_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    )
+      .bind(workspaceId(userId), key, value, updatedAt)
+      .run();
+    return;
+  }
+
+  if (await tableHasUserId(env, "app_settings")) {
+    await env.DB.prepare(
+      `INSERT INTO app_settings (user_id, key, value, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    )
+      .bind(ownerId(userId), key, value, updatedAt)
+      .run();
+    return;
+  }
+
+  await env.DB.prepare(
+    `INSERT INTO app_settings (key, value, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+  )
+    .bind(key, value, updatedAt)
+    .run();
+}
+
+async function readSetting(env: Env, key: string, userId = DEFAULT_USER_ID): Promise<string | null> {
+  const hasWorkspaceId = await tableHasWorkspaceId(env, "app_settings");
+  const hasUserId = await tableHasUserId(env, "app_settings");
+  const row = await env.DB.prepare(hasWorkspaceId
+    ? "SELECT value FROM app_settings WHERE workspace_id = ? AND key = ?"
+    : hasUserId
+    ? "SELECT value FROM app_settings WHERE user_id = ? AND key = ?"
+    : "SELECT value FROM app_settings WHERE key = ?")
+    .bind(...(hasWorkspaceId ? [workspaceId(userId), key] : hasUserId ? [ownerId(userId), key] : [key]))
+    .first<{ value: string }>();
+  return row?.value?.trim() || null;
+}
+
+async function readPlaywrightSettings(
+  env: Env,
+  accountId: number,
+  scopeId = DEFAULT_USER_ID,
+  dashboardUserId = DEFAULT_USER_ID,
+): Promise<{ login: string | null; password: string | null; profileKey: string | null }> {
+  const [login, password, profileKey] = await Promise.all([
+    readSetting(env, playwrightUserSettingKey("reddit_account", accountId, dashboardUserId, "login"), scopeId),
+    readSetting(env, playwrightUserSettingKey("reddit_account", accountId, dashboardUserId, "password"), scopeId),
+    readSetting(env, playwrightUserSettingKey("reddit_account", accountId, dashboardUserId, "profile_key"), scopeId),
+  ]);
+  return { login, password, profileKey };
+}
 
 export async function handleAuthorizeRequest(
   env: Env,
@@ -178,6 +238,10 @@ export async function handleOAuthCallback(
         now,
       )
       .run();
+    const accountId = Number((result as { meta?: { last_row_id?: number } }).meta?.last_row_id ?? 0);
+    if (accountId) {
+      await upsertSetting(env, `reddit_account:${accountId}:connection_mode`, "official_api", now, owner);
+    }
 
     // Redirect back to app with success
     return new Response(
@@ -216,18 +280,99 @@ export async function handleOAuthCallback(
   }
 }
 
-export async function listRedditAccounts(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
+export async function listRedditAccounts(
+  env: Env,
+  scopeId = DEFAULT_USER_ID,
+  dashboardUserId = DEFAULT_USER_ID,
+): Promise<Response> {
   try {
     const filters: string[] = [];
     const values: unknown[] = [];
-    await appendScopedFilter(env, "reddit_accounts", filters, values, userId);
+    await appendScopedFilter(env, "reddit_accounts", filters, values, scopeId);
     const accounts = await env.DB.prepare(
       `SELECT id, name, status, created_at, updated_at FROM reddit_accounts ${filters.length ? `WHERE ${filters.join(" AND ")}` : ""} ORDER BY created_at DESC`,
     ).bind(...values).all();
 
-    return jsonResponse(accounts.results || []);
+    const results = await Promise.all((accounts.results || []).map(async (account) => {
+      const accountId = Number((account as { id: number }).id);
+      const [connectionMode, playwright] = await Promise.all([
+        readSetting(env, `reddit_account:${accountId}:connection_mode`, scopeId),
+        readPlaywrightSettings(env, accountId, scopeId, dashboardUserId),
+      ]);
+      return {
+        ...account,
+        connection_mode: connectionMode === "playwright" ? "playwright" : "official_api",
+        playwright_login: playwright.login || undefined,
+        playwright_profile_key: playwright.profileKey || defaultPlaywrightProfileKey("reddit", accountId, dashboardUserId),
+        playwright_ready: Boolean(playwright.login && playwright.password),
+      };
+    }));
+    return jsonResponse(results);
   } catch (error) {
     return errorResponse("Failed to fetch Reddit accounts", 500);
+  }
+}
+
+export async function addRedditAccount(
+  env: Env,
+  request: Request,
+  scopeId = DEFAULT_USER_ID,
+  dashboardUserId = DEFAULT_USER_ID,
+): Promise<Response> {
+  try {
+    const payload = await parseJson<{
+      name?: string;
+      status?: "active" | "inactive";
+      connection_mode?: "official_api" | "playwright";
+      playwright_login?: string;
+      playwright_password?: string;
+    }>(request);
+    const name = payload.name?.trim();
+    if (!name) return errorResponse("Account name is required", 400);
+    const status = payload.status === "inactive" ? "inactive" : "active";
+    const connectionMode = payload.connection_mode === "playwright" ? "playwright" : "official_api";
+    const playwrightLogin = payload.playwright_login?.trim() ?? "";
+    const playwrightPassword = payload.playwright_password?.trim() ?? "";
+    if (connectionMode === "playwright" && !playwrightLogin) return errorResponse("Playwright login is required", 400);
+    if (connectionMode === "playwright" && !playwrightPassword) return errorResponse("Playwright password is required", 400);
+    const now = new Date().toISOString();
+    const scoped = await scopedInsertColumns(env, "reddit_accounts", scopeId);
+    const result = await env.DB.prepare(
+      `INSERT INTO reddit_accounts (${[...scoped.columns, "name", "access_token", "refresh_token", "token_expires_at", "status", "created_at", "updated_at"].join(", ")})
+       VALUES (${[...scoped.columns.map(() => "?"), "?", "?", "?", "?", "?", "?", "?"].join(", ")})`,
+    )
+      .bind(...scoped.values, name, "", "", null, status, now, now)
+      .run() as { meta: { last_row_id: number } };
+    const accountId = result.meta.last_row_id;
+    await Promise.all([
+      upsertSetting(env, `reddit_account:${accountId}:connection_mode`, connectionMode, now, scopeId),
+      ...(connectionMode === "playwright"
+        ? [
+            upsertSetting(env, playwrightUserSettingKey("reddit_account", accountId, dashboardUserId, "login"), playwrightLogin, now, scopeId),
+            upsertSetting(env, playwrightUserSettingKey("reddit_account", accountId, dashboardUserId, "password"), playwrightPassword, now, scopeId),
+            upsertSetting(
+              env,
+              playwrightUserSettingKey("reddit_account", accountId, dashboardUserId, "profile_key"),
+              defaultPlaywrightProfileKey("reddit", accountId, dashboardUserId),
+              now,
+              scopeId,
+            ),
+          ]
+        : []),
+    ]);
+    return jsonResponse({
+      id: accountId,
+      name,
+      status,
+      connection_mode: connectionMode,
+      playwright_login: connectionMode === "playwright" ? playwrightLogin : undefined,
+      playwright_profile_key: connectionMode === "playwright" ? defaultPlaywrightProfileKey("reddit", accountId, dashboardUserId) : undefined,
+      playwright_ready: connectionMode === "playwright",
+      created_at: now,
+      updated_at: now,
+    }, { status: 201 });
+  } catch {
+    return errorResponse("Failed to create Reddit account", 500);
   }
 }
 
@@ -235,7 +380,8 @@ export async function updateRedditAccount(
   env: Env,
   accountId: string,
   request: Request,
-  userId = DEFAULT_USER_ID,
+  scopeId = DEFAULT_USER_ID,
+  dashboardUserId = DEFAULT_USER_ID,
 ): Promise<Response> {
   try {
     const id = Number(accountId);
@@ -245,13 +391,19 @@ export async function updateRedditAccount(
 
     const filters = ["id = ?"];
     const filterValues: unknown[] = [id];
-    await appendScopedFilter(env, "reddit_accounts", filters, filterValues, userId);
+    await appendScopedFilter(env, "reddit_accounts", filters, filterValues, scopeId);
     const existing = await env.DB.prepare(`SELECT id FROM reddit_accounts WHERE ${filters.join(" AND ")}`)
       .bind(...filterValues)
       .first<{ id: number }>();
     if (!existing) return errorResponse("Reddit account not found", 404);
 
-    const payload = await parseJson<{ name?: string; status?: "active" | "inactive" }>(request);
+    const payload = await parseJson<{
+      name?: string;
+      status?: "active" | "inactive";
+      connection_mode?: "official_api" | "playwright";
+      playwright_login?: string;
+      playwright_password?: string;
+    }>(request);
     const updates: string[] = [];
     const values: unknown[] = [];
 
@@ -269,7 +421,10 @@ export async function updateRedditAccount(
       values.push(payload.status);
     }
 
-    if (updates.length === 0) {
+    const playwrightLogin = payload.playwright_login?.trim() ?? "";
+    const playwrightPassword = payload.playwright_password?.trim() ?? "";
+
+    if (updates.length === 0 && !payload.connection_mode && !playwrightLogin && !playwrightPassword) {
       return errorResponse("No account fields to update", 400);
     }
 
@@ -279,6 +434,33 @@ export async function updateRedditAccount(
     await env.DB.prepare(`UPDATE reddit_accounts SET ${updates.join(", ")} WHERE ${filters.join(" AND ")}`)
       .bind(...values, ...filterValues)
       .run();
+    if (payload.connection_mode === "playwright" && !playwrightLogin) {
+      const currentPlaywright = await readPlaywrightSettings(env, id, scopeId, dashboardUserId);
+      if (!currentPlaywright.login) return errorResponse("Playwright login is required", 400);
+    }
+
+    await Promise.all([
+      ...(payload.connection_mode === "official_api" || payload.connection_mode === "playwright"
+        ? [upsertSetting(env, `reddit_account:${id}:connection_mode`, payload.connection_mode, now, scopeId)]
+        : []),
+      ...(playwrightLogin
+        ? [upsertSetting(env, playwrightUserSettingKey("reddit_account", id, dashboardUserId, "login"), playwrightLogin, now, scopeId)]
+        : []),
+      ...(playwrightPassword
+        ? [upsertSetting(env, playwrightUserSettingKey("reddit_account", id, dashboardUserId, "password"), playwrightPassword, now, scopeId)]
+        : []),
+      ...(payload.connection_mode === "playwright" || playwrightLogin || playwrightPassword
+        ? [
+            upsertSetting(
+              env,
+              playwrightUserSettingKey("reddit_account", id, dashboardUserId, "profile_key"),
+              defaultPlaywrightProfileKey("reddit", id, dashboardUserId),
+              now,
+              scopeId,
+            ),
+          ]
+        : []),
+    ]);
 
     return jsonResponse({ success: true, updated_at: now });
   } catch {
@@ -301,6 +483,15 @@ export async function deleteRedditAccount(
     const values: unknown[] = [id];
     await appendScopedFilter(env, "reddit_accounts", filters, values, userId);
     await env.DB.prepare(`DELETE FROM reddit_accounts WHERE ${filters.join(" AND ")}`).bind(...values).run();
+    const settingsHasWorkspaceId = await tableHasWorkspaceId(env, "app_settings");
+    const settingsHasUserId = await tableHasUserId(env, "app_settings");
+    await env.DB.prepare(settingsHasWorkspaceId
+      ? "DELETE FROM app_settings WHERE workspace_id = ? AND key LIKE ?"
+      : settingsHasUserId
+      ? "DELETE FROM app_settings WHERE user_id = ? AND key LIKE ?"
+      : "DELETE FROM app_settings WHERE key LIKE ?")
+      .bind(...(settingsHasWorkspaceId ? [workspaceId(userId), `reddit_account:${id}:%`] : settingsHasUserId ? [ownerId(userId), `reddit_account:${id}:%`] : [`reddit_account:${id}:%`]))
+      .run();
 
     return jsonResponse({ success: true });
   } catch (error) {

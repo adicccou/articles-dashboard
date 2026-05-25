@@ -1,3 +1,5 @@
+import { TrashIcon } from "@heroicons/react/24/solid";
+
 type RiskDraft = {
   risk_usd_min: number;
   risk_usd_max: number;
@@ -123,11 +125,15 @@ export function ExecutionControlsModal({
 
         <div className="execution-controls-modal__footer">
           {onDelete ? (
-            <button type="button" className="custom-lean-worker__delete execution-controls-modal__delete" onClick={onDelete} disabled={saving}>
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M9 3h6l1 2h4v2H4V5h4l1-2zm1 6h2v8h-2V9zm4 0h2v8h-2V9zM7 9h2v8H7V9zm1 11h8a2 2 0 0 0 2-2V8H6v10a2 2 0 0 0 2 2z" />
-              </svg>
-              Delete
+            <button
+              type="button"
+              className="custom-lean-worker__delete execution-controls-modal__delete dashboard-icon-button"
+              onClick={onDelete}
+              disabled={saving}
+              aria-label="Delete"
+              title="Delete"
+            >
+              <TrashIcon aria-hidden="true" />
             </button>
           ) : <span />}
           <button type="button" className="button-secondary custom-lean-save" onClick={onSave} disabled={saving}>

@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import type { RedditAccount, SocialAccount, SocialAccountInput, StudioApp, StudioCampaign } from "../lib/types";
+import { useEffect, useState, type FormEvent } from "react";
+import { ArrowPathIcon, PencilSquareIcon, TrashIcon } from "@heroicons/react/24/solid";
+import type { RedditAccount, Site, SocialAccount, SocialAccountInput, StudioApp } from "../lib/types";
 import { api } from "../lib/api";
 import { formatDisplayDate } from "../lib/datetime";
 import "../styles/config-page.css";
 
-type ConfigTab = "apps" | "accounts";
+type ConfigTab = "apps" | "accounts" | "sites";
 type AccountPlatform = "twitter" | "threads" | "reddit";
 type AccountStatus = "active" | "inactive";
+type AccountConnectionMode = "official_api" | "playwright";
 type ConfigModal = "app" | "account" | null;
 
 type AppForm = {
@@ -22,8 +24,13 @@ type AppForm = {
 type AccountForm = {
   id?: number;
   platform: AccountPlatform;
+  connection_mode: AccountConnectionMode;
   username: string;
   status: AccountStatus;
+  playwright_login: string;
+  playwright_password: string;
+  playwright_profile_key?: string;
+  playwright_ready?: boolean;
   api_key: string;
   api_secret: string;
   access_token: string;
@@ -38,9 +45,13 @@ type AccountForm = {
 type ManagedAccount = {
   id: number;
   platform: AccountPlatform;
+  connection_mode: AccountConnectionMode;
   username: string;
   status: AccountStatus;
   credentials_ready?: boolean | number;
+  playwright_login?: string;
+  playwright_profile_key?: string;
+  playwright_ready?: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -59,6 +70,11 @@ const platformOptions: Array<{ id: AccountPlatform; label: string }> = [
   { id: "reddit", label: "Reddit" },
 ];
 
+const connectionModeOptions: Array<{ id: AccountConnectionMode; label: string }> = [
+  { id: "official_api", label: "Official API" },
+  { id: "playwright", label: "Playwright" },
+];
+
 function emptyAppForm(): AppForm {
   return {
     name: "",
@@ -73,8 +89,11 @@ function emptyAppForm(): AppForm {
 function emptyAccountForm(platform: AccountPlatform = "twitter"): AccountForm {
   return {
     platform,
+    connection_mode: "official_api",
     username: "",
     status: "active",
+    playwright_login: "",
+    playwright_password: "",
     api_key: "",
     api_secret: "",
     access_token: "",
@@ -87,25 +106,8 @@ function emptyAccountForm(platform: AccountPlatform = "twitter"): AccountForm {
   };
 }
 
-function appId(id: number) {
-  return `APP-${String(id).padStart(4, "0")}`;
-}
-
-function accountId(platform: AccountPlatform, id: number) {
-  const prefix = platform === "twitter" ? "X" : platform.toUpperCase();
-  return `${prefix}-${String(id).padStart(4, "0")}`;
-}
-
 function platformLabel(platform: AccountPlatform) {
   return platformOptions.find((item) => item.id === platform)?.label ?? platform;
-}
-
-function accountRef(account: ManagedAccount) {
-  return `${account.platform}:${account.id}`;
-}
-
-function uniqueStrings(values: string[]) {
-  return Array.from(new Set(values.filter(Boolean)));
 }
 
 function statusTone(status: string) {
@@ -122,26 +124,38 @@ function normalizeAccounts(
   const twitterAccounts = twitter.map((account) => ({
     id: account.id,
     platform: "twitter" as const,
+    connection_mode: (account.connection_mode === "playwright" ? "playwright" : "official_api") as AccountConnectionMode,
     username: account.username,
     status: account.status,
     credentials_ready: account.credentials_ready,
+    playwright_login: account.playwright_login,
+    playwright_profile_key: account.playwright_profile_key,
+    playwright_ready: Boolean(account.playwright_ready),
     created_at: account.created_at,
     updated_at: account.updated_at || account.created_at,
   }));
   const threadsAccounts = threads.map((account) => ({
     id: account.id,
     platform: "threads" as const,
+    connection_mode: (account.connection_mode === "playwright" ? "playwright" : "official_api") as AccountConnectionMode,
     username: account.username,
     status: account.status,
     credentials_ready: account.credentials_ready,
+    playwright_login: account.playwright_login,
+    playwright_profile_key: account.playwright_profile_key,
+    playwright_ready: Boolean(account.playwright_ready),
     created_at: account.created_at,
     updated_at: account.updated_at || account.created_at,
   }));
   const redditAccounts = reddit.map((account) => ({
     id: account.id,
     platform: "reddit" as const,
+    connection_mode: (account.connection_mode === "playwright" ? "playwright" : "official_api") as AccountConnectionMode,
     username: account.name,
     status: account.status,
+    playwright_login: account.playwright_login,
+    playwright_profile_key: account.playwright_profile_key,
+    playwright_ready: Boolean(account.playwright_ready),
     created_at: account.created_at,
     updated_at: account.updated_at || account.created_at,
   }));
@@ -158,8 +172,8 @@ function putIfFilled(payload: SocialAccountInput & { status?: AccountStatus }, k
 export function ConfigPage() {
   const [tab, setTab] = useState<ConfigTab>("apps");
   const [apps, setApps] = useState<StudioApp[]>([]);
-  const [campaigns, setCampaigns] = useState<StudioCampaign[]>([]);
   const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
+  const [sites, setSites] = useState<Site[]>([]);
   const [appForm, setAppForm] = useState<AppForm>(emptyAppForm);
   const [accountForm, setAccountForm] = useState<AccountForm>(emptyAccountForm);
   const [activeModal, setActiveModal] = useState<ConfigModal>(null);
@@ -176,19 +190,20 @@ export function ConfigPage() {
       } else {
         setLoading(true);
       }
-      const [studio, twitter, threads, reddit] = await Promise.all([
+      const [studio, twitter, threads, reddit, managedSites] = await Promise.all([
         api.getStudio(),
         api.listTwitterAccounts().catch(() => []),
         api.listThreadsAccounts().catch(() => []),
         api.listRedditAccounts().catch(() => []),
+        api.listSites().catch(() => []),
       ]);
       setApps(Array.isArray(studio.apps) ? studio.apps : []);
-      setCampaigns(Array.isArray(studio.campaigns) ? studio.campaigns : []);
       setAccounts(normalizeAccounts(
         Array.isArray(twitter) ? twitter : [],
         Array.isArray(threads) ? threads : [],
         Array.isArray(reddit) ? reddit : [],
       ));
+      setSites(Array.isArray(managedSites) ? managedSites : []);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load config");
@@ -201,25 +216,6 @@ export function ConfigPage() {
   useEffect(() => {
     void load();
   }, []);
-
-  const accountsByRef = useMemo(
-    () => new Map(accounts.map((account) => [accountRef(account), account])),
-    [accounts],
-  );
-
-  const appsById = useMemo(
-    () => new Map(apps.map((app) => [app.id, app])),
-    [apps],
-  );
-
-  const accountRows = useMemo(() => accounts.map((account) => {
-    const ref = accountRef(account);
-    const relatedCampaigns = campaigns.filter((campaign) => campaign.account_refs.includes(ref) && campaign.status !== "archived");
-    const connectedApps = uniqueStrings(relatedCampaigns.map((campaign) => String(campaign.app_id)))
-      .map((id) => appsById.get(Number(id)))
-      .filter((app): app is StudioApp => Boolean(app));
-    return { account, relatedCampaigns, connectedApps };
-  }), [accounts, appsById, campaigns]);
 
   function openAddApp() {
     setTab("apps");
@@ -308,8 +304,20 @@ export function ConfigPage() {
   async function saveAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const username = accountForm.username.trim().replace(/^@+/, "");
+    const playwrightLogin = accountForm.playwright_login.trim();
+    const playwrightPassword = accountForm.playwright_password.trim();
     if (!username) {
       setError(accountForm.platform === "reddit" ? "Reddit account name is required." : "Username is required.");
+      return;
+    }
+
+    const usesPlaywright = accountForm.connection_mode === "playwright";
+    if (usesPlaywright && !playwrightLogin) {
+      setError("Playwright login is required.");
+      return;
+    }
+    if (usesPlaywright && !accountForm.id && !playwrightPassword) {
+      setError("Playwright password is required.");
       return;
     }
 
@@ -319,8 +327,28 @@ export function ConfigPage() {
 
       if (accountForm.platform === "reddit") {
         if (accountForm.id) {
-          await api.updateRedditAccount(accountForm.id, { name: username, status: accountForm.status });
+          await api.updateRedditAccount(accountForm.id, {
+            name: username,
+            status: accountForm.status,
+            connection_mode: accountForm.connection_mode,
+            playwright_login: usesPlaywright ? playwrightLogin : undefined,
+            playwright_password: usesPlaywright && playwrightPassword ? playwrightPassword : undefined,
+          });
           setFeedback("Reddit account updated.");
+          setAccountForm(emptyAccountForm("reddit"));
+          setActiveModal(null);
+          await load({ silent: true });
+          return;
+        }
+        if (usesPlaywright) {
+          await api.addRedditAccount({
+            name: username,
+            status: accountForm.status,
+            connection_mode: accountForm.connection_mode,
+            playwright_login: playwrightLogin,
+            playwright_password: playwrightPassword,
+          });
+          setFeedback("Reddit account added.");
           setAccountForm(emptyAccountForm("reddit"));
           setActiveModal(null);
           await load({ silent: true });
@@ -333,7 +361,13 @@ export function ConfigPage() {
 
       if (accountForm.platform === "twitter") {
         if (accountForm.id) {
-          const payload: SocialAccountInput & { status: AccountStatus } = { username, status: accountForm.status };
+          const payload: SocialAccountInput & { status: AccountStatus } = {
+            username,
+            status: accountForm.status,
+            connection_mode: accountForm.connection_mode,
+          };
+          putIfFilled(payload, "playwright_login", usesPlaywright ? playwrightLogin : "");
+          putIfFilled(payload, "playwright_password", usesPlaywright ? playwrightPassword : "");
           putIfFilled(payload, "api_key", accountForm.api_key);
           putIfFilled(payload, "api_secret", accountForm.api_secret);
           putIfFilled(payload, "access_token", accountForm.access_token);
@@ -343,6 +377,10 @@ export function ConfigPage() {
         } else {
           await api.addTwitterAccount({
             username,
+            status: accountForm.status,
+            connection_mode: accountForm.connection_mode,
+            playwright_login: usesPlaywright ? playwrightLogin : "",
+            playwright_password: usesPlaywright ? playwrightPassword : "",
             api_key: accountForm.api_key.trim(),
             api_secret: accountForm.api_secret.trim(),
             access_token: accountForm.access_token.trim(),
@@ -356,7 +394,13 @@ export function ConfigPage() {
         return;
       }
 
-      const threadsPayload: SocialAccountInput & { status: AccountStatus } = { username, status: accountForm.status };
+      const threadsPayload: SocialAccountInput & { status: AccountStatus } = {
+        username,
+        status: accountForm.status,
+        connection_mode: accountForm.connection_mode,
+      };
+      putIfFilled(threadsPayload, "playwright_login", usesPlaywright ? playwrightLogin : "");
+      putIfFilled(threadsPayload, "playwright_password", usesPlaywright ? playwrightPassword : "");
       putIfFilled(threadsPayload, "client_id", accountForm.client_id);
       putIfFilled(threadsPayload, "client_secret", accountForm.client_secret);
       putIfFilled(threadsPayload, "redirect_uri", accountForm.redirect_uri);
@@ -373,9 +417,26 @@ export function ConfigPage() {
         return;
       }
 
+      if (usesPlaywright) {
+        await api.addThreadsAccount({
+          username,
+          status: accountForm.status,
+          connection_mode: accountForm.connection_mode,
+          playwright_login: playwrightLogin,
+          playwright_password: playwrightPassword,
+        });
+        setFeedback("Threads account added.");
+        setAccountForm(emptyAccountForm("threads"));
+        setActiveModal(null);
+        await load({ silent: true });
+        return;
+      }
+
       if (accountForm.access_token.trim() && accountForm.user_id.trim()) {
         await api.addThreadsAccount({
           username,
+          status: accountForm.status,
+          connection_mode: accountForm.connection_mode,
           client_id: accountForm.client_id.trim(),
           client_secret: accountForm.client_secret.trim(),
           redirect_uri: accountForm.redirect_uri.trim(),
@@ -392,6 +453,7 @@ export function ConfigPage() {
 
       const result = await api.startThreadsOAuth({
         username,
+        connection_mode: accountForm.connection_mode,
         client_id: accountForm.client_id.trim(),
         client_secret: accountForm.client_secret.trim(),
         redirect_uri: accountForm.redirect_uri.trim(),
@@ -437,8 +499,12 @@ export function ConfigPage() {
     setAccountForm({
       ...emptyAccountForm(account.platform),
       id: account.id,
+      connection_mode: account.connection_mode,
       username: account.username,
       status: account.status,
+      playwright_login: account.playwright_login || "",
+      playwright_profile_key: account.playwright_profile_key,
+      playwright_ready: account.playwright_ready,
     });
     setActiveModal("account");
   }
@@ -446,6 +512,7 @@ export function ConfigPage() {
   function accountSubmitLabel() {
     if (saving) return "Saving...";
     if (accountForm.id) return "Save account";
+    if (accountForm.connection_mode === "playwright") return "Add account";
     if (accountForm.platform === "reddit") return "Connect Reddit account";
     if (accountForm.platform === "threads" && (!accountForm.access_token.trim() || !accountForm.user_id.trim())) {
       return "Connect Threads account";
@@ -462,32 +529,47 @@ export function ConfigPage() {
       {error ? <p className="error panel">{error}</p> : null}
       {feedback ? <p className="panel config-feedback">{feedback}</p> : null}
 
-      <section className="panel ui-tabs config-tabs">
-        <div className="ui-tabs__list config-tabs__list">
-          <button
-            type="button"
-            className={`ui-tab config-tab ${tab === "apps" ? "ui-tab--active config-tab--active" : ""}`}
-            onClick={() => setTab("apps")}
-          >
-            Apps ({apps.length})
-          </button>
-          <button
-            type="button"
-            className={`ui-tab config-tab ${tab === "accounts" ? "ui-tab--active config-tab--active" : ""}`}
-            onClick={() => setTab("accounts")}
-          >
-            Social Media Accounts ({accounts.length})
-          </button>
+      <section className="panel config-overview">
+        <div className="ui-tabs config-tabs config-overview__tabs">
+          <div className="ui-tabs__list config-tabs__list">
+            <button
+              type="button"
+              className={`ui-tab config-tab ${tab === "apps" ? "ui-tab--active config-tab--active" : ""}`}
+              onClick={() => setTab("apps")}
+            >
+              Apps ({apps.length})
+            </button>
+            <button
+              type="button"
+              className={`ui-tab config-tab ${tab === "accounts" ? "ui-tab--active config-tab--active" : ""}`}
+              onClick={() => setTab("accounts")}
+            >
+              Social Media Accounts ({accounts.length})
+            </button>
+            <button
+              type="button"
+              className={`ui-tab config-tab ${tab === "sites" ? "ui-tab--active config-tab--active" : ""}`}
+              onClick={() => setTab("sites")}
+            >
+              Sites ({sites.length})
+            </button>
+          </div>
+          <div className="ui-tabs__actions config-tabs__actions">
+            <button
+              className="button-secondary dashboard-icon-button"
+              type="button"
+              disabled={refreshing}
+              onClick={() => void load({ silent: true })}
+              aria-label="Refresh config"
+              title="Refresh"
+            >
+              <ArrowPathIcon aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
+            </button>
+          </div>
         </div>
-        <div className="ui-tabs__actions config-tabs__actions">
-          <button className="button-secondary" type="button" disabled={refreshing} onClick={() => void load({ silent: true })}>
-            {refreshing ? "Refreshing..." : "Refresh"}
-          </button>
-        </div>
-      </section>
 
       {tab === "apps" ? (
-        <section className="panel config-list">
+        <div className="config-list config-overview__content">
             <div className="panel__title-row">
               <h2>Apps</h2>
               <div className="config-title-actions">
@@ -510,29 +592,41 @@ export function ConfigPage() {
                 {apps.map((app) => (
                   <article className="config-table__row" key={app.id}>
                     <div className="config-main-cell">
-                      <span className="config-id">{appId(app.id)}</span>
                       <strong>{app.name}</strong>
                       <small>{app.description || "No app info yet."}</small>
                     </div>
                     <span className={`config-pill config-pill--${statusTone(app.status)}`}>{app.status}</span>
                     <span className="config-muted">{formatDisplayDate(app.updated_at || app.created_at)}</span>
                     <div className="config-row-actions">
-                      <button className="button-secondary" type="button" onClick={() => openEditApp(app)}>
-                        Edit
+                      <button
+                        className="button-secondary dashboard-icon-button"
+                        type="button"
+                        onClick={() => openEditApp(app)}
+                        aria-label={`Edit ${app.name}`}
+                        title="Edit"
+                      >
+                        <PencilSquareIcon aria-hidden="true" />
                       </button>
-                      <button className="button-secondary config-danger-button" type="button" disabled={saving} onClick={() => void deleteApp(app)}>
-                        Delete
+                      <button
+                        className="button-secondary config-danger-button dashboard-icon-button"
+                        type="button"
+                        disabled={saving}
+                        onClick={() => void deleteApp(app)}
+                        aria-label={`Delete ${app.name}`}
+                        title="Delete"
+                      >
+                        <TrashIcon aria-hidden="true" />
                       </button>
                     </div>
                   </article>
                 ))}
               </div>
             )}
-        </section>
+        </div>
       ) : null}
 
       {tab === "accounts" ? (
-        <section className="panel config-list">
+        <div className="config-list config-overview__content">
             <div className="panel__title-row">
               <h2>Social media accounts</h2>
               <div className="config-title-actions">
@@ -548,45 +642,85 @@ export function ConfigPage() {
               <div className="config-table config-table--accounts">
                 <div className="config-table__row config-table__row--header">
                   <span>Account</span>
-                  <span>Connected apps</span>
-                  <span>Campaigns</span>
                   <span>Status</span>
                   <span>Added</span>
                   <span>Actions</span>
                 </div>
-                {accountRows.map(({ account, connectedApps, relatedCampaigns }) => (
+                {accounts.map((account) => (
                   <article className="config-table__row" key={`${account.platform}-${account.id}`}>
                     <div className="config-main-cell">
-                      <span className="config-id">{accountId(account.platform, account.id)}</span>
                       <strong>{account.platform === "reddit" ? account.username : `@${account.username}`}</strong>
-                      <small>{platformLabel(account.platform)}</small>
-                    </div>
-                    <div className="config-chip-list">
-                      {connectedApps.length > 0 ? connectedApps.map((app) => (
-                        <span className="config-chip" key={app.id}>{app.name}</span>
-                      )) : <span className="config-muted">No app connected</span>}
-                    </div>
-                    <div className="config-chip-list">
-                      {relatedCampaigns.length > 0 ? relatedCampaigns.map((campaign) => (
-                        <span className="config-chip" key={campaign.id}>{campaign.name}</span>
-                      )) : <span className="config-muted">No campaigns</span>}
+                      <small>
+                        {platformLabel(account.platform)}
+                        {account.connection_mode === "playwright"
+                          ? ` • ${account.playwright_ready ? "Playwright ready for you" : "Playwright not connected for you"}`
+                          : ""}
+                      </small>
                     </div>
                     <span className={`config-pill config-pill--${statusTone(account.status)}`}>{account.status}</span>
                     <span className="config-muted">{formatDisplayDate(account.created_at)}</span>
                     <div className="config-row-actions">
-                      <button className="button-secondary" type="button" onClick={() => editAccount(account)}>
-                        Edit
+                      <button
+                        className="button-secondary dashboard-icon-button"
+                        type="button"
+                        onClick={() => editAccount(account)}
+                        aria-label={`Edit ${account.username}`}
+                        title="Edit"
+                      >
+                        <PencilSquareIcon aria-hidden="true" />
                       </button>
-                      <button className="button-secondary config-danger-button" type="button" disabled={saving} onClick={() => void deleteAccount(account)}>
-                        Delete
+                      <button
+                        className="button-secondary config-danger-button dashboard-icon-button"
+                        type="button"
+                        disabled={saving}
+                        onClick={() => void deleteAccount(account)}
+                        aria-label={`Delete ${account.username}`}
+                        title="Delete"
+                      >
+                        <TrashIcon aria-hidden="true" />
                       </button>
                     </div>
                   </article>
                 ))}
               </div>
             )}
-        </section>
+        </div>
       ) : null}
+
+      {tab === "sites" ? (
+        <div className="config-list config-overview__content">
+            <div className="panel__title-row">
+              <h2>Sites</h2>
+              <div className="config-title-actions">
+                <span className="config-count">{sites.length}</span>
+              </div>
+            </div>
+            {sites.length === 0 ? (
+              <div className="config-empty">No sites yet.</div>
+            ) : (
+              <div className="config-table config-table--sites">
+                <div className="config-table__row config-table__row--header">
+                  <span>Site</span>
+                  <span>Domain</span>
+                  <span>Status</span>
+                  <span>Updated</span>
+                </div>
+                {sites.map((site) => (
+                  <article className="config-table__row" key={site.id}>
+                    <div className="config-main-cell">
+                      <strong>{site.name}</strong>
+                      <small>{site.slug}</small>
+                    </div>
+                    <span className="config-muted">{site.domain}</span>
+                    <span className={`config-pill config-pill--${statusTone(site.status)}`}>{site.status}</span>
+                    <span className="config-muted">{formatDisplayDate(site.updated_at || site.created_at)}</span>
+                  </article>
+                ))}
+              </div>
+            )}
+        </div>
+      ) : null}
+      </section>
 
       {activeModal === "app" ? (
         <div className="config-modal-backdrop">
@@ -668,10 +802,63 @@ export function ConfigPage() {
                 ))}
               </select>
             </label>
+            <div className="config-mode-field">
+              <span>Connection mode</span>
+              <div className="config-mode-switch" role="tablist" aria-label="Connection mode">
+                {connectionModeOptions.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className={`config-mode-switch__option ${accountForm.connection_mode === option.id ? "is-active" : ""}`}
+                    onClick={() => setAccountForm((current) => ({ ...current, connection_mode: option.id }))}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <p className="config-hint">
+                {accountForm.connection_mode === "playwright"
+                  ? "Save this account for browser-driven posting, crawling, and reply automation. Playwright login stays isolated per dashboard user."
+                  : "Use the platform's official auth and API credentials for publishing and account sync."}
+              </p>
+            </div>
             <label>
               {accountForm.platform === "reddit" ? "Account name" : "Username"}
               <input value={accountForm.username} onChange={(event) => setAccountForm((current) => ({ ...current, username: event.target.value }))} required />
             </label>
+            {accountForm.connection_mode === "playwright" ? (
+              <>
+                <div className="grid-two">
+                  <label>
+                    Browser login
+                    <input
+                      value={accountForm.playwright_login}
+                      onChange={(event) => setAccountForm((current) => ({ ...current, playwright_login: event.target.value }))}
+                      placeholder={accountForm.platform === "reddit" ? "username or email" : "username, email, or phone"}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Browser password
+                    <input
+                      type="password"
+                      value={accountForm.playwright_password}
+                      onChange={(event) => setAccountForm((current) => ({ ...current, playwright_password: event.target.value }))}
+                      placeholder={accountForm.id ? "Leave blank to keep saved password" : ""}
+                      required={!accountForm.id}
+                    />
+                  </label>
+                </div>
+                <div className="config-session-card">
+                  <strong>{accountForm.playwright_ready ? "Personal browser session saved" : "Personal browser session not saved yet"}</strong>
+                  <small>
+                    {accountForm.playwright_profile_key
+                      ? `Profile key: ${accountForm.playwright_profile_key}`
+                      : "A separate browser profile key will be created for this dashboard user after save."}
+                  </small>
+                </div>
+              </>
+            ) : null}
             <label>
               Status
               <select value={accountForm.status} onChange={(event) => setAccountForm((current) => ({ ...current, status: event.target.value as AccountStatus }))}>
@@ -680,7 +867,7 @@ export function ConfigPage() {
               </select>
             </label>
 
-            {accountForm.platform === "twitter" ? (
+            {accountForm.platform === "twitter" && accountForm.connection_mode === "official_api" ? (
               <>
                 <div className="grid-two">
                   <label>
@@ -705,7 +892,7 @@ export function ConfigPage() {
               </>
             ) : null}
 
-            {accountForm.platform === "threads" ? (
+            {accountForm.platform === "threads" && accountForm.connection_mode === "official_api" ? (
               <>
                 <div className="grid-two">
                   <label>
@@ -736,6 +923,14 @@ export function ConfigPage() {
                   </label>
                 </div>
               </>
+            ) : null}
+
+            {accountForm.platform === "reddit" && accountForm.connection_mode === "official_api" && !accountForm.id ? (
+              <p className="config-hint">This will open Reddit OAuth to connect the account.</p>
+            ) : null}
+
+            {accountForm.platform === "threads" && accountForm.connection_mode === "official_api" && !accountForm.id ? (
+              <p className="config-hint">Add access token and user ID directly, or leave them blank to connect through Threads OAuth.</p>
             ) : null}
 
             {accountForm.id ? (

@@ -1,4 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  ArrowPathIcon,
+  CheckIcon,
+  PencilSquareIcon,
+  TrashIcon,
+  XMarkIcon,
+} from "@heroicons/react/24/solid";
 import { api } from "../lib/api";
 import type { StudioAccount, StudioCampaign, StudioSignal, StudioStrategistPost, StudioSummary } from "../lib/types";
 import { formatDisplayDateTime } from "../lib/datetime";
@@ -63,12 +70,6 @@ function statusTone(status: string) {
 function formatScheduledLabel(value: string | null | undefined) {
   const formatted = formatDisplayDateTime(value);
   return formatted ? `Scheduled on ${formatted}` : "Scheduled";
-}
-
-function toggleArrayValue<T extends string>(values: T[], value: T): T[] {
-  return values.includes(value)
-    ? values.filter((item) => item !== value)
-    : [...values, value];
 }
 
 function accountMatchesPlatforms(account: StudioAccount, platforms: Platform[]) {
@@ -176,40 +177,15 @@ function profileLinkForAuthor(platform: string, author: string) {
 type StudioIconName = "edit" | "regenerate" | "save" | "cancel" | "delete";
 
 function StudioIcon({ name }: { name: StudioIconName }) {
-  return (
-    <svg aria-hidden="true" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="18">
-      {name === "edit" ? (
-        <>
-          <path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z" />
-          <path d="m13.5 6.5 4 4" />
-        </>
-      ) : null}
-      {name === "regenerate" ? (
-        <>
-          <path d="M20 12a8 8 0 0 1-14.9 4" />
-          <path d="M4 16h4v4" />
-          <path d="M4 12a8 8 0 0 1 14.9-4" />
-          <path d="M20 8h-4V4" />
-        </>
-      ) : null}
-      {name === "save" ? <path d="m20 6-11 11-5-5" /> : null}
-      {name === "cancel" ? (
-        <>
-          <path d="M18 6 6 18" />
-          <path d="m6 6 12 12" />
-        </>
-      ) : null}
-      {name === "delete" ? (
-        <>
-          <path d="M3 6h18" />
-          <path d="M8 6V4h8v2" />
-          <path d="M19 6l-1 14H6L5 6" />
-          <path d="M10 11v6" />
-          <path d="M14 11v6" />
-        </>
-      ) : null}
-    </svg>
-  );
+  const icons = {
+    cancel: XMarkIcon,
+    delete: TrashIcon,
+    edit: PencilSquareIcon,
+    regenerate: ArrowPathIcon,
+    save: CheckIcon,
+  };
+  const Icon = icons[name];
+  return <Icon aria-hidden="true" className="h-4 w-4" />;
 }
 
 export function StudioPage({ onUpload }: StudioPageProps) {
@@ -281,9 +257,24 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     [summary.crawler_runs],
   );
 
+  const availableApps = useMemo(
+    () => summary.apps.filter((app) => app.status === "active"),
+    [summary.apps],
+  );
+
+  const availableAccounts = useMemo(
+    () => summary.accounts.filter((account) => account.status === "active"),
+    [summary.accounts],
+  );
+
+  const availablePlatforms = useMemo(
+    () => PLATFORMS.filter((platform) => availableAccounts.some((account) => account.platform === platform.id)),
+    [availableAccounts],
+  );
+
   const campaignAccounts = useMemo(
-    () => summary.accounts.filter((account) => accountMatchesPlatforms(account, campaignForm.platforms)),
-    [campaignForm.platforms, summary.accounts],
+    () => availableAccounts.filter((account) => accountMatchesPlatforms(account, campaignForm.platforms)),
+    [availableAccounts, campaignForm.platforms],
   );
 
   const accountLabelByRef = useMemo(
@@ -332,8 +323,27 @@ export function StudioPage({ onUpload }: StudioPageProps) {
       || Boolean(editingPost.target_external_id || editingPost.target_url || editingPost.target_author || editingPost.target_text)
     : false;
 
+  function buildEmptyCampaignForm(preferredPlatform?: Platform): CampaignForm {
+    const defaultPlatform = preferredPlatform && availablePlatforms.some((item) => item.id === preferredPlatform)
+      ? preferredPlatform
+      : availablePlatforms[0]?.id;
+    const matchingAccounts = defaultPlatform
+      ? availableAccounts.filter((account) => account.platform === defaultPlatform)
+      : [];
+    return {
+      name: "",
+      campaign_type: "post",
+      result_limit: String(DEFAULT_CAMPAIGN_RESULT_LIMIT),
+      app_id: availableApps[0] ? String(availableApps[0].id) : "",
+      account_refs: matchingAccounts[0] ? [matchingAccounts[0].ref] : [],
+      platforms: defaultPlatform ? [defaultPlatform] : [],
+      instructions: "",
+      status: "active",
+    };
+  }
+
   function openCampaignModal() {
-    setCampaignForm(emptyCampaignForm());
+    setCampaignForm(buildEmptyCampaignForm());
     setEditingCampaignId(null);
     setCampaignModalOpen(true);
     setFeedback(null);
@@ -341,13 +351,26 @@ export function StudioPage({ onUpload }: StudioPageProps) {
   }
 
   function openEditCampaign(campaign: StudioCampaign) {
+    const selectedPlatform = campaign.platforms.find((platform) => availablePlatforms.some((item) => item.id === platform))
+      ?? availablePlatforms[0]?.id
+      ?? campaign.platforms[0]
+      ?? "threads";
+    const selectedAccountRef = campaign.account_refs.find((ref) => {
+      const account = availableAccounts.find((item) => item.ref === ref);
+      return account?.platform === selectedPlatform;
+    }) ?? availableAccounts.find((account) => account.platform === selectedPlatform)?.ref ?? "";
+
     setCampaignForm({
       name: campaign.name,
       campaign_type: campaign.campaign_type,
       result_limit: String(campaign.result_limit ?? DEFAULT_CAMPAIGN_RESULT_LIMIT),
-      app_id: String(campaign.app_id),
-      account_refs: campaign.account_refs,
-      platforms: campaign.platforms,
+      app_id: availableApps.some((app) => app.id === campaign.app_id)
+        ? String(campaign.app_id)
+        : availableApps[0]
+        ? String(availableApps[0].id)
+        : "",
+      account_refs: selectedAccountRef ? [selectedAccountRef] : [],
+      platforms: availablePlatforms.some((item) => item.id === selectedPlatform) ? [selectedPlatform] : [],
       instructions: campaign.instructions,
       status: campaign.status,
     });
@@ -360,8 +383,41 @@ export function StudioPage({ onUpload }: StudioPageProps) {
   function closeCampaignModal() {
     setCampaignModalOpen(false);
     setEditingCampaignId(null);
-    setCampaignForm(emptyCampaignForm());
+    setCampaignForm(buildEmptyCampaignForm());
   }
+
+  useEffect(() => {
+    if (!campaignModalOpen) return;
+    setCampaignForm((current) => {
+      const nextAppId = availableApps.some((app) => String(app.id) === current.app_id)
+        ? current.app_id
+        : availableApps[0]
+        ? String(availableApps[0].id)
+        : "";
+      const nextPlatform = current.platforms[0] && availablePlatforms.some((item) => item.id === current.platforms[0])
+        ? current.platforms[0]
+        : availablePlatforms[0]?.id;
+      const matchingAccounts = nextPlatform
+        ? availableAccounts.filter((account) => account.platform === nextPlatform)
+        : [];
+      const nextAccountRef = current.account_refs[0] && matchingAccounts.some((account) => account.ref === current.account_refs[0])
+        ? current.account_refs[0]
+        : matchingAccounts[0]?.ref ?? "";
+      const nextPlatforms = nextPlatform ? [nextPlatform] : [];
+      const nextAccountRefs = nextAccountRef ? [nextAccountRef] : [];
+      const changed = nextAppId !== current.app_id
+        || nextPlatforms[0] !== current.platforms[0]
+        || nextAccountRefs[0] !== current.account_refs[0];
+      return changed
+        ? {
+            ...current,
+            app_id: nextAppId,
+            platforms: nextPlatforms,
+            account_refs: nextAccountRefs,
+          }
+        : current;
+    });
+  }, [availableAccounts, availableApps, availablePlatforms, campaignModalOpen]);
 
   function closeSuggestionEditor() {
     if (savingPostId) return;
@@ -371,16 +427,24 @@ export function StudioPage({ onUpload }: StudioPageProps) {
 
   async function saveCampaign(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (availableApps.length === 0) {
+      setError("Add an active app in Config first.");
+      return;
+    }
+    if (availablePlatforms.length === 0) {
+      setError("Connect an active social account in Config first.");
+      return;
+    }
     if (!campaignForm.name.trim() || !campaignForm.app_id) {
       setError("Campaign name and app are required.");
       return;
     }
     if (campaignForm.platforms.length === 0) {
-      setError("Select at least one social platform.");
+      setError("Select a social platform.");
       return;
     }
     if (campaignForm.account_refs.length === 0) {
-      setError("Select at least one connected account.");
+      setError("Select a connected account.");
       return;
     }
     if (!campaignForm.instructions.trim()) {
@@ -1065,11 +1129,13 @@ export function StudioPage({ onUpload }: StudioPageProps) {
               </div>
               <div className="studio-tabs__actions">
               <button
-                className="button-secondary"
+                className="button-secondary dashboard-icon-button"
                 type="button"
                 onClick={() => openEditCampaign(selectedCampaign)}
+                aria-label="Edit campaign"
+                title="Edit"
               >
-                Edit
+                <StudioIcon name="edit" />
               </button>
               <button
                 className="button-secondary"
@@ -1079,8 +1145,15 @@ export function StudioPage({ onUpload }: StudioPageProps) {
               >
                 {rerunningCampaignId === selectedCampaign.id ? "Rerunning..." : "Rerun"}
               </button>
-              <button className="button-secondary" type="button" disabled={refreshing} onClick={() => void load({ silent: true })}>
-                {refreshing ? "Refreshing..." : "Refresh"}
+              <button
+                className="button-secondary dashboard-icon-button"
+                type="button"
+                disabled={refreshing}
+                onClick={() => void load({ silent: true })}
+                aria-label="Refresh campaign"
+                title="Refresh"
+              >
+                <ArrowPathIcon aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
               </button>
               </div>
             </div>
@@ -1145,26 +1218,32 @@ export function StudioPage({ onUpload }: StudioPageProps) {
           </section>
         </>
       ) : (
-        <>
-          <section className="panel studio-tabs">
+        <section className="panel studio-overview">
+          <div className="studio-overview__bar">
             <div className="studio-tabs__heading">
-              <h2 className="studio-tabs__title">Strategist</h2>
+              <div className="studio-tabs__title-wrap">
+                <h2 className="studio-tabs__title">Campaigns</h2>
+                <span className="studio-count">{summary.campaigns.length}</span>
+              </div>
               <div className="studio-tabs__actions">
                 <button type="button" onClick={openCampaignModal}>
                   Create campaign
                 </button>
-                <button className="button-secondary" type="button" disabled={refreshing} onClick={() => void load({ silent: true })}>
-                  {refreshing ? "Refreshing..." : "Refresh"}
+                <button
+                  className="button-secondary dashboard-icon-button"
+                  type="button"
+                  disabled={refreshing}
+                  onClick={() => void load({ silent: true })}
+                  aria-label="Refresh campaigns"
+                  title="Refresh"
+                >
+                  <ArrowPathIcon aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
                 </button>
               </div>
             </div>
-          </section>
+          </div>
 
-          <section className="panel studio-campaigns">
-            <div className="panel__title-row">
-              <h2>Campaigns</h2>
-              <span className="studio-count">{summary.campaigns.length}</span>
-            </div>
+          <div className="studio-overview__campaigns studio-campaigns">
             {summary.campaigns.length === 0 ? (
               <div className="studio-empty">No campaigns yet.</div>
             ) : (
@@ -1210,33 +1289,37 @@ export function StudioPage({ onUpload }: StudioPageProps) {
                     <span className={`studio-pill studio-pill--${statusTone(campaign.status)}`}>{campaign.status}</span>
                     <div className="studio-row-actions">
                       <button
-                        className="button-secondary"
+                        className="button-secondary dashboard-icon-button"
                         type="button"
                         onClick={(event) => {
                           event.stopPropagation();
                           openEditCampaign(campaign);
                         }}
+                        aria-label={`Edit ${campaign.name}`}
+                        title="Edit"
                       >
-                        Edit
+                        <StudioIcon name="edit" />
                       </button>
                       <button
-                        className="button-secondary studio-danger-button"
+                        className="button-secondary studio-danger-button dashboard-icon-button"
                         type="button"
                         disabled={deletingCampaignId === campaign.id}
                         onClick={(event) => {
                           event.stopPropagation();
                           void deleteCampaign(campaign);
                         }}
+                        aria-label={deletingCampaignId === campaign.id ? `Deleting ${campaign.name}` : `Delete ${campaign.name}`}
+                        title={deletingCampaignId === campaign.id ? "Deleting" : "Delete"}
                       >
-                        {deletingCampaignId === campaign.id ? "Deleting..." : "Delete"}
+                        <StudioIcon name="delete" />
                       </button>
                     </div>
                   </article>
                 ))}
               </div>
             )}
-          </section>
-        </>
+          </div>
+        </section>
       )}
 
       {editingPost ? (
@@ -1317,12 +1400,13 @@ export function StudioPage({ onUpload }: StudioPageProps) {
             <label>
               App
               <select value={campaignForm.app_id} onChange={(event) => setCampaignForm((current) => ({ ...current, app_id: event.target.value }))} required>
-                <option value="">Select app</option>
-                {summary.apps.map((app) => (
+                <option value="">{availableApps.length === 0 ? "No active apps in Config" : "Select app"}</option>
+                {availableApps.map((app) => (
                   <option key={app.id} value={app.id}>{app.name}</option>
                 ))}
               </select>
             </label>
+            {availableApps.length === 0 ? <p className="studio-muted">Apps for campaigns come from Config. Add an active app there first.</p> : null}
             <div className="studio-choice-row" role="group" aria-label="Campaign type">
               {(["post", "reply"] as const).map((mode) => (
                 <button
@@ -1335,45 +1419,54 @@ export function StudioPage({ onUpload }: StudioPageProps) {
                 </button>
               ))}
             </div>
-            <div className="studio-check-grid">
-              {PLATFORMS.map((platform) => (
-                <label className="studio-check" key={platform.id}>
-                  <input
-                    type="checkbox"
-                    checked={campaignForm.platforms.includes(platform.id)}
-                    onChange={() => setCampaignForm((current) => {
-                      const platforms = toggleArrayValue(current.platforms, platform.id);
-                      return {
-                        ...current,
-                        platforms,
-                        account_refs: current.account_refs.filter((ref) => {
-                          const account = summary.accounts.find((item) => item.ref === ref);
-                          return account ? platforms.includes(account.platform) : false;
-                        }),
-                      };
-                    })}
-                  />
-                  <span>{platform.label}</span>
-                </label>
-              ))}
-            </div>
-            <div className="studio-check-list">
-              {campaignAccounts.length === 0 ? (
-                <p className="studio-muted">No matching connected accounts.</p>
-              ) : campaignAccounts.map((account) => (
-                <label className="studio-check" key={account.ref}>
-                  <input
-                    type="checkbox"
-                    checked={campaignForm.account_refs.includes(account.ref)}
-                    onChange={() => setCampaignForm((current) => ({
-                      ...current,
-                      account_refs: toggleArrayValue(current.account_refs, account.ref),
-                    }))}
-                  />
-                  <span>{account.label}</span>
-                </label>
-              ))}
-            </div>
+            {availablePlatforms.length > 0 ? (
+              <>
+                <div className="studio-check-grid">
+                  {availablePlatforms.map((platform) => (
+                    <label className="studio-check" key={platform.id}>
+                      <input
+                        type="radio"
+                        name="campaign-platform"
+                        checked={campaignForm.platforms[0] === platform.id}
+                        onChange={() => setCampaignForm((current) => {
+                          const platforms: Platform[] = [platform.id];
+                          const matchingAccounts = availableAccounts.filter((item) => item.platform === platform.id);
+                          const nextSelectedRef = current.account_refs.find((ref) => matchingAccounts.some((item) => item.ref === ref))
+                            ?? matchingAccounts[0]?.ref
+                            ?? "";
+                          return {
+                            ...current,
+                            platforms,
+                            account_refs: nextSelectedRef ? [nextSelectedRef] : [],
+                          };
+                        })}
+                      />
+                      <span>{platform.label}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="studio-check-list">
+                  {campaignAccounts.length === 0 ? (
+                    <p className="studio-muted">No matching connected accounts in Config.</p>
+                  ) : campaignAccounts.map((account) => (
+                    <label className="studio-check" key={account.ref}>
+                      <input
+                        type="radio"
+                        name="campaign-account"
+                        checked={campaignForm.account_refs[0] === account.ref}
+                        onChange={() => setCampaignForm((current) => ({
+                          ...current,
+                          account_refs: [account.ref],
+                        }))}
+                      />
+                      <span>{account.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="studio-muted">Social platform options come from Config. No active accounts are connected yet.</p>
+            )}
             <label>
               How many results we need
               <input

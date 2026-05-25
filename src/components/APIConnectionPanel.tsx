@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { CheckCircleIcon, XCircleIcon } from "@heroicons/react/24/solid";
 import type { DashboardSurface } from "../lib/surface";
 import "../styles/api-connection-panel.css";
 
@@ -44,6 +45,16 @@ interface APIConnectionPanelProps {
   onSyncAgent?: () => Promise<unknown>;
   title?: string;
   description?: string;
+}
+
+function ConnectionStatus({ connected }: { connected: boolean }) {
+  const Icon = connected ? CheckCircleIcon : XCircleIcon;
+  return (
+    <>
+      <Icon aria-hidden="true" className="api-panel__status-icon" />
+      {connected ? "Connected" : "Not Connected"}
+    </>
+  );
 }
 
 export function APIConnectionPanel({
@@ -245,7 +256,7 @@ export function APIConnectionPanel({
         <div className="api-panel__header">
           <h4>Shared AI API Settings</h4>
           <span className={`api-panel__status ${aiApiConnected ? "connected" : "disconnected"}`}>
-            {aiApiConnected ? "✓ Connected" : "○ Not Connected"}
+            <ConnectionStatus connected={Boolean(aiApiConnected)} />
           </span>
         </div>
         <div className="api-panel__inputs">
@@ -350,7 +361,7 @@ export function APIConnectionPanel({
         <div className="api-panel__header">
           <h4>cTrader Workspace Connection</h4>
           <span className={`api-panel__status ${ctraderConnected ? "connected" : "disconnected"}`}>
-            {ctraderConnected ? "✓ Connected" : "○ Not Connected"}
+            <ConnectionStatus connected={Boolean(ctraderConnected)} />
           </span>
         </div>
         <div className="api-panel__inputs">
@@ -435,7 +446,7 @@ export function APIConnectionPanel({
         <div className="api-panel__header">
           <h4>Trading Agent Sync</h4>
           <span className={`api-panel__status ${tradingAgentConnected ? "connected" : "disconnected"}`}>
-            {tradingAgentConnected ? "✓ Connected" : "○ Not Connected"}
+            <ConnectionStatus connected={Boolean(tradingAgentConnected)} />
           </span>
         </div>
         <div className="api-panel__inputs">

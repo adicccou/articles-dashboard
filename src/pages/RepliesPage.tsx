@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { ArrowPathIcon } from "@heroicons/react/24/outline";
+import { ArrowPathIcon } from "@heroicons/react/24/solid";
 import type { IconType } from "react-icons";
 import { SiReddit, SiThreads, SiX } from "react-icons/si";
 import { api } from "../lib/api";
-import type { SocialComment } from "../lib/types";
+import type { SocialComment, StudioAccount } from "../lib/types";
 import { formatDisplayDateTime } from "../lib/datetime";
 import "../styles/replies-page.css";
 
@@ -62,8 +62,13 @@ function attachmentSupported(platform: Platform): boolean {
   return platform === "threads";
 }
 
+function isActiveConfigAccount(account: StudioAccount): boolean {
+  return account.status === "active";
+}
+
 export function RepliesPage() {
   const [platform, setPlatform] = useState<Platform>(readStoredPlatform);
+  const [configuredAccounts, setConfiguredAccounts] = useState<StudioAccount[]>([]);
   const [commentsByPlatform, setCommentsByPlatform] = useState<Record<Platform, SocialComment[]>>({
     reddit: [],
     twitter: [],
@@ -85,8 +90,26 @@ export function RepliesPage() {
   async function load() {
     try {
       setError(null);
+      const loadedAccounts = await api.listStudioAccounts();
+      const activeAccounts = Array.isArray(loadedAccounts) ? loadedAccounts.filter(isActiveConfigAccount) : [];
+      const nextVisiblePlatforms = PLATFORMS.filter(({ id }) => activeAccounts.some((account) => account.platform === id));
+      setConfiguredAccounts(activeAccounts);
+
+      if (nextVisiblePlatforms.length === 0) {
+        setCommentsByPlatform({
+          reddit: [],
+          twitter: [],
+          threads: [],
+        });
+        return;
+      }
+
+      const nextPlatform = nextVisiblePlatforms.some(({ id }) => id === platform) ? platform : nextVisiblePlatforms[0].id;
+      if (nextPlatform !== platform) {
+        setPlatform(nextPlatform);
+      }
       const results = await Promise.allSettled(
-        PLATFORMS.map(async ({ id }) => [id, await api.listSocialComments(id, undefined, 30)] as const),
+        nextVisiblePlatforms.map(async ({ id }) => [id, await api.listSocialComments(id, undefined, 30)] as const),
       );
 
       const nextComments: Record<Platform, SocialComment[]> = {
@@ -97,7 +120,7 @@ export function RepliesPage() {
       const failedPlatforms: string[] = [];
 
       results.forEach((result, index) => {
-        const { id, label } = PLATFORMS[index];
+        const { id, label } = nextVisiblePlatforms[index];
         if (result.status === "fulfilled") {
           nextComments[id] = result.value[1].data ?? [];
           return;
@@ -131,6 +154,10 @@ export function RepliesPage() {
     window.localStorage.setItem(REPLIES_PLATFORM_STORAGE_KEY, platform);
   }, [platform]);
 
+  const visiblePlatforms = useMemo(
+    () => PLATFORMS.filter(({ id }) => configuredAccounts.some((account) => account.platform === id)),
+    [configuredAccounts],
+  );
   const comments = useMemo(() => commentsByPlatform[platform] ?? [], [commentsByPlatform, platform]);
   const composerPlatform = composerComment?.platform ?? platform;
   const composerReplyLimit = REPLY_LIMITS[composerPlatform];
@@ -283,117 +310,126 @@ export function RepliesPage() {
     <div className="replies-page stack">
       {error ? <p className="error panel">{error}</p> : null}
 
-      <div className="social-platform-bar replies-toolbar">
-        <div className="ui-tabs__list social-platform-tabs">
-          {PLATFORMS.map((item) => (
-            <button
-              key={item.id}
-              className={`ui-tab social-tab ${platform === item.id ? "ui-tab--active social-tab--active" : ""}`}
-              onClick={() => setPlatform(item.id)}
-              type="button"
-            >
-              <item.Icon className={`social-tab__icon social-tab__icon--${item.id}`} aria-hidden="true" />
-              {item.label}
-              <span className="ui-tab__badge replies-tab__badge">{commentsByPlatform[item.id].length}</span>
-            </button>
-          ))}
-        </div>
+      <section className="panel replies-panel replies-overview">
+        {visiblePlatforms.length > 0 ? (
+          <div className="social-platform-bar replies-toolbar replies-overview__bar">
+            <div className="ui-tabs__list social-platform-tabs">
+              {visiblePlatforms.map((item) => (
+                <button
+                  key={item.id}
+                  className={`ui-tab social-tab ${platform === item.id ? "ui-tab--active social-tab--active" : ""}`}
+                  onClick={() => setPlatform(item.id)}
+                  type="button"
+                >
+                  <item.Icon className={`social-tab__icon social-tab__icon--${item.id}`} aria-hidden="true" />
+                  {item.label}
+                  <span className="ui-tab__badge replies-tab__badge">{commentsByPlatform[item.id].length}</span>
+                </button>
+              ))}
+            </div>
 
-        <div className="social-platform-actions">
-          <button
-            type="button"
-            className="button-secondary dashboard-icon-button"
-            onClick={() => {
-              setRefreshing(true);
-              void load();
-            }}
-            disabled={refreshing}
-            aria-label="Refresh replies"
-            title="Refresh"
-          >
-            <ArrowPathIcon aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
-          </button>
-        </div>
-      </div>
-
-      <section className="panel replies-panel">
-        <div className="panel__title-row replies-panel__header">
-          <div>
-            <h2>Comments</h2>
-            <p className="muted">Other people commenting under your published posts.</p>
+            <div className="social-platform-actions">
+              <button
+                type="button"
+                className="button-secondary dashboard-icon-button"
+                onClick={() => {
+                  setRefreshing(true);
+                  void load();
+                }}
+                disabled={refreshing}
+                aria-label="Refresh replies"
+                title="Refresh"
+              >
+                <ArrowPathIcon aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
+              </button>
+            </div>
           </div>
-          <span className="social-status-pill social-status-pill--neutral">{comments.length}</span>
-        </div>
+        ) : null}
 
-        {loading ? (
-          <p className="social-empty">Loading comments...</p>
-        ) : comments.length === 0 ? (
-          <div className="social-empty-card">
-            <p className="social-empty-card__title">No comments yet.</p>
-            <p className="social-empty-card__copy">When people reply under your posts, they will show up here by platform.</p>
+        <div className="replies-overview__content">
+          <div className="panel__title-row replies-panel__header">
+            <div>
+              <h2>Comments</h2>
+              <p className="muted">Other people commenting under your published posts.</p>
+            </div>
+            <span className="social-status-pill social-status-pill--neutral">{comments.length}</span>
           </div>
-        ) : (
-          <div className="replies-list">
-            {comments.map((comment, index) => {
-              const context = getCommentContext(comment);
-              const replyTargetId = getReplyTargetId(comment);
-              const replyStatus = getReplyStatus(comment);
-              return (
-                <article className="social-thread-card replies-card" key={`${comment.platform}-${comment.external_id ?? index}`}>
-                  <div className="social-thread-card__header replies-card__header">
-                    <div className="replies-card__header-main">
-                      <strong>{getCommentAuthor(comment)}</strong>
-                      {comment.permalink ? (
-                        <a href={comment.permalink} target="_blank" rel="noreferrer">
-                          Open
-                        </a>
-                      ) : null}
-                    </div>
-                    <div className="replies-card__header-side">
-                      <span>{comment.commented_at ? formatDisplayDateTime(comment.commented_at) : "Unknown time"}</span>
-                      <span
-                        className={`social-status-pill replies-card__status replies-card__status--${replyStatus === "replied" ? "replied" : "new"}`}
-                      >
-                        {replyStatus === "replied" ? "Replied" : "New"}
-                      </span>
-                    </div>
-                  </div>
 
-                  {context ? <p className="replies-card__context">{context}</p> : null}
-                  <p>{comment.text || "No comment text returned."}</p>
-
-                  {comment.owner_reply_text ? (
-                    <section className="social-thread-card__suggestion replies-card__owner-reply">
-                      <div className="replies-card__owner-reply-header">
-                        <strong>Your reply</strong>
-                        {comment.owner_replied_at ? <span>{formatDisplayDateTime(comment.owner_replied_at)}</span> : null}
-                        {comment.owner_reply_permalink ? (
-                          <a className="replies-card__owner-reply-link" href={comment.owner_reply_permalink} target="_blank" rel="noreferrer">
-                            Open reply
+          {loading ? (
+            <p className="social-empty">Loading comments...</p>
+          ) : visiblePlatforms.length === 0 ? (
+            <div className="social-empty-card">
+              <p className="social-empty-card__title">No social accounts in Config yet.</p>
+              <p className="social-empty-card__copy">Connect an active social account in Config and replies will start showing here by platform.</p>
+            </div>
+          ) : comments.length === 0 ? (
+            <div className="social-empty-card">
+              <p className="social-empty-card__title">No comments yet.</p>
+              <p className="social-empty-card__copy">When people reply under your posts, they will show up here by platform.</p>
+            </div>
+          ) : (
+            <div className="replies-list">
+              {comments.map((comment, index) => {
+                const context = getCommentContext(comment);
+                const replyTargetId = getReplyTargetId(comment);
+                const replyStatus = getReplyStatus(comment);
+                return (
+                  <article className="social-thread-card replies-card" key={`${comment.platform}-${comment.external_id ?? index}`}>
+                    <div className="social-thread-card__header replies-card__header">
+                      <div className="replies-card__header-main">
+                        <strong>{getCommentAuthor(comment)}</strong>
+                        {comment.permalink ? (
+                          <a href={comment.permalink} target="_blank" rel="noreferrer">
+                            Open
                           </a>
                         ) : null}
                       </div>
-                      <p>{comment.owner_reply_text}</p>
-                    </section>
-                  ) : null}
+                      <div className="replies-card__header-side">
+                        <span>{comment.commented_at ? formatDisplayDateTime(comment.commented_at) : "Unknown time"}</span>
+                        <span
+                          className={`social-status-pill replies-card__status replies-card__status--${replyStatus === "replied" ? "replied" : "new"}`}
+                        >
+                          {replyStatus === "replied" ? "Replied" : "New"}
+                        </span>
+                      </div>
+                    </div>
 
-                  <div className="social-thread-card__meta replies-card__meta">
-                    <button
-                      type="button"
-                      className="button-secondary replies-card__reply-button"
-                      onClick={() => {
-                        void openComposer(comment);
-                      }}
-                      disabled={!replyTargetId}
-                    >
-                      Auto reply
-                    </button>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
+                    {context ? <p className="replies-card__context">{context}</p> : null}
+                    <p>{comment.text || "No comment text returned."}</p>
+
+                    {comment.owner_reply_text ? (
+                      <section className="social-thread-card__suggestion replies-card__owner-reply">
+                        <div className="replies-card__owner-reply-header">
+                          <strong>Your reply</strong>
+                          {comment.owner_replied_at ? <span>{formatDisplayDateTime(comment.owner_replied_at)}</span> : null}
+                          {comment.owner_reply_permalink ? (
+                            <a className="replies-card__owner-reply-link" href={comment.owner_reply_permalink} target="_blank" rel="noreferrer">
+                              Open reply
+                            </a>
+                          ) : null}
+                        </div>
+                        <p>{comment.owner_reply_text}</p>
+                      </section>
+                    ) : null}
+
+                    <div className="social-thread-card__meta replies-card__meta">
+                      <button
+                        type="button"
+                        className="button-secondary replies-card__reply-button"
+                        onClick={() => {
+                          void openComposer(comment);
+                        }}
+                        disabled={!replyTargetId}
+                      >
+                        Auto reply
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </section>
 
       {composerComment ? (

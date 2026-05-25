@@ -1,4 +1,4 @@
-import type { ArticleAssistPayload, ArticleCoverPayload, ArticleCoverResponse, ArticleInput, ArticleRecord, ArticleStylePayload, ArticleStyleResponse, AuthState, DashboardBootstrap, DashboardUser, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialAccountInput, SocialComment, SocialPost, SocialReplySuggestion, StudioApp, StudioCampaign, StudioCrawlerRun, StudioSignal, StudioStrategistPost, StudioSummary, ThreadsCampaignResult, ThreadsMediaResponse, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorkersResponse, MlTradingAssetsResponse, MlTradingDiagnostics, MlTradingSettings } from "./types";
+import type { ArticleAssistPayload, ArticleCoverPayload, ArticleCoverResponse, ArticleInput, ArticleRecord, ArticleStylePayload, ArticleStyleResponse, AuthState, DashboardBootstrap, DashboardUser, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, Site, SocialAccount, SocialAccountInput, SocialComment, SocialPost, SocialReplySuggestion, StudioAccount, StudioApp, StudioCampaign, StudioCrawlerRun, StudioSignal, StudioStrategistPost, StudioSummary, ThreadsCampaignResult, ThreadsMediaResponse, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorkersResponse, MlTradingAssetsResponse, MlTradingDiagnostics, MlTradingSettings } from "./types";
 
 type SocialReplyPublishResponse = {
   success: boolean;
@@ -65,6 +65,7 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   getCategories: () => request<ArticleCategory[]>("/api/categories"),
+  listSites: () => request<Site[]>("/api/sites"),
   saveArticle: (payload: ArticleInput, id?: number) =>
     request<ArticleRecord>(id ? `/api/articles/${id}` : "/api/articles", {
       method: id ? "PUT" : "POST",
@@ -223,12 +224,29 @@ export const api = {
       method: "DELETE",
     }),
   listRedditAccounts: () => request<RedditAccount[]>("/api/reddit/accounts"),
+  addRedditAccount: (payload: {
+    name: string;
+    status?: "active" | "inactive";
+    connection_mode?: "official_api" | "playwright";
+    playwright_login?: string;
+    playwright_password?: string;
+  }) =>
+    request<RedditAccount>("/api/reddit/accounts", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   startRedditOAuth: (account_name: string) =>
     request<{ auth_url: string }>("/api/reddit/auth/authorize", {
       method: "POST",
       body: JSON.stringify({ account_name }),
     }),
-  updateRedditAccount: (id: number, payload: { name?: string; status?: "active" | "inactive" }) =>
+  updateRedditAccount: (id: number, payload: {
+    name?: string;
+    status?: "active" | "inactive";
+    connection_mode?: "official_api" | "playwright";
+    playwright_login?: string;
+    playwright_password?: string;
+  }) =>
     request<{ success: boolean; updated_at: string }>(`/api/reddit/accounts/${id}`, {
       method: "PUT",
       body: JSON.stringify(payload),
@@ -289,6 +307,8 @@ export const api = {
 
   // Studio
   getStudio: () => request<StudioSummary>("/api/studio"),
+  listStudioAccounts: () => request<StudioAccount[]>("/api/studio/accounts"),
+  listStudioApps: () => request<StudioApp[]>("/api/studio/apps"),
   createStudioApp: (payload: Omit<StudioApp, "id" | "created_at" | "updated_at">) =>
     request<StudioApp>("/api/studio/apps", {
       method: "POST",

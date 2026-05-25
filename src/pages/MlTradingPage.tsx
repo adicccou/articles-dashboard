@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { PencilSquareIcon } from "@heroicons/react/24/solid";
 import type { CustomLeanSettings, MlTradingAsset, MlTradingDiagnostics, MlTradingSettings } from "../lib/types";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
@@ -73,11 +74,13 @@ function MlAssetRow({
         <div className="custom-lean-worker__actions">
           <button
             type="button"
-            className="button-secondary custom-lean-worker__edit"
+            className="button-secondary custom-lean-worker__edit dashboard-icon-button"
             onClick={() => onEdit(asset)}
             disabled={saving}
+            aria-label={`Edit ${asset.asset}`}
+            title={`Edit ${asset.asset}`}
           >
-            Edit
+            <PencilSquareIcon aria-hidden="true" />
           </button>
         </div>
         <small>{asset.enabled ? "Enabled" : "Disabled"}</small>

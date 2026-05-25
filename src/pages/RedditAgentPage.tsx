@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
+import { PhotoIcon, PlusIcon } from "@heroicons/react/24/solid";
 import type { RedditAccount, PlannerItem } from "../lib/types";
 import { api } from "../lib/api";
 import { SocialPlannerItemModal } from "../components/SocialPlannerItemModal";
@@ -51,7 +52,7 @@ export const RedditAgentPage = forwardRef<SocialAgentToolbarHandle>(function Red
     if (imageUrls.length === 0) {
       return (
         <div className="social-post-media social-post-media--placeholder" aria-label="No image attached">
-          <span className="social-post-placeholder-icon" aria-hidden="true">🖼</span>
+          <PhotoIcon className="social-post-placeholder-icon" aria-hidden="true" />
           <span>No image</span>
         </div>
       );
@@ -92,7 +93,8 @@ export const RedditAgentPage = forwardRef<SocialAgentToolbarHandle>(function Red
               <p className="social-empty-card__copy">Add a Reddit post plan here and it will appear in this workspace for follow-up.</p>
               <div className="social-empty-card__actions">
                 <button type="button" onClick={() => setIsPostModalOpen(true)}>
-                  + Post
+                  <PlusIcon aria-hidden="true" className="h-4 w-4" />
+                  Post
                 </button>
               </div>
             </div>

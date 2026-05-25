@@ -1,7 +1,23 @@
 .statistics-panel {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: 24px;
+}
+
+.statistics-overview {
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.statistics-overview__bar {
+  border-bottom: 0;
+  padding: 20px 0;
+}
+
+.statistics-overview__content {
+  display: grid;
+  gap: 24px;
+  padding: 20px 0;
 }
 
 .project-selector {
@@ -118,7 +134,7 @@
   background: var(--surface);
   border: 1.5px solid var(--border);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow);
+  box-shadow: none;
   transition: border-color 120ms ease;
 }
 

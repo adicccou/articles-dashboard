@@ -16,7 +16,7 @@ import {
   searchRedditPosts,
   createRedditReply,
 } from "./handlers/reddit";
-import { handleAuthorizeRequest, handleOAuthCallback, listRedditAccounts, updateRedditAccount, deleteRedditAccount } from "./handlers/reddit-auth";
+import { addRedditAccount, handleAuthorizeRequest, handleOAuthCallback, listRedditAccounts, updateRedditAccount, deleteRedditAccount } from "./handlers/reddit-auth";
 import { getKnowledgeBase, saveKnowledgeBase, getVersions, getVersion } from "./handlers/knowledge-base";
 import { listStrategies, getStrategy, createStrategy, updateStrategy, activateStrategy, deactivateStrategy, deleteStrategy, getStrategyStats, getStrategyExecutions, getActiveStrategyInternal } from "./handlers/trading";
 import { generateArticleCover, styleArticleContent, suggestArticleField } from "./handlers/article-ai";
@@ -1129,38 +1129,38 @@ export default {
     if (url.pathname === "/api/internal/studio/crawler-runs" && request.method === "GET") {
       const unauthorized = await requireAgentAuth(request, env);
       if (unauthorized) return unauthorized;
-      return await listStudioCrawlerRuns(env, url);
+      return await listStudioCrawlerRuns(env, url, null);
     }
 
     if (url.pathname.startsWith("/api/internal/studio/crawler-runs/") && request.method === "PUT") {
       const unauthorized = await requireAgentAuth(request, env);
       if (unauthorized) return unauthorized;
       const id = url.pathname.split("/")[5];
-      return await updateStudioCrawlerRun(env, id, request);
+      return await updateStudioCrawlerRun(env, id, request, null);
     }
 
     if (url.pathname === "/api/internal/studio/signals" && request.method === "GET") {
       const unauthorized = await requireAgentAuth(request, env);
       if (unauthorized) return unauthorized;
-      return await listStudioSignals(env, url);
+      return await listStudioSignals(env, url, null);
     }
 
     if (url.pathname === "/api/internal/studio/signals/bulk" && request.method === "POST") {
       const unauthorized = await requireAgentAuth(request, env);
       if (unauthorized) return unauthorized;
-      return await createStudioSignals(env, request);
+      return await createStudioSignals(env, request, null);
     }
 
     if (url.pathname === "/api/internal/studio/strategist-posts/bulk" && request.method === "POST") {
       const unauthorized = await requireAgentAuth(request, env);
       if (unauthorized) return unauthorized;
-      return await createStudioStrategistPosts(env, request);
+      return await createStudioStrategistPosts(env, request, null);
     }
 
     if (url.pathname === "/api/internal/studio/notifications" && request.method === "GET") {
       const unauthorized = await requireAgentAuth(request, env);
       if (unauthorized) return unauthorized;
-      return await listStudioNotifications(env, url);
+      return await listStudioNotifications(env, url, null);
     }
 
     if (url.pathname.startsWith("/api/internal/studio/notifications/") && request.method === "PUT") {
@@ -1230,7 +1230,7 @@ export default {
     if (url.pathname === "/api/studio/campaigns" && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await createStudioCampaign(env, request, activeScopeId(user));
+      return await createStudioCampaign(env, request, activeScopeId(user), user.id);
     }
 
     if (url.pathname.startsWith("/api/studio/campaigns/") && request.method === "PUT") {
@@ -1256,7 +1256,7 @@ export default {
     if (url.pathname === "/api/studio/crawler-runs" && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await createStudioCrawlerRun(env, request, activeScopeId(user));
+      return await createStudioCrawlerRun(env, request, activeScopeId(user), user.id);
     }
 
     if (url.pathname === "/api/studio/signals" && request.method === "GET") {
@@ -1439,14 +1439,20 @@ export default {
     if (url.pathname === "/api/reddit/accounts" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await listRedditAccounts(env, activeScopeId(user));
+      return await listRedditAccounts(env, activeScopeId(user), user.id);
+    }
+
+    if (url.pathname === "/api/reddit/accounts" && request.method === "POST") {
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      return await addRedditAccount(env, request, activeScopeId(user), user.id);
     }
 
     if (url.pathname.startsWith("/api/reddit/accounts/") && request.method === "PUT") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
-      return await updateRedditAccount(env, id, request, activeScopeId(user));
+      return await updateRedditAccount(env, id, request, activeScopeId(user), user.id);
     }
 
     if (url.pathname.startsWith("/api/reddit/accounts/") && request.method === "DELETE") {
@@ -1817,20 +1823,20 @@ export default {
     if (url.pathname === "/api/social/twitter/accounts" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await listTwitterAccounts(env, activeScopeId(user));
+      return await listTwitterAccounts(env, activeScopeId(user), user.id);
     }
 
     if (url.pathname === "/api/social/twitter/accounts" && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await addTwitterAccount(env, request, activeScopeId(user));
+      return await addTwitterAccount(env, request, activeScopeId(user), user.id);
     }
 
     if (url.pathname.startsWith("/api/social/twitter/accounts/") && request.method === "PUT") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[5];
-      return await updateTwitterAccount(env, id, request, activeScopeId(user));
+      return await updateTwitterAccount(env, id, request, activeScopeId(user), user.id);
     }
 
     if (url.pathname.startsWith("/api/social/twitter/accounts/") && request.method === "DELETE") {
@@ -1854,20 +1860,20 @@ export default {
     if (url.pathname === "/api/social/threads/accounts" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await listThreadsAccounts(env, activeScopeId(user));
+      return await listThreadsAccounts(env, activeScopeId(user), user.id);
     }
 
     if (url.pathname === "/api/social/threads/accounts" && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await addThreadsAccount(env, request, activeScopeId(user));
+      return await addThreadsAccount(env, request, activeScopeId(user), user.id);
     }
 
     if (url.pathname.startsWith("/api/social/threads/accounts/") && request.method === "PUT") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[5];
-      return await updateThreadsAccount(env, id, request, activeScopeId(user));
+      return await updateThreadsAccount(env, id, request, activeScopeId(user), user.id);
     }
 
     if (url.pathname.startsWith("/api/social/threads/accounts/") && request.method === "DELETE") {

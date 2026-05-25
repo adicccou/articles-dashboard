@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ArrowPathIcon } from "@heroicons/react/24/solid";
 import { api } from "../lib/api";
 import type { LearningReport, LearningSuggestion } from "../lib/types";
 
@@ -50,8 +51,8 @@ export function LearningReportCard() {
             <span className="learning-report-card__eyebrow">Self-learning</span>
             <h3>Learning engine offline</h3>
         </div>
-        <button className="lean-status-card__refresh" onClick={() => void load()} aria-label="Refresh learning report">
-            Refresh
+        <button className="lean-status-card__refresh dashboard-icon-button" onClick={() => void load()} aria-label="Refresh learning report" title="Refresh">
+          <ArrowPathIcon aria-hidden="true" />
         </button>
         </div>
         <p className="learning-report-card__muted">{report?.error || "Trading agent is not configured yet."}</p>
@@ -71,8 +72,8 @@ export function LearningReportCard() {
           <span className="learning-report-card__eyebrow">Backtesting & Self-learning</span>
           <h3>Latest Strategy Report</h3>
         </div>
-        <button className="lean-status-card__refresh" onClick={() => void load()} aria-label="Refresh learning report">
-          Refresh
+        <button className="lean-status-card__refresh dashboard-icon-button" onClick={() => void load()} aria-label="Refresh learning report" title="Refresh">
+          <ArrowPathIcon aria-hidden="true" />
         </button>
       </div>
 

@@ -1,8 +1,8 @@
 import React, { useEffect, useRef } from "react";
+import { ArrowRightOnRectangleIcon, Cog6ToothIcon } from "@heroicons/react/24/solid";
 import logoMark from "../assets/my-logo.svg";
 import type { DashboardSurface } from "../lib/surface";
 import { getSurfaceViews } from "../lib/surface";
-import styles from "../styles/topnav.module.css";
 
 export type NavView =
   | "articles"
@@ -32,11 +32,11 @@ export const TopNav: React.FC<TopNavProps> = ({
   const activeNavRef = useRef<HTMLButtonElement | null>(null);
   const allNavItems: Array<{ label: string; view: NavView }> = [
     { label: "Trading", view: "trading" },
-    { label: "Articles", view: "articles" },
-    { label: "Replies", view: "replies" },
     { label: "Studio", view: "studio" },
+    { label: "Replies", view: "replies" },
     { label: "Planner", view: "planner" },
     { label: "Statistics", view: "statistics" },
+    { label: "Articles", view: "articles" },
     { label: "Config", view: "config" },
   ];
   const allowedViews = getSurfaceViews(surface);
@@ -53,19 +53,22 @@ export const TopNav: React.FC<TopNavProps> = ({
   }, [currentView]);
 
   return (
-    <nav className={styles.topnav} aria-label="Dashboard navigation">
-      <div className={styles.container}>
-        <div className={styles.logo} aria-label="BlogPoster logo">
-          <img src={logoMark} alt="BlogPoster" className={styles.logoImage} />
+    <nav className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/95 backdrop-blur" aria-label="Dashboard navigation">
+      <div className="mx-auto flex min-h-16 w-full max-w-[1440px] items-center gap-4 px-5 sm:px-6">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center" aria-label="BlogPoster logo">
+          <img src={logoMark} alt="BlogPoster" className="h-8 w-8 object-contain" />
         </div>
 
-        <div className={styles.navItems}>
+        <div className="dashboard-nav-menu flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
           {navItems.map(({ label, view }) => (
             <button
               key={view}
-              className={`${styles.navItem} ${
-                currentView === view ? styles.active : ""
-              }`}
+              className={[
+                "dashboard-nav-item shrink-0 px-3 py-2 text-sm font-semibold transition",
+                currentView === view
+                  ? "dashboard-nav-item--active text-slate-950"
+                  : "text-slate-600 hover:text-slate-950",
+              ].join(" ")}
               onClick={() => onNavigate(view)}
               ref={(node) => {
                 if (currentView === view) {
@@ -79,18 +82,24 @@ export const TopNav: React.FC<TopNavProps> = ({
           ))}
         </div>
 
-        <div className={styles.userMenu}>
+        <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
-            className={styles.settingsBtn}
+            className="grid h-10 w-10 place-items-center rounded-full border-0 bg-transparent p-0 text-slate-500 shadow-none transition hover:bg-transparent hover:text-slate-950"
             onClick={onOpenSettings}
             aria-label="Open settings"
             title="Settings"
           >
-            ⚙
+            <Cog6ToothIcon aria-hidden="true" className="h-5 w-5" />
           </button>
-          <button className={styles.logoutBtn} onClick={onLogout}>
-            Logout
+          <button
+            type="button"
+            className="dashboard-icon-button"
+            onClick={onLogout}
+            aria-label="Sign out"
+            title="Sign out"
+          >
+            <ArrowRightOnRectangleIcon aria-hidden="true" />
           </button>
         </div>
       </div>

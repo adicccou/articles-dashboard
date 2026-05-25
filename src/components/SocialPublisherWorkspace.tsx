@@ -1,4 +1,18 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useState,
+} from "react";
+import {
+  ArrowPathIcon,
+  Cog6ToothIcon,
+  PhotoIcon,
+  PlusIcon,
+  TrashIcon,
+} from "@heroicons/react/24/solid";
+import type { IconType } from "react-icons";
 import type { SocialAccount, SocialPost } from "../lib/types";
 import { formatDisplayDate, formatDisplayDateTime } from "../lib/datetime";
 import { getPostImageUrls } from "../lib/socialPostMedia";
@@ -29,7 +43,7 @@ export type SocialAgentToolbarHandle = {
 };
 
 type SocialPublisherWorkspaceProps = {
-  icon: string;
+  PlatformIcon: IconType;
   platformLabel: string;
   shortLabel: string;
   queuePlaceholder: string;
@@ -147,7 +161,7 @@ function renderPostMedia(imageUrl: string | null | undefined, content: string) {
   if (imageUrls.length === 0) {
     return (
       <div className="social-post-media social-post-media--placeholder" aria-label="No image attached">
-        <span className="social-post-placeholder-icon" aria-hidden="true">🖼</span>
+        <PhotoIcon className="social-post-placeholder-icon" aria-hidden="true" />
         <span>No image</span>
       </div>
     );
@@ -296,7 +310,7 @@ function SocialPostComposerModal({
 }
 
 export const SocialPublisherWorkspace = forwardRef<SocialAgentToolbarHandle, SocialPublisherWorkspaceProps>(function SocialPublisherWorkspace({
-  icon,
+  PlatformIcon,
   platformLabel,
   shortLabel,
   queuePlaceholder,
@@ -403,7 +417,10 @@ export const SocialPublisherWorkspace = forwardRef<SocialAgentToolbarHandle, Soc
         <section className="panel social-hero">
           <div className="social-hero__content">
             <div className="social-title-row">
-              <h2>{icon} {platformLabel}</h2>
+              <h2>
+                <PlatformIcon className="social-heading-icon" aria-hidden="true" />
+                {platformLabel}
+              </h2>
               <span className={`social-status-pill social-status-pill--${isConnected ? "success" : "warning"}`}>
                 {isConnected ? "Connected" : "Needs setup"}
               </span>
@@ -411,7 +428,8 @@ export const SocialPublisherWorkspace = forwardRef<SocialAgentToolbarHandle, Soc
           </div>
           <div className="social-hero__actions">
             <button type="button" onClick={openComposer}>
-              + Post
+              <PlusIcon aria-hidden="true" className="h-4 w-4" />
+              Post
             </button>
             {showAccountManagement ? (
               <button
@@ -424,7 +442,7 @@ export const SocialPublisherWorkspace = forwardRef<SocialAgentToolbarHandle, Soc
                   setIsSetupOpen(true);
                 }}
               >
-                ⚙
+                <Cog6ToothIcon aria-hidden="true" className="h-4 w-4" />
                 <span className="social-toolbar-badge">{accounts.length}</span>
               </button>
             ) : null}
@@ -435,7 +453,7 @@ export const SocialPublisherWorkspace = forwardRef<SocialAgentToolbarHandle, Soc
               type="button"
               onClick={() => void onReload()}
             >
-              ↻
+              <ArrowPathIcon aria-hidden="true" className="h-4 w-4" />
             </button>
           </div>
         </section>
@@ -490,8 +508,14 @@ export const SocialPublisherWorkspace = forwardRef<SocialAgentToolbarHandle, Soc
                           Publish
                         </button>
                       ) : null}
-                      <button className="social-inline-button social-inline-button--danger" type="button" onClick={() => void onDeletePost(post.id)}>
-                        Delete
+                      <button
+                        className="social-inline-button social-inline-button--danger dashboard-icon-button"
+                        type="button"
+                        onClick={() => void onDeletePost(post.id)}
+                        aria-label="Delete post"
+                        title="Delete"
+                      >
+                        <TrashIcon aria-hidden="true" />
                       </button>
                     </div>
                   </article>
@@ -667,7 +691,7 @@ export const SocialPublisherWorkspace = forwardRef<SocialAgentToolbarHandle, Soc
                     <p className="social-empty-card__copy">{accountsEmptyMessage}</p>
                   </div>
                 ) : (
-                  <div className="table">
+                  <div className="table social-accounts-table">
                     <div className="table__row table__row--header">
                       <span>Username</span>
                       <span>Status</span>
@@ -682,8 +706,14 @@ export const SocialPublisherWorkspace = forwardRef<SocialAgentToolbarHandle, Soc
                         </span>
                         <span className="social-muted">{formatDisplayDate(account.created_at)}</span>
                         <span className="social-table-actions">
-                          <button className="social-inline-button social-inline-button--danger" type="button" onClick={() => void onDeleteAccount(account.id)}>
-                            Remove
+                          <button
+                            className="social-inline-button social-inline-button--danger dashboard-icon-button"
+                            type="button"
+                            onClick={() => void onDeleteAccount(account.id)}
+                            aria-label={`Remove @${account.username}`}
+                            title="Remove"
+                          >
+                            <TrashIcon aria-hidden="true" />
                           </button>
                         </span>
                       </div>

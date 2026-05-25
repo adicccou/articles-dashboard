@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
+import { PencilSquareIcon, TrashIcon } from "@heroicons/react/24/solid";
 import type { CustomLeanAssetWorkers, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorker } from "../lib/types";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
@@ -84,11 +85,13 @@ function WorkerRow({
         <div className="custom-lean-worker__actions">
           <button
             type="button"
-            className="button-secondary custom-lean-worker__edit"
+            className="button-secondary custom-lean-worker__edit dashboard-icon-button"
             onClick={() => onEdit(worker)}
             disabled={saving}
+            aria-label={`Edit ${worker.name}`}
+            title={`Edit ${worker.name}`}
           >
-            Edit
+            <PencilSquareIcon aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -98,9 +101,7 @@ function WorkerRow({
             aria-label={`Delete ${worker.name}`}
             title={`Delete ${worker.name}`}
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M9 3h6l1 2h4v2H4V5h4l1-2zm1 6h2v8h-2V9zm4 0h2v8h-2V9zM7 9h2v8H7V9zm1 11h8a2 2 0 0 0 2-2V8H6v10a2 2 0 0 0 2 2z" />
-            </svg>
+            <TrashIcon aria-hidden="true" />
           </button>
         </div>
         <small>{enabled ? "Enabled" : "Disabled"}</small>

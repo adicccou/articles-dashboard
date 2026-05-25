@@ -157,6 +157,8 @@ export function App() {
         onNavigate={setView}
         onOpenSettings={() => setSettingsOpen(true)}
         onLogout={async () => {
+          const confirmed = window.confirm("Sign out now?");
+          if (!confirmed) return;
           await api.logout();
           setAuth({ authenticated: false });
         }}

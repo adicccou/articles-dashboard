@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useState } from "react";
+import { SiX } from "react-icons/si";
 import type { SocialAccount, SocialPost, PlannerItem } from "../lib/types";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
@@ -73,9 +74,9 @@ export const TwitterAgentPage = forwardRef<SocialAgentToolbarHandle>(function Tw
       <SocialPublisherWorkspace
         ref={ref}
         hideHeader
-        icon="𝕏"
+        PlatformIcon={SiX}
         platformLabel="Twitter / X Agent"
-        shortLabel="𝕏"
+        shortLabel="Twitter/X"
         queuePlaceholder="Write a tweet..."
         queueHint="Post immediately above, pick a time manually, or auto-schedule into an open planner slot."
         queueLimit={280}

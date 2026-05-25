@@ -65,6 +65,7 @@ function normalizeContentForEditor(value: string): string {
 
 export function ArticleEditor({ article, sites, categories, onSave, onUpload, onCancel }: ArticleEditorProps) {
   const [form, setForm] = useState<ArticleInput>(() => toInitialState(article));
+  const [configSites, setConfigSites] = useState<Site[]>(sites);
   const [categoryText, setCategoryText] = useState(() => article?.category?.name ?? "");
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -75,12 +76,20 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
   const selectionRef = useRef<Range | null>(null);
 
   const selectedSites = useMemo(() => new Set(form.site_ids), [form.site_ids]);
+  const publishingSites = useMemo(
+    () => (configSites.length > 0 ? configSites : sites).filter((site) => site.status === "active"),
+    [configSites, sites],
+  );
 
   useEffect(() => {
     setForm(toInitialState(article));
     setCategoryText(article?.category?.name ?? "");
     setError(null);
   }, [article]);
+
+  useEffect(() => {
+    setConfigSites(sites);
+  }, [sites]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -94,6 +103,30 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
   useEffect(() => {
     document.execCommand("styleWithCSS", false, "true");
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api.listSites()
+      .then((nextSites) => {
+        if (!cancelled && Array.isArray(nextSites)) {
+          setConfigSites(nextSites);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const validSiteIds = new Set(publishingSites.map((site) => site.id));
+    setForm((current) => {
+      const nextSiteIds = current.site_ids.filter((id) => validSiteIds.has(id));
+      return nextSiteIds.length === current.site_ids.length
+        ? current
+        : { ...current, site_ids: nextSiteIds };
+    });
+  }, [publishingSites]);
 
   function update<K extends keyof ArticleInput>(key: K, value: ArticleInput[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -599,26 +632,31 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
         <div className="panel__title-row">
           <h2>Sites & Publishing</h2>
         </div>
-        <div className="chip-grid">
-          {sites.map((site) => (
-            <label key={site.id} className={`chip ${selectedSites.has(site.id) ? "chip--selected" : ""}`}>
-              <input
-                type="checkbox"
-                checked={selectedSites.has(site.id)}
-                onChange={(e) => {
-                  setForm((current) => ({
-                    ...current,
-                    site_ids: e.target.checked
-                      ? [...current.site_ids, site.id]
-                      : current.site_ids.filter((id) => id !== site.id),
-                  }));
-                }}
-              />
-              <span>{site.name}</span>
-              <small>{site.slug}</small>
-            </label>
-          ))}
-        </div>
+        <p className="article-editor__hint">Publishing targets are managed in Config.</p>
+        {publishingSites.length === 0 ? (
+          <p className="muted">No active sites are available in Config yet.</p>
+        ) : (
+          <div className="chip-grid">
+            {publishingSites.map((site) => (
+              <label key={site.id} className={`chip ${selectedSites.has(site.id) ? "chip--selected" : ""}`}>
+                <input
+                  type="checkbox"
+                  checked={selectedSites.has(site.id)}
+                  onChange={(e) => {
+                    setForm((current) => ({
+                      ...current,
+                      site_ids: e.target.checked
+                        ? [...current.site_ids, site.id]
+                        : current.site_ids.filter((id) => id !== site.id),
+                    }));
+                  }}
+                />
+                <span>{site.name}</span>
+                <small>{site.slug}</small>
+              </label>
+            ))}
+          </div>
+        )}
         <div className="grid-two">
           <label>
             <span className="article-editor__label-row">

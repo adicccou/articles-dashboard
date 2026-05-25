@@ -1,6 +1,7 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
+import { defaultPlaywrightProfileKey, playwrightUserSettingKey } from "../lib/playwright-accounts";
 import { listSocialPosts, createSocialPost, updateSocialPost, deleteSocialPost, getSocialPostSchemaCapabilities } from "./twitter";
 
 // Re-export post handlers using the 'threads' platform
@@ -16,6 +17,10 @@ type ThreadsAccountPayload = {
   scopes: string;
   access_token: string;
   user_id: string;
+  connection_mode?: "official_api" | "playwright";
+  status?: "active" | "inactive";
+  playwright_login?: string;
+  playwright_password?: string;
 };
 
 type ThreadsAccountUpdatePayload = Partial<ThreadsAccountPayload> & {
@@ -112,6 +117,20 @@ async function readSetting(env: Env, key: string, userId = DEFAULT_USER_ID): Pro
     .bind(...(hasWorkspaceId ? [workspaceId(userId), key] : hasUserId ? [ownerId(userId), key] : [key]))
     .first<{ value: string }>();
   return row?.value ?? "";
+}
+
+async function readPlaywrightSettings(
+  env: Env,
+  accountId: number,
+  scopeId = DEFAULT_USER_ID,
+  dashboardUserId = DEFAULT_USER_ID,
+): Promise<{ login: string; password: string; profileKey: string }> {
+  const [login, password, profileKey] = await Promise.all([
+    readSetting(env, playwrightUserSettingKey("social_account", accountId, dashboardUserId, "login"), scopeId),
+    readSetting(env, playwrightUserSettingKey("social_account", accountId, dashboardUserId, "password"), scopeId),
+    readSetting(env, playwrightUserSettingKey("social_account", accountId, dashboardUserId, "profile_key"), scopeId),
+  ]);
+  return { login, password, profileKey };
 }
 
 async function getThreadsCredentials(
@@ -222,19 +241,32 @@ async function fetchThreadsMediaDetails(
   return payload;
 }
 
-async function createThreadsAccount(env: Env, payload: ThreadsAccountPayload, userId = DEFAULT_USER_ID): Promise<{
+async function createThreadsAccount(
+  env: Env,
+  payload: ThreadsAccountPayload,
+  scopeId = DEFAULT_USER_ID,
+  dashboardUserId = DEFAULT_USER_ID,
+): Promise<{
   id: number;
   platform: "threads";
   username: string;
-  status: "active";
+  status: "active" | "inactive";
+  connection_mode: "official_api" | "playwright";
+  playwright_login?: string;
+  playwright_profile_key?: string;
+  playwright_ready?: boolean;
   created_at: string;
   updated_at: string;
 }> {
   const username = payload.username.trim().replace(/^@+/, "");
+  const connectionMode = payload.connection_mode === "playwright" ? "playwright" : "official_api";
+  const status = payload.status === "inactive" ? "inactive" : "active";
+  const playwrightLogin = payload.playwright_login?.trim() ?? "";
+  const playwrightPassword = payload.playwright_password?.trim() ?? "";
   const now = new Date().toISOString();
   const existingFilters = ["platform = 'threads'", "username = ?"];
   const existingValues: unknown[] = [username];
-  await appendScopedFilter(env, "social_accounts", existingFilters, existingValues, userId);
+  await appendScopedFilter(env, "social_accounts", existingFilters, existingValues, scopeId);
   const existing = await env.DB.prepare(`SELECT id, created_at FROM social_accounts WHERE ${existingFilters.join(" AND ")} ORDER BY id DESC LIMIT 1`)
     .bind(...existingValues)
     .first<{ id: number; created_at: string }>();
@@ -244,34 +276,60 @@ async function createThreadsAccount(env: Env, payload: ThreadsAccountPayload, us
   if (accountId) {
     const filters = ["id = ?"];
     const values: unknown[] = [accountId];
-    await appendScopedFilter(env, "social_accounts", filters, values, userId);
-    await env.DB.prepare(`UPDATE social_accounts SET status = 'active', updated_at = ? WHERE ${filters.join(" AND ")}`)
-      .bind(now, ...values)
+    await appendScopedFilter(env, "social_accounts", filters, values, scopeId);
+    await env.DB.prepare(`UPDATE social_accounts SET status = ?, updated_at = ? WHERE ${filters.join(" AND ")}`)
+      .bind(status, now, ...values)
       .run();
   } else {
-    const scoped = await scopedInsertColumns(env, "social_accounts", userId);
+    const scoped = await scopedInsertColumns(env, "social_accounts", scopeId);
     const result = await env.DB.prepare(
       `INSERT INTO social_accounts (${[...scoped.columns, "platform", "username", "status", "created_at", "updated_at"].join(", ")})
        VALUES (${[...scoped.columns.map(() => "?"), "?", "?", "?", "?", "?"].join(", ")})`,
     )
-      .bind(...scoped.values, "threads", username, "active", now, now)
+      .bind(...scoped.values, "threads", username, status, now, now)
       .run() as { meta: { last_row_id: number } };
     accountId = result.meta.last_row_id;
     createdAt = now;
   }
 
   await Promise.all([
-    upsertSetting(env, `social_account:${accountId}:threads_client_id`, payload.client_id.trim(), now, userId),
-    upsertSetting(env, `social_account:${accountId}:threads_client_secret`, payload.client_secret.trim(), now, userId),
-    upsertSetting(env, `social_account:${accountId}:threads_redirect_uri`, payload.redirect_uri.trim(), now, userId),
-    upsertSetting(env, `social_account:${accountId}:threads_scopes`, payload.scopes.trim(), now, userId),
-    upsertSetting(env, `social_account:${accountId}:threads_access_token`, payload.access_token.trim(), now, userId),
-    upsertSetting(env, `social_account:${accountId}:threads_user_id`, payload.user_id.trim(), now, userId),
-    upsertSetting(env, "threads_access_token", payload.access_token.trim(), now, userId),
-    upsertSetting(env, "threads_user_id", payload.user_id.trim(), now, userId),
+    upsertSetting(env, `social_account:${accountId}:connection_mode`, connectionMode, now, scopeId),
+    ...(connectionMode === "official_api"
+      ? [
+          upsertSetting(env, `social_account:${accountId}:threads_client_id`, payload.client_id.trim(), now, scopeId),
+          upsertSetting(env, `social_account:${accountId}:threads_client_secret`, payload.client_secret.trim(), now, scopeId),
+          upsertSetting(env, `social_account:${accountId}:threads_redirect_uri`, payload.redirect_uri.trim(), now, scopeId),
+          upsertSetting(env, `social_account:${accountId}:threads_scopes`, payload.scopes.trim(), now, scopeId),
+          upsertSetting(env, `social_account:${accountId}:threads_access_token`, payload.access_token.trim(), now, scopeId),
+          upsertSetting(env, `social_account:${accountId}:threads_user_id`, payload.user_id.trim(), now, scopeId),
+          upsertSetting(env, "threads_access_token", payload.access_token.trim(), now, scopeId),
+          upsertSetting(env, "threads_user_id", payload.user_id.trim(), now, scopeId),
+        ]
+      : [
+          upsertSetting(env, playwrightUserSettingKey("social_account", accountId, dashboardUserId, "login"), playwrightLogin, now, scopeId),
+          upsertSetting(env, playwrightUserSettingKey("social_account", accountId, dashboardUserId, "password"), playwrightPassword, now, scopeId),
+          upsertSetting(
+            env,
+            playwrightUserSettingKey("social_account", accountId, dashboardUserId, "profile_key"),
+            defaultPlaywrightProfileKey("threads", accountId, dashboardUserId),
+            now,
+            scopeId,
+          ),
+        ]),
   ]);
 
-  return { id: accountId, platform: "threads", username, status: "active", created_at: createdAt, updated_at: now };
+  return {
+    id: accountId,
+    platform: "threads",
+    username,
+    status,
+    connection_mode: connectionMode,
+    playwright_login: connectionMode === "playwright" ? playwrightLogin : undefined,
+    playwright_profile_key: connectionMode === "playwright" ? defaultPlaywrightProfileKey("threads", accountId, dashboardUserId) : undefined,
+    playwright_ready: connectionMode === "playwright",
+    created_at: createdAt,
+    updated_at: now,
+  };
 }
 
 function validateThreadsAppPayload(payload: PendingThreadsOAuth): string | null {
@@ -283,29 +341,61 @@ function validateThreadsAppPayload(payload: PendingThreadsOAuth): string | null 
   return null;
 }
 
-export async function listThreadsAccounts(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
+export async function listThreadsAccounts(
+  env: Env,
+  scopeId = DEFAULT_USER_ID,
+  dashboardUserId = DEFAULT_USER_ID,
+): Promise<Response> {
   try {
     const filters = ["platform = 'threads'"];
     const values: unknown[] = [];
-    await appendScopedFilter(env, "social_accounts", filters, values, userId);
+    await appendScopedFilter(env, "social_accounts", filters, values, scopeId);
     const rows = await env.DB.prepare(
       `SELECT id, username, status, created_at, updated_at FROM social_accounts WHERE ${filters.join(" AND ")} ORDER BY created_at DESC`,
     ).bind(...values).all();
-    return jsonResponse(rows.results ?? []);
+    const results = await Promise.all((rows.results ?? []).map(async (row) => {
+      const accountId = Number((row as { id: number }).id);
+      const [connectionMode, playwright] = await Promise.all([
+        readSetting(env, `social_account:${accountId}:connection_mode`, scopeId),
+        readPlaywrightSettings(env, accountId, scopeId, dashboardUserId),
+      ]);
+      return {
+        ...row,
+        connection_mode: connectionMode === "playwright" ? "playwright" : "official_api",
+        playwright_login: playwright.login || undefined,
+        playwright_profile_key: playwright.profileKey || defaultPlaywrightProfileKey("threads", accountId, dashboardUserId),
+        playwright_ready: Boolean(playwright.login && playwright.password),
+      };
+    }));
+    return jsonResponse(results);
   } catch {
     return errorResponse("Failed to list Threads accounts", 500);
   }
 }
 
-export async function addThreadsAccount(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
+export async function addThreadsAccount(
+  env: Env,
+  request: Request,
+  scopeId = DEFAULT_USER_ID,
+  dashboardUserId = DEFAULT_USER_ID,
+): Promise<Response> {
   try {
     const payload = await parseJson<ThreadsAccountPayload>(request);
-    const appError = validateThreadsAppPayload(payload);
-    if (appError) return errorResponse(appError, 400);
-    if (!payload.access_token?.trim()) return errorResponse("Access token is required", 400);
-    if (!payload.user_id?.trim()) return errorResponse("User ID is required", 400);
+    const connectionMode = payload.connection_mode === "playwright" ? "playwright" : "official_api";
+    if (connectionMode === "official_api") {
+      const appError = validateThreadsAppPayload(payload);
+      if (appError) return errorResponse(appError, 400);
+      if (!payload.access_token?.trim()) return errorResponse("Access token is required", 400);
+      if (!payload.user_id?.trim()) return errorResponse("User ID is required", 400);
+    } else if (!payload.username?.trim()) {
+      return errorResponse("username is required", 400);
+    } else if (!payload.playwright_login?.trim()) {
+      return errorResponse("Playwright login is required", 400);
+    } else if (!payload.playwright_password?.trim()) {
+      return errorResponse("Playwright password is required", 400);
+    }
 
-    return jsonResponse(await createThreadsAccount(env, payload, userId), { status: 201 });
+    return jsonResponse(await createThreadsAccount(env, payload, scopeId, dashboardUserId), { status: 201 });
   } catch {
     return errorResponse("Failed to add Threads account", 500);
   }
@@ -701,7 +791,8 @@ export async function updateThreadsAccount(
   env: Env,
   accountId: string,
   request: Request,
-  userId = DEFAULT_USER_ID,
+  scopeId = DEFAULT_USER_ID,
+  dashboardUserId = DEFAULT_USER_ID,
 ): Promise<Response> {
   try {
     const id = Number(accountId);
@@ -709,7 +800,7 @@ export async function updateThreadsAccount(
 
     const filters = ["id = ?", "platform = 'threads'"];
     const filterValues: unknown[] = [id];
-    await appendScopedFilter(env, "social_accounts", filters, filterValues, userId);
+    await appendScopedFilter(env, "social_accounts", filters, filterValues, scopeId);
     const existing = await env.DB.prepare(`SELECT id FROM social_accounts WHERE ${filters.join(" AND ")}`)
       .bind(...filterValues)
       .first<{ id: number }>();
@@ -741,8 +832,15 @@ export async function updateThreadsAccount(
     if (payload.scopes?.trim()) settingUpdates.push(["threads_scopes", payload.scopes.trim()]);
     if (payload.access_token?.trim()) settingUpdates.push(["threads_access_token", payload.access_token.trim()]);
     if (payload.user_id?.trim()) settingUpdates.push(["threads_user_id", payload.user_id.trim()]);
+    const playwrightLogin = payload.playwright_login?.trim() ?? "";
+    const playwrightPassword = payload.playwright_password?.trim() ?? "";
+    const connectionMode = payload.connection_mode === "playwright"
+      ? "playwright"
+      : payload.connection_mode === "official_api"
+      ? "official_api"
+      : null;
 
-    if (accountUpdates.length === 0 && settingUpdates.length === 0) {
+    if (accountUpdates.length === 0 && settingUpdates.length === 0 && !connectionMode && !playwrightLogin && !playwrightPassword) {
       return errorResponse("No account fields to update", 400);
     }
 
@@ -758,13 +856,41 @@ export async function updateThreadsAccount(
         .run();
     }
 
+    if (connectionMode === "playwright" && !playwrightLogin) {
+      const currentPlaywright = await readPlaywrightSettings(env, id, scopeId, dashboardUserId);
+      if (!currentPlaywright.login) return errorResponse("Playwright login is required", 400);
+    }
+
     await Promise.all(settingUpdates.flatMap(([key, value]) => {
-      const updates = [upsertSetting(env, `social_account:${id}:${key}`, value, now, userId)];
+      const updates = [upsertSetting(env, `social_account:${id}:${key}`, value, now, scopeId)];
       if (key === "threads_access_token" || key === "threads_user_id") {
-        updates.push(upsertSetting(env, key, value, now, userId));
+        updates.push(upsertSetting(env, key, value, now, scopeId));
       }
       return updates;
-    }));
+    }).concat(connectionMode ? [upsertSetting(env, `social_account:${id}:connection_mode`, connectionMode, now, scopeId)] : [])
+      .concat(
+        playwrightLogin
+          ? [upsertSetting(env, playwrightUserSettingKey("social_account", id, dashboardUserId, "login"), playwrightLogin, now, scopeId)]
+          : [],
+      )
+      .concat(
+        playwrightPassword
+          ? [upsertSetting(env, playwrightUserSettingKey("social_account", id, dashboardUserId, "password"), playwrightPassword, now, scopeId)]
+          : [],
+      )
+      .concat(
+        connectionMode === "playwright" || playwrightLogin || playwrightPassword
+          ? [
+              upsertSetting(
+                env,
+                playwrightUserSettingKey("social_account", id, dashboardUserId, "profile_key"),
+                defaultPlaywrightProfileKey("threads", id, dashboardUserId),
+                now,
+                scopeId,
+              ),
+            ]
+          : [],
+      ));
 
     return jsonResponse({ success: true, updated_at: now });
   } catch {

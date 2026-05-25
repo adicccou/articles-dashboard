@@ -174,6 +174,9 @@ export async function scopedWhere(
   scopeId?: number | null,
   alias?: string,
 ): Promise<{ clause: string; values: unknown[] }> {
+  if (scopeId === null) {
+    return { clause: "", values: [] };
+  }
   const prefix = alias ? `${alias}.` : "";
   if (await tableHasWorkspaceId(env, table)) {
     return { clause: `${prefix}workspace_id = ?`, values: [workspaceId(scopeId)] };
@@ -204,11 +207,28 @@ export async function scopedInsertColumns(
   table: string,
   scopeId?: number | null,
 ): Promise<{ columns: string[]; values: unknown[] }> {
+  if (scopeId === null) {
+    return { columns: [], values: [] };
+  }
   if (await tableHasWorkspaceId(env, table)) {
     return { columns: ["workspace_id"], values: [workspaceId(scopeId)] };
   }
   if (await tableHasUserId(env, table)) {
     return { columns: ["user_id"], values: [ownerId(scopeId)] };
+  }
+  return { columns: [], values: [] };
+}
+
+export async function scopedInsertColumnsFromRecord(
+  env: Env,
+  table: string,
+  record: Record<string, unknown> | null | undefined,
+): Promise<{ columns: string[]; values: unknown[] }> {
+  if (await tableHasWorkspaceId(env, table)) {
+    return { columns: ["workspace_id"], values: [workspaceId(Number(record?.workspace_id ?? DEFAULT_WORKSPACE_ID))] };
+  }
+  if (await tableHasUserId(env, table)) {
+    return { columns: ["user_id"], values: [ownerId(Number(record?.user_id ?? DEFAULT_USER_ID))] };
   }
   return { columns: [], values: [] };
 }

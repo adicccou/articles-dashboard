@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { TrashIcon } from "@heroicons/react/24/solid";
 import type { ArticleRecord, Site, ArticleCategory } from "../lib/types";
 import type { NavView } from "../components/TopNav";
 import { ArticleEditor } from "../components/ArticleEditor";
@@ -11,6 +12,7 @@ import { ViewErrorBoundary } from "../components/ViewErrorBoundary";
 import { StatisticsPage } from "./StatisticsPage";
 import { RepliesPage } from "./RepliesPage";
 import { formatDisplayDateTime } from "../lib/datetime";
+import "../styles/articles-page.css";
 import "../styles/trading-page.css";
 
 type DashboardPageProps = {
@@ -55,7 +57,6 @@ export function DashboardPage({
   onDeleteArticle,
   onUpload,
 }: DashboardPageProps) {
-  const [showSiteSettings, setShowSiteSettings] = useState(false);
   const [isCreatingArticle, setIsCreatingArticle] = useState(false);
 
   function renderView() {
@@ -106,85 +107,53 @@ export function DashboardPage({
       return <StatisticsPage />;
     }
 
-    if (showSiteSettings) {
-      return (
-        <div className="stack">
-          <button onClick={() => setShowSiteSettings(false)} className="button-secondary">
-            ← Back to Articles
-          </button>
-          <section className="panel">
-            <div className="panel__title-row">
-              <div>
-                <h2>Connected Sites</h2>
-                <p className="muted">Manage website and app details in Config.</p>
-              </div>
-            </div>
-            <div className="table">
-              <div className="table__row table__row--header">
-                <span>Name</span>
-                <span>Slug</span>
-                <span>Domain</span>
-                <span>Status</span>
-              </div>
-              {sites.map((site) => (
-                <div className="table__row" key={site.id}>
-                  <span>{site.name}</span>
-                  <span>{site.slug}</span>
-                  <span>{site.domain}</span>
-                  <span>{site.status}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-        </div>
-      );
-    }
-
     return (
-      <section className="panel">
-        <div className="panel__title-row">
-          <h2>Articles</h2>
-          <div className="actions">
-            <button onClick={() => setShowSiteSettings(true)} className="button-secondary">
-              Connected Sites
-            </button>
-            <button onClick={() => {
-              onSelectArticle(undefined);
-              setIsCreatingArticle(true);
-            }}>New article</button>
-          </div>
-        </div>
-        <div className="table">
-          <div className="table__row table__row--header">
-            <span>Title</span>
-            <span>Category</span>
-            <span>Status</span>
-            <span>Sites</span>
-            <span>Updated</span>
-          </div>
-          {articles.map((article) => (
-            <div className="table__row table__button-row article-row" key={article.id} onClick={() => onSelectArticle(article)}>
-              <span>{article.title}</span>
-              <span>{article.category?.name || "—"}</span>
-              <span>{article.status}</span>
-              <span>{article.site_ids.length}</span>
-              <span>{formatDisplayDateTime(article.updated_at)}</span>
-              <button
-                className="article-row__delete"
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  if (confirm(`Delete "${article.title}"? This cannot be undone.`)) {
-                    await onDeleteArticle(article.id);
-                  }
-                }}
-              >
-                Delete
-              </button>
+      <section className="panel articles-overview">
+        <div className="articles-overview__content">
+          <div className="panel__title-row">
+            <h2>Articles</h2>
+            <div className="actions">
+              <button onClick={() => {
+                onSelectArticle(undefined);
+                setIsCreatingArticle(true);
+              }}>New article</button>
             </div>
-          ))}
+          </div>
+          <div className="table articles-table">
+            <div className="table__row table__row--header">
+              <span>Title</span>
+              <span>Category</span>
+              <span>Status</span>
+              <span>Sites</span>
+              <span>Updated</span>
+            </div>
+            {articles.map((article) => (
+              <div className="table__row article-row" key={article.id} onClick={() => onSelectArticle(article)}>
+                <span>{article.title}</span>
+                <span>{article.category?.name || "—"}</span>
+                <span>{article.status}</span>
+                <span>{article.site_ids.length}</span>
+                <span>{formatDisplayDateTime(article.updated_at)}</span>
+                <button
+                  className="article-row__delete dashboard-icon-button"
+                  type="button"
+                  aria-label={`Delete ${article.title}`}
+                  title={`Delete ${article.title}`}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (confirm(`Delete "${article.title}"? This cannot be undone.`)) {
+                      await onDeleteArticle(article.id);
+                    }
+                  }}
+                >
+                  <TrashIcon aria-hidden="true" />
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
     );
   }
-  return <ViewErrorBoundary resetKey={`${view}-${selectedArticle?.id ?? "none"}-${showSiteSettings ? "sites" : "main"}`} >{renderView()}</ViewErrorBoundary>;
+  return <ViewErrorBoundary resetKey={`${view}-${selectedArticle?.id ?? "none"}-main`} >{renderView()}</ViewErrorBoundary>;
 }

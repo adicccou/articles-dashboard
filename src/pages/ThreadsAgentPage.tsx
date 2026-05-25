@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useState } from "react";
+import { SiThreads } from "react-icons/si";
 import type { SocialAccount, SocialPost, PlannerItem } from "../lib/types";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
@@ -87,9 +88,9 @@ export const ThreadsAgentPage = forwardRef<SocialAgentToolbarHandle>(function Th
       <SocialPublisherWorkspace
         ref={ref}
         hideHeader
-        icon="🧵"
+        PlatformIcon={SiThreads}
         platformLabel="Threads Agent"
-        shortLabel="🧵"
+        shortLabel="Threads"
         queuePlaceholder="Write a Threads post..."
         queueHint="Post immediately above, pick a time manually, or auto-schedule into an open planner slot."
         queueLimit={500}

@@ -1,14 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { PencilSquareIcon, TrashIcon } from "@heroicons/react/24/solid";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
 import { formatDisplayDateTime, formatDisplayTime, formatMonthDay, formatMonthYear, formatWeekRange, formatWeekdayShort } from "../lib/datetime";
 import { getPostImageUrls, isVideoMediaUrl, serializePostMediaUrls } from "../lib/socialPostMedia";
-import type { PlannerItem, PlannerItemInput } from "../lib/types";
+import type { PlannerItem, PlannerItemInput, RedditAccount, SocialAccount } from "../lib/types";
 import "../styles/planner-page.css";
 
 type SchedulerView = "list" | "calendar" | "week";
 
-const schedulerPlatforms = ["Blog", "X", "Threads", "Reddit", "Newsletter", "Telegram"];
+const schedulerPlatformOrder: Array<SocialAccount["platform"]> = ["twitter", "threads", "reddit"];
+const PLANNER_VIEW_STORAGE_KEY = "blogposter:planner:view";
 
 type ScheduleFormState = {
   id?: number;
@@ -30,13 +32,13 @@ function toLocalDateTimeInput(value?: string | null): string {
   return local.toISOString().slice(0, 16);
 }
 
-function createEmptyScheduleForm(): ScheduleFormState {
+function createEmptyScheduleForm(platform = ""): ScheduleFormState {
   return {
     title: "",
     description: "",
     media_urls: [],
     item_type: "post",
-    platform: "Threads",
+    platform,
     status: "planned",
     scheduled_for: "",
     related_strategy_id: "",
@@ -86,6 +88,26 @@ function plannerPlatformLabel(platform: string): string {
   if (normalized === "blog") return "Blog";
   const clean = platform.trim();
   return clean ? `${clean.charAt(0).toUpperCase()}${clean.slice(1)}` : "Platform";
+}
+
+function normalizePlannerAccountPlatform(platform: string): SocialAccount["platform"] | null {
+  const normalized = platform.trim().toLowerCase();
+  if (["x", "twitter", "twitter/x"].includes(normalized)) return "twitter";
+  if (["thread", "threads"].includes(normalized)) return "threads";
+  if (normalized === "reddit") return "reddit";
+  return null;
+}
+
+function derivePlannerPlatforms(
+  twitterAccounts: SocialAccount[],
+  threadsAccounts: SocialAccount[],
+  redditAccounts: RedditAccount[],
+): Array<SocialAccount["platform"]> {
+  const available = new Set<SocialAccount["platform"]>();
+  if (twitterAccounts.length > 0) available.add("twitter");
+  if (threadsAccounts.length > 0) available.add("threads");
+  if (redditAccounts.length > 0) available.add("reddit");
+  return schedulerPlatformOrder.filter((platform) => available.has(platform));
 }
 
 function displayPlannerTitle(item: Pick<PlannerItem, "item_type" | "platform" | "title">): string {
@@ -170,16 +192,25 @@ function weekDays(date: Date): Date[] {
   });
 }
 
+const WEEK_HOUR_SLOTS = Array.from({ length: 24 }, (_, hour) => ({
+  hour,
+  label: `${String(hour).padStart(2, "0")}:00`,
+}));
+
 export function PlannerPage() {
   const [items, setItems] = useState<PlannerItem[]>([]);
+  const [availablePlatforms, setAvailablePlatforms] = useState<Array<SocialAccount["platform"]>>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploadingMedia, setUploadingMedia] = useState(false);
-  const [view, setView] = useState<SchedulerView>("list");
+  const [view, setView] = useState<SchedulerView>(() => {
+    if (typeof window === "undefined") return "list";
+    const stored = window.localStorage.getItem(PLANNER_VIEW_STORAGE_KEY);
+    return stored === "calendar" || stored === "week" || stored === "list" ? stored : "list";
+  });
   const [search, setSearch] = useState("");
   const [calendarDate, setCalendarDate] = useState(() => new Date());
-  const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [form, setForm] = useState<ScheduleFormState>(createEmptyScheduleForm());
   const submitLabel = form.scheduled_for ? "Schedule it" : "Publish";
@@ -191,8 +222,20 @@ export function PlannerPage() {
         setLoading(true);
       }
 
-      const plannerItems = await api.listPlannerItems();
+      const [plannerItems, twitterAccounts, threadsAccounts, redditAccounts] = await Promise.all([
+        api.listPlannerItems(),
+        api.listTwitterAccounts().catch(() => []),
+        api.listThreadsAccounts().catch(() => []),
+        api.listRedditAccounts().catch(() => []),
+      ]);
       setItems(asArray<PlannerItem>(plannerItems));
+      setAvailablePlatforms(
+        derivePlannerPlatforms(
+          asArray<SocialAccount>(twitterAccounts),
+          asArray<SocialAccount>(threadsAccounts),
+          asArray<RedditAccount>(redditAccounts),
+        ),
+      );
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load scheduler");
@@ -204,6 +247,11 @@ export function PlannerPage() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(PLANNER_VIEW_STORAGE_KEY, view);
+  }, [view]);
 
   const filteredItems = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -218,11 +266,6 @@ export function PlannerPage() {
       return item.item_type === "post" && matchesQuery;
     });
   }, [items, search]);
-
-  const selectedItem = useMemo(
-    () => items.find((item) => item.id === selectedItemId) ?? null,
-    [items, selectedItemId],
-  );
 
   const calendarDays = useMemo(() => monthGrid(calendarDate), [calendarDate]);
   const currentWeekDays = useMemo(() => weekDays(calendarDate), [calendarDate]);
@@ -244,9 +287,21 @@ export function PlannerPage() {
           return leftTime - rightTime;
         });
 
+      const itemsByHour = WEEK_HOUR_SLOTS.reduce<Record<number, PlannerItem[]>>((accumulator, slot) => {
+        accumulator[slot.hour] = [];
+        return accumulator;
+      }, {});
+
+      itemsForDay.forEach((item) => {
+        if (!item.scheduled_for) return;
+        const scheduledDate = new Date(item.scheduled_for);
+        itemsByHour[scheduledDate.getHours()]?.push(item);
+      });
+
       return {
         day,
         items: itemsForDay,
+        itemsByHour,
       };
     });
   }, [currentWeekDays, filteredItems]);
@@ -259,10 +314,17 @@ export function PlannerPage() {
   }, [currentWeekDays]);
 
   const today = new Date();
+  const modalPlatforms = useMemo(() => {
+    const options = [...availablePlatforms];
+    const normalizedCurrent = normalizePlannerAccountPlatform(form.platform);
+    if (normalizedCurrent && !options.includes(normalizedCurrent)) {
+      options.push(normalizedCurrent);
+    }
+    return options;
+  }, [availablePlatforms, form.platform]);
 
   function openCreateModal() {
-    setForm(createEmptyScheduleForm());
-    setSelectedItemId(null);
+    setForm(createEmptyScheduleForm(availablePlatforms[0] ?? ""));
     setIsModalOpen(true);
   }
 
@@ -278,12 +340,11 @@ export function PlannerPage() {
       scheduled_for: toLocalDateTimeInput(item.scheduled_for),
       related_strategy_id: item.related_strategy_id ? String(item.related_strategy_id) : "",
     });
-    setSelectedItemId(item.id);
     setIsModalOpen(true);
   }
 
   function closeModal() {
-    setForm(createEmptyScheduleForm());
+    setForm(createEmptyScheduleForm(availablePlatforms[0] ?? ""));
     setIsModalOpen(false);
   }
 
@@ -375,9 +436,6 @@ export function PlannerPage() {
   async function deleteSchedule(id: number) {
     try {
       await api.deletePlannerItem(id);
-      if (selectedItemId === id) {
-        setSelectedItemId(null);
-      }
       await load({ silent: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete schedule");
@@ -392,44 +450,45 @@ export function PlannerPage() {
     <div className="scheduler-page">
       {error ? <p className="error panel">{error}</p> : null}
 
-      <section className="panel scheduler-hero scheduler-hero--minimal">
-        <div className="scheduler-hero__content">
-          <div className="ui-tabs__list scheduler-tabs scheduler-tabs--header">
-            <button
-              className={view === "list" ? "ui-tab scheduler-tab ui-tab--active scheduler-tab--active" : "ui-tab scheduler-tab"}
-              onClick={() => setView("list")}
-            >
-              List
-            </button>
-            <button
-              className={view === "calendar" ? "ui-tab scheduler-tab ui-tab--active scheduler-tab--active" : "ui-tab scheduler-tab"}
-              onClick={() => setView("calendar")}
-            >
-              Calendar view
-            </button>
-            <button
-              className={view === "week" ? "ui-tab scheduler-tab ui-tab--active scheduler-tab--active" : "ui-tab scheduler-tab"}
-              onClick={() => setView("week")}
-            >
-              Week view
-            </button>
+      <section className="panel scheduler-overview">
+        <div className="scheduler-hero scheduler-hero--minimal scheduler-overview__bar">
+          <div className="scheduler-hero__content">
+            <div className="ui-tabs__list scheduler-tabs scheduler-tabs--header">
+              <button
+                className={view === "calendar" ? "ui-tab scheduler-tab ui-tab--active scheduler-tab--active" : "ui-tab scheduler-tab"}
+                onClick={() => setView("calendar")}
+              >
+                Calendar
+              </button>
+              <button
+                className={view === "week" ? "ui-tab scheduler-tab ui-tab--active scheduler-tab--active" : "ui-tab scheduler-tab"}
+                onClick={() => setView("week")}
+              >
+                Week
+              </button>
+              <button
+                className={view === "list" ? "ui-tab scheduler-tab ui-tab--active scheduler-tab--active" : "ui-tab scheduler-tab"}
+                onClick={() => setView("list")}
+              >
+                List
+              </button>
+            </div>
+            <div className="scheduler-hero__search">
+              <input
+                aria-label="Search schedules"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search schedules"
+              />
+            </div>
           </div>
-          <div className="scheduler-hero__search">
-            <input
-              aria-label="Search schedules"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search schedules"
-            />
+          <div className="scheduler-hero__actions">
+            <button onClick={openCreateModal}>New</button>
           </div>
         </div>
-        <div className="scheduler-hero__actions">
-          <button onClick={openCreateModal}>New</button>
-        </div>
-      </section>
 
-      {view === "list" ? (
-        <section className="panel">
+        {view === "list" ? (
+        <div className="scheduler-view-panel">
           <div className="panel__title-row">
             <h2>Schedule List</h2>
           </div>
@@ -445,12 +504,9 @@ export function PlannerPage() {
                 <span>Actions</span>
               </div>
               {filteredItems.map((item) => (
-                <div
-                  className={`scheduler-list__row${selectedItemId === item.id ? " scheduler-list__row--selected" : ""}`}
-                  key={item.id}
-                >
+                <div className="scheduler-list__row" key={item.id}>
                   <span>
-                    <button className="scheduler-title-button" onClick={() => setSelectedItemId(item.id)}>
+                    <button className="scheduler-title-button" onClick={() => openEditModal(item)}>
                       {displayPlannerTitle(item)}
                     </button>
                     {item.description ? <small>{item.description}</small> : null}
@@ -465,20 +521,30 @@ export function PlannerPage() {
                   </span>
                   <span>{item.scheduled_for ? formatDisplayDateTime(item.scheduled_for) : "—"}</span>
                   <span className="scheduler-row-actions">
-                    <button className="button-secondary" onClick={() => openEditModal(item)}>
-                      Edit
+                    <button
+                      className="button-secondary dashboard-icon-button"
+                      onClick={() => openEditModal(item)}
+                      aria-label={`Edit ${displayPlannerTitle(item)}`}
+                      title="Edit"
+                    >
+                      <PencilSquareIcon aria-hidden="true" />
                     </button>
-                    <button className="scheduler-delete" onClick={() => void deleteSchedule(item.id)}>
-                      Delete
+                    <button
+                      className="scheduler-delete dashboard-icon-button"
+                      onClick={() => void deleteSchedule(item.id)}
+                      aria-label={`Delete ${displayPlannerTitle(item)}`}
+                      title="Delete"
+                    >
+                      <TrashIcon aria-hidden="true" />
                     </button>
                   </span>
                 </div>
               ))}
             </div>
           )}
-        </section>
+        </div>
       ) : view === "calendar" ? (
-        <section className="panel scheduler-calendar">
+        <div className="scheduler-view-panel scheduler-calendar">
           <div className="panel__title-row scheduler-calendar__header">
             <div>
               <h2>{formatMonthYear(calendarDate)}</h2>
@@ -519,40 +585,33 @@ export function PlannerPage() {
               >
                 <div className="scheduler-calendar__day-top">
                   <div className="scheduler-calendar__day-number">{day.getDate()}</div>
-                  {dayItems.length > 0 ? (
-                    <span className="scheduler-calendar__day-count">{dayItems.length}</span>
-                  ) : null}
                 </div>
                 <div className="scheduler-calendar__events">
-                  {dayItems.slice(0, 3).map((item) => (
+                  {dayItems.slice(0, 4).map((item) => (
                     <button
                       key={item.id}
                       className={`scheduler-calendar__event scheduler-calendar__event--${item.item_type}`}
-                      onClick={() => {
-                        setSelectedItemId(item.id);
-                        openEditModal(item);
-                      }}
+                      onClick={() => openEditModal(item)}
                     >
-                      <span className="scheduler-calendar__event-meta">
-                        <span>{item.scheduled_for ? formatDisplayTime(item.scheduled_for) : "Any time"}</span>
-                        <span className={`scheduler-pill scheduler-pill--${item.item_type}`}>{plannerPlatformLabel(item.platform)}</span>
+                      <span className="scheduler-calendar__event-time">
+                        {item.scheduled_for ? formatDisplayTime(item.scheduled_for) : "Any time"}
                       </span>
-                      <strong>{displayPlannerTitle(item)}</strong>
+                      <span className="scheduler-calendar__event-title">{displayPlannerTitle(item)}</span>
                     </button>
                   ))}
-                  {dayItems.length > 3 ? (
-                    <span className="scheduler-calendar__more">+{dayItems.length - 3} more</span>
+                  {dayItems.length > 4 ? (
+                    <span className="scheduler-calendar__more">+{dayItems.length - 4} more</span>
                   ) : null}
                 </div>
               </div>
             ))}
           </div>
-        </section>
+        </div>
       ) : (
-        <section className="panel scheduler-week">
+        <div className="scheduler-view-panel scheduler-week">
           <div className="panel__title-row scheduler-week__header">
             <div>
-              <h2>This Week</h2>
+              <h2>{formatMonthYear(calendarDate)}</h2>
               <p className="scheduler-week__range">{weekRangeLabel}</p>
             </div>
             <div className="scheduler-calendar__nav">
@@ -576,99 +635,46 @@ export function PlannerPage() {
               </button>
             </div>
           </div>
-          <div className="scheduler-week__grid">
-            {weekItemsByDay.map(({ day, items: dayItems }) => (
-              <div key={day.toISOString()} className={`scheduler-week__day${sameDay(day, today) ? " scheduler-week__day--today" : ""}`}>
-                <div className="scheduler-week__day-header">
-                  <div className="scheduler-week__day-heading">
-                    <p className="scheduler-week__day-label">
-                      {formatWeekdayShort(day)}
-                    </p>
-                    <strong>{formatMonthDay(day)}</strong>
-                  </div>
-                  <span className="scheduler-week__count">{dayItems.length}</span>
-                </div>
-                {dayItems.length === 0 ? (
-                  <p className="scheduler-week__empty">No planned posts or campaigns.</p>
-                ) : (
-                  <div className="scheduler-week__items">
-                    {dayItems.map((item) => (
+          <div className="scheduler-week__timetable">
+            <div className="scheduler-week__timetable-corner" />
+            {weekItemsByDay.map(({ day }) => (
+              <div
+                key={`heading-${day.toISOString()}`}
+                className={`scheduler-week__day-header${sameDay(day, today) ? " scheduler-week__day-header--today" : ""}`}
+              >
+                <p className="scheduler-week__day-label">{formatWeekdayShort(day)}</p>
+                <strong>{formatMonthDay(day)}</strong>
+              </div>
+            ))}
+
+            {WEEK_HOUR_SLOTS.map((slot) => (
+              <Fragment key={`week-slot-${slot.hour}`}>
+                <div className="scheduler-week__time-label">{slot.label}</div>
+                {weekItemsByDay.map(({ day, itemsByHour }) => (
+                  <div
+                    key={`${day.toISOString()}-${slot.hour}`}
+                    className={`scheduler-week__cell${sameDay(day, today) ? " scheduler-week__cell--today" : ""}`}
+                  >
+                    {itemsByHour[slot.hour]?.map((item) => (
                       <button
                         key={item.id}
-                        className={`scheduler-week__item scheduler-week__item--${item.item_type}`}
-                        onClick={() => setSelectedItemId(item.id)}
+                        className={`scheduler-week__slot-item scheduler-week__slot-item--${item.item_type}`}
+                        onClick={() => openEditModal(item)}
                       >
-                        <div className="scheduler-week__item-top">
-                          <span className={`scheduler-pill scheduler-pill--${item.item_type}`}>{plannerPlatformLabel(item.platform)}</span>
-                          <span className="scheduler-week__meta">
-                            {item.scheduled_for ? formatDisplayTime(item.scheduled_for) : "Any time"}
-                          </span>
-                        </div>
-                        <strong>{displayPlannerTitle(item)}</strong>
-                        <span className="scheduler-week__meta">
-                          {item.status}
-                          {item.related_strategy_name ? ` • ${item.related_strategy_name}` : ""}
+                        <span className="scheduler-week__slot-time">
+                          {item.scheduled_for ? formatDisplayTime(item.scheduled_for) : slot.label}
                         </span>
+                        <span className="scheduler-week__slot-title">{displayPlannerTitle(item)}</span>
                       </button>
                     ))}
                   </div>
-                )}
-              </div>
+                ))}
+              </Fragment>
             ))}
           </div>
-        </section>
-      )}
-
-      {selectedItem ? (
-        <section className="panel scheduler-detail">
-          <div className="panel__title-row">
-            <h2>Selected Schedule</h2>
-            <button className="button-secondary" onClick={() => setSelectedItemId(null)}>
-              Clear
-            </button>
-          </div>
-          <div className="scheduler-detail__grid">
-            <div>
-              <p className="scheduler-eyebrow">Title</p>
-              <h3>{displayPlannerTitle(selectedItem)}</h3>
-            </div>
-            <div>
-              <p className="scheduler-eyebrow">Channel</p>
-              <p>{plannerPlatformLabel(selectedItem.platform)}</p>
-            </div>
-            <div>
-              <p className="scheduler-eyebrow">Status</p>
-              <p>{selectedItem.status}</p>
-            </div>
-            <div>
-              <p className="scheduler-eyebrow">Scheduled For</p>
-              <p>{selectedItem.scheduled_for ? formatDisplayDateTime(selectedItem.scheduled_for) : "Not scheduled"}</p>
-            </div>
-          </div>
-          {selectedItem.description ? (
-            <div className="scheduler-detail__description">
-              <p className="scheduler-eyebrow">Description</p>
-              <p>{selectedItem.description}</p>
-            </div>
-          ) : null}
-          {getPostImageUrls(selectedItem.image_url).length > 0 ? (
-            <div className="scheduler-detail__description">
-              <p className="scheduler-eyebrow">Media</p>
-              <div className="scheduler-media-grid">
-                {getPostImageUrls(selectedItem.image_url).map((url, index) => (
-                  <div className="scheduler-media-card" key={`${url}-${index}`}>
-                    {isVideoMediaUrl(url) ? (
-                      <video className="scheduler-media-card__asset" src={url} controls playsInline />
-                    ) : (
-                      <img className="scheduler-media-card__asset" src={url} alt={`${selectedItem.title} media ${index + 1}`} />
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </section>
-      ) : null}
+        </div>
+        )}
+      </section>
 
       {isModalOpen ? (
         <div className="scheduler-modal-backdrop" onClick={closeModal}>
@@ -680,19 +686,22 @@ export function PlannerPage() {
                   Close
                 </button>
               </div>
-              <label>
-                Platform
-                <select
-                  value={form.platform}
-                  onChange={(event) => setForm((current) => ({ ...current, platform: event.target.value }))}
-                >
-                  {schedulerPlatforms.map((platform) => (
-                    <option key={platform} value={platform}>
-                      {platform}
-                    </option>
+              <div className="scheduler-platform-field">
+                <p className="scheduler-media-field__label">Platform</p>
+                <div className="scheduler-platform-chips" role="radiogroup" aria-label="Platform">
+                  {modalPlatforms.map((platform) => (
+                    <button
+                      key={platform}
+                      type="button"
+                      className={`scheduler-platform-chip${normalizePlannerAccountPlatform(form.platform) === platform ? " scheduler-platform-chip--active" : ""}`}
+                      onClick={() => setForm((current) => ({ ...current, platform }))}
+                      aria-pressed={normalizePlannerAccountPlatform(form.platform) === platform}
+                    >
+                      {plannerPlatformLabel(platform)}
+                    </button>
                   ))}
-                </select>
-              </label>
+                </div>
+              </div>
               <label>
                 Description
                 <textarea

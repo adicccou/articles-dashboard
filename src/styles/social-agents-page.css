@@ -63,13 +63,14 @@
 }
 
 .social-tab--active {
-  background: var(--accent);
-  color: #fff;
+  background: #fff;
+  border-color: var(--border-strong);
+  color: #0f172a;
 }
 
 .social-tab--active:hover {
-  background: var(--accent-strong) !important;
-  color: #fff !important;
+  background: #fff !important;
+  color: #0f172a !important;
 }
 
 .social-tab--disabled {
@@ -78,8 +79,22 @@
 }
 
 .social-tab__icon {
-  font-size: 1rem;
-  line-height: 1;
+  flex: 0 0 auto;
+  height: 1rem;
+  width: 1rem;
+}
+
+.social-tab__icon--reddit {
+  color: #ff4500;
+}
+
+.social-tab__icon--twitter,
+.social-tab__icon--threads {
+  color: #0f172a;
+}
+
+.social-tab__icon--linkedin {
+  color: #0a66c2;
 }
 
 .social-tab__badge {
@@ -306,13 +321,14 @@
 }
 
 .social-panel-tab--active {
-  background: var(--accent);
-  color: #fff;
+  background: #fff;
+  border-color: var(--border-strong);
+  color: #0f172a;
 }
 
 .social-panel-tab--active:hover {
-  background: var(--accent-strong);
-  color: #fff;
+  background: #fff;
+  color: #0f172a;
 }
 
 .social-panel-section {
@@ -572,7 +588,8 @@
 }
 
 .social-post-placeholder-icon {
-  font-size: 1.15rem;
+  height: 1.25rem;
+  width: 1.25rem;
 }
 
 .social-post-media-grid {

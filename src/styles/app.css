@@ -73,6 +73,7 @@
   width: min(920px, 100%);
   max-height: min(88vh, 980px);
   overflow: auto;
+  padding: 16px;
 }
 
 .settings-kicker {
@@ -85,7 +86,7 @@
 }
 
 .settings-modal__tabs {
-  margin: 20px 0 0;
+  margin: 12px 0 0;
   width: 100%;
 }
 
@@ -114,6 +115,34 @@
 .settings-modal__tab-label {
   font-size: 0.88rem;
   font-weight: 700;
+}
+
+.settings-modal .api-panel {
+  gap: 12px;
+  padding-top: 10px;
+}
+
+.settings-modal .api-panel__title,
+.settings-modal .api-panel__description,
+.settings-modal .api-panel__section h4 {
+  margin: 0;
+}
+
+.settings-modal .api-panel__description {
+  line-height: 1.5;
+}
+
+.settings-modal .api-panel__section {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-modal .api-panel__inputs {
+  gap: 10px;
+}
+
+.settings-modal .api-panel__helper {
+  padding: 10px 12px;
 }
 
 .settings-modal__tab-status {
