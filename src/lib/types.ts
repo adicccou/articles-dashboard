@@ -720,12 +720,14 @@ export type SocialComment = {
   post_external_id: string | null;
   post_preview?: string | null;
   post_title?: string | null;
+  post_image_url?: string | null;
   subreddit?: string | null;
   commenter_username: string | null;
   commenter_name: string | null;
   text: string;
   commented_at: string | null;
   external_id: string | null;
+  parent_external_id?: string | null;
   permalink: string | null;
   reply_status?: "new" | "replied";
   owner_reply_text?: string | null;

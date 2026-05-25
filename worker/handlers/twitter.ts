@@ -680,14 +680,14 @@ async function loadOwnedTwitterRepliesByParent(
 export async function listTwitterComments(env: Env, postId?: string | null, limit?: string | null): Promise<Response> {
   try {
     const me = await fetchTwitterMe(env);
-    const requestedLimit = Math.max(1, Math.min(Number(limit || 20) || 20, 100));
+    const requestedLimit = Math.max(1, Math.min(Number(limit || 100) || 100, 100));
     const targets = postId
       ? await env.DB.prepare(
-        "SELECT id, external_id, content FROM social_posts WHERE id = ? AND platform = 'twitter' AND status = 'posted'",
-      ).bind(Number(postId)).all<{ id: number; external_id: string | null; content: string }>()
+        "SELECT id, external_id, content, image_url FROM social_posts WHERE id = ? AND platform = 'twitter' AND status = 'posted'",
+      ).bind(Number(postId)).all<{ id: number; external_id: string | null; content: string; image_url: string | null }>()
       : await env.DB.prepare(
-        "SELECT id, external_id, content FROM social_posts WHERE platform = 'twitter' AND status = 'posted' ORDER BY posted_at DESC, updated_at DESC LIMIT 10",
-      ).all<{ id: number; external_id: string | null; content: string }>();
+        "SELECT id, external_id, content, image_url FROM social_posts WHERE platform = 'twitter' AND status = 'posted' ORDER BY posted_at DESC, updated_at DESC",
+      ).all<{ id: number; external_id: string | null; content: string; image_url: string | null }>();
     const targetRows = (targets.results ?? []).filter((row) => row.external_id?.trim());
     const targetMap = new Map(targetRows.map((row) => [String(row.external_id).trim(), row]));
     if (!targetMap.size) return jsonResponse({ data: [] });
@@ -739,11 +739,13 @@ export async function listTwitterComments(env: Env, postId?: string | null, limi
           post_id: target?.id ?? null,
           post_external_id: tweet.conversation_id ?? null,
           post_preview: target?.content?.slice(0, 120) ?? null,
+          post_image_url: target?.image_url ?? null,
           commenter_username: author?.username ?? null,
           commenter_name: author?.name ?? null,
           text: tweet.text ?? "",
           commented_at: tweet.created_at ?? null,
           external_id: tweet.id ?? null,
+          parent_external_id: null,
           permalink: author?.username && tweet.id ? `https://x.com/${author.username}/status/${tweet.id}` : null,
           reply_status: ownerReply ? "replied" : "new",
           owner_reply_text: ownerReply?.text ?? null,

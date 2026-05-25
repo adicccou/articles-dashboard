@@ -513,23 +513,23 @@ export async function publishRedditPost(env: Env, postId: string): Promise<Respo
 
 export async function listRedditComments(env: Env, postId?: string | null, limit?: string | null): Promise<Response> {
   try {
-    const requestedLimit = Math.max(1, Math.min(Number(limit || 10) || 10, 25));
+    const requestedLimit = Math.max(1, Math.min(Number(limit || 100) || 100, 100));
     const account = await getActiveRedditAccount(env);
     if (!account) return jsonResponse({ data: [] });
     const readyAccount = await ensureRedditAccessToken(env, account);
 
     const targets = postId
       ? await env.DB.prepare(
-        "SELECT id, title, subreddit, external_id, account_id FROM social_posts WHERE id = ? AND platform = 'reddit' AND status = 'posted'",
-      ).bind(Number(postId)).all<{ id: number; title: string | null; subreddit: string | null; external_id: string | null; account_id: number | null }>()
+        "SELECT id, title, subreddit, external_id, account_id, image_url FROM social_posts WHERE id = ? AND platform = 'reddit' AND status = 'posted'",
+      ).bind(Number(postId)).all<{ id: number; title: string | null; subreddit: string | null; external_id: string | null; account_id: number | null; image_url: string | null }>()
       : await env.DB.prepare(
-        "SELECT id, title, subreddit, external_id, account_id FROM social_posts WHERE platform = 'reddit' AND status = 'posted' ORDER BY posted_at DESC, updated_at DESC LIMIT 5",
-      ).all<{ id: number; title: string | null; subreddit: string | null; external_id: string | null; account_id: number | null }>();
+        "SELECT id, title, subreddit, external_id, account_id, image_url FROM social_posts WHERE platform = 'reddit' AND status = 'posted' ORDER BY posted_at DESC, updated_at DESC",
+      ).all<{ id: number; title: string | null; subreddit: string | null; external_id: string | null; account_id: number | null; image_url: string | null }>();
     const targetRows = (targets.results ?? []).filter((row) => row.external_id?.trim());
 
     let effectiveTargets = targetRows;
     if (!effectiveTargets.length) {
-      const submissionsResponse = await redditRequest(readyAccount, `/user/${encodeURIComponent(readyAccount.name)}/submitted?limit=5`);
+      const submissionsResponse = await redditRequest(readyAccount, `/user/${encodeURIComponent(readyAccount.name)}/submitted?limit=100`);
       const submissionsPayload = await submissionsResponse.json() as RedditApiListing;
       const children = submissionsPayload.data?.children ?? [];
         effectiveTargets = children
@@ -542,13 +542,14 @@ export async function listRedditComments(env: Env, postId?: string | null, limit
             subreddit: String(data.subreddit ?? ""),
             external_id: String(data.name ?? ""),
             account_id: readyAccount.id,
+            image_url: null,
           };
         })
         .filter((row) => row.external_id);
     }
 
     const commentCollections = await Promise.all(
-      effectiveTargets.slice(0, 5).map(async (target) => {
+      effectiveTargets.map(async (target) => {
         const comments = await fetchRedditPostComments(readyAccount, String(target.external_id), requestedLimit);
         return comments
           .filter((comment) => String(comment.author ?? "").trim().toLowerCase() !== readyAccount.name.trim().toLowerCase())
@@ -559,6 +560,7 @@ export async function listRedditComments(env: Env, postId?: string | null, limit
             post_id: target.id,
             post_external_id: target.external_id,
             post_title: target.title,
+            post_image_url: target.image_url ?? null,
             subreddit: target.subreddit,
             commenter_username: String(comment.author ?? ""),
             commenter_name: null,
@@ -567,6 +569,7 @@ export async function listRedditComments(env: Env, postId?: string | null, limit
               ? new Date(Number(comment.created_utc) * 1000).toISOString()
               : null,
             external_id: String(comment.name ?? ""),
+            parent_external_id: comment.parent_id ? String(comment.parent_id) : null,
             permalink: comment.permalink ? `https://reddit.com${String(comment.permalink)}` : null,
             reply_status: ownerReply ? "replied" : "new",
             owner_reply_text: ownerReply ? String(ownerReply.body ?? "") : null,
@@ -581,7 +584,7 @@ export async function listRedditComments(env: Env, postId?: string | null, limit
     );
     const merged = commentCollections.flat().sort((left, right) => {
       return String(right.commented_at ?? "").localeCompare(String(left.commented_at ?? ""));
-    }).slice(0, requestedLimit);
+    });
     return jsonResponse({ data: merged });
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Failed to load Reddit comments", 500);

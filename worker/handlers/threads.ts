@@ -575,7 +575,7 @@ export async function listThreadsReplies(env: Env, url: URL, userId = DEFAULT_US
 
 export async function listThreadsComments(env: Env, postId?: string | null, limit?: string | null, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
-    const requestedLimit = Math.max(1, Math.min(Number(limit || 20) || 20, 50));
+    const requestedLimit = Math.max(1, Math.min(Number(limit || 100) || 100, 100));
     const filters = ["platform = 'threads'", "status = 'posted'"];
     const values: unknown[] = [];
     if (postId) {
@@ -584,10 +584,10 @@ export async function listThreadsComments(env: Env, postId?: string | null, limi
     }
     await appendScopedFilter(env, "social_posts", filters, values, userId);
     const targets = await env.DB.prepare(
-      `SELECT id, external_id, content FROM social_posts WHERE ${filters.join(" AND ")} ORDER BY posted_at DESC, updated_at DESC LIMIT ?`,
+      `SELECT id, external_id, content, image_url FROM social_posts WHERE ${filters.join(" AND ")} ORDER BY posted_at DESC, updated_at DESC`,
     )
-      .bind(...values, postId ? 1 : 10)
-      .all<{ id: number; external_id: string | null; content: string | null }>();
+      .bind(...values)
+      .all<{ id: number; external_id: string | null; content: string | null; image_url: string | null }>();
     const targetRows = (targets.results ?? []).filter((row) => row.external_id?.trim());
     if (targetRows.length === 0) return jsonResponse({ data: [] });
 
@@ -597,6 +597,7 @@ export async function listThreadsComments(env: Env, postId?: string | null, limi
           mediaId: String(target.external_id).trim(),
           limit: String(requestedLimit),
           reverse: "true",
+          userId,
         });
         const ownerRepliesByParent = new Map<string, Record<string, unknown>>();
         replies
@@ -620,11 +621,13 @@ export async function listThreadsComments(env: Env, postId?: string | null, limi
             post_id: target.id,
             post_external_id: String(target.external_id).trim(),
             post_preview: target.content?.slice(0, 120) ?? null,
+            post_image_url: target.image_url ?? null,
             commenter_username: reply.username ? String(reply.username) : null,
             commenter_name: null,
             text: reply.text ? String(reply.text) : "",
             commented_at: reply.timestamp ? String(reply.timestamp) : null,
             external_id: reply.id ? String(reply.id) : null,
+            parent_external_id: readThreadsReplyParentId(reply.replied_to),
             permalink: reply.permalink ? String(reply.permalink) : null,
             reply_status: ownerReply ? "replied" : "new",
             owner_reply_text: ownerReply?.text ? String(ownerReply.text) : null,
@@ -638,8 +641,7 @@ export async function listThreadsComments(env: Env, postId?: string | null, limi
 
     const merged = conversations
       .flat()
-      .sort((left, right) => String(right.commented_at ?? "").localeCompare(String(left.commented_at ?? "")))
-      .slice(0, requestedLimit);
+      .sort((left, right) => String(right.commented_at ?? "").localeCompare(String(left.commented_at ?? "")));
     return jsonResponse({ data: merged });
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Failed to load Threads comments", 500);
