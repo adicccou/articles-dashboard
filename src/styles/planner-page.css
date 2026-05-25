@@ -240,6 +240,15 @@
   padding: 0 1px;
 }
 
+.scheduler-week__slot-meta .scheduler-status-chip.scheduler-status-chip--micro {
+  border-width: 0;
+  font-size: 0.42rem;
+  font-weight: 800;
+  line-height: 1;
+  min-height: 14px;
+  padding: 2px 4px;
+}
+
 .scheduler-calendar__nav {
   display: flex;
   gap: 10px;
