@@ -242,11 +242,11 @@
 
 .scheduler-week__slot-meta .scheduler-status-chip.scheduler-status-chip--micro {
   border-width: 0;
-  font-size: 0.42rem;
+  font-size: 0.66rem;
   font-weight: 800;
   line-height: 1;
-  min-height: 14px;
-  padding: 2px 4px;
+  min-height: 20px;
+  padding: 4px 8px;
 }
 
 .scheduler-calendar__nav {
