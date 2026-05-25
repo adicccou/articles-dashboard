@@ -1,6 +1,6 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
-import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId } from "../lib/ownership";
+import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
 import { listSocialPosts, createSocialPost, updateSocialPost, deleteSocialPost, getSocialPostSchemaCapabilities } from "./twitter";
 
 // Re-export post handlers using the 'threads' platform
@@ -65,6 +65,17 @@ type ThreadsGraphError = {
 };
 
 async function upsertSetting(env: Env, key: string, value: string, updatedAt: string, userId = DEFAULT_USER_ID): Promise<void> {
+  if (await tableHasWorkspaceId(env, "app_settings")) {
+    await env.DB.prepare(
+      `INSERT INTO app_settings (workspace_id, key, value, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(workspace_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    )
+      .bind(workspaceId(userId), key, value, updatedAt)
+      .run();
+    return;
+  }
+
   if (await tableHasUserId(env, "app_settings")) {
     await env.DB.prepare(
       `INSERT INTO app_settings (user_id, key, value, updated_at)
@@ -91,11 +102,14 @@ function getGraphErrorMessage(payload: unknown, fallback: string): string {
 }
 
 async function readSetting(env: Env, key: string, userId = DEFAULT_USER_ID): Promise<string> {
+  const hasWorkspaceId = await tableHasWorkspaceId(env, "app_settings");
   const hasUserId = await tableHasUserId(env, "app_settings");
-  const row = await env.DB.prepare(hasUserId
+  const row = await env.DB.prepare(hasWorkspaceId
+    ? "SELECT value FROM app_settings WHERE workspace_id = ? AND key = ?"
+    : hasUserId
     ? "SELECT value FROM app_settings WHERE user_id = ? AND key = ?"
     : "SELECT value FROM app_settings WHERE key = ?")
-    .bind(...(hasUserId ? [ownerId(userId), key] : [key]))
+    .bind(...(hasWorkspaceId ? [workspaceId(userId), key] : hasUserId ? [ownerId(userId), key] : [key]))
     .first<{ value: string }>();
   return row?.value ?? "";
 }
@@ -185,10 +199,27 @@ async function publishThreadsContainer(credentials: ThreadsCredentials, containe
 async function publishThreadsText(
   env: Env,
   payload: { text: string; imageUrl?: string; replyToId?: string; accountId?: number; userId?: number },
-): Promise<{ externalId: string; accountId: number }> {
+): Promise<{ externalId: string; accountId: number; credentials: ThreadsCredentials }> {
   const { containerId, credentials } = await postThreadsContainer(env, payload);
   const externalId = await publishThreadsContainer(credentials, containerId);
-  return { externalId, accountId: credentials.accountId };
+  return { externalId, accountId: credentials.accountId, credentials };
+}
+
+async function fetchThreadsMediaDetails(
+  credentials: ThreadsCredentials,
+  mediaId: string,
+): Promise<Record<string, unknown> | null> {
+  const mediaUrl = new URL(`${THREADS_GRAPH_BASE}/${mediaId}`);
+  mediaUrl.searchParams.set("fields", THREADS_MEDIA_FIELDS);
+  mediaUrl.searchParams.set("access_token", credentials.accessToken);
+
+  const response = await fetch(mediaUrl.toString());
+  const payload = await response.json() as Record<string, unknown> & ThreadsGraphError;
+  if (!response.ok || payload.error) {
+    console.error("Threads media verification failed:", getGraphErrorMessage(payload, "unknown error"));
+    return null;
+  }
+  return payload;
 }
 
 async function createThreadsAccount(env: Env, payload: ThreadsAccountPayload, userId = DEFAULT_USER_ID): Promise<{
@@ -452,19 +483,21 @@ export async function listThreadsReplies(env: Env, url: URL, userId = DEFAULT_US
   }
 }
 
-export async function listThreadsComments(env: Env, postId?: string | null, limit?: string | null): Promise<Response> {
+export async function listThreadsComments(env: Env, postId?: string | null, limit?: string | null, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const requestedLimit = Math.max(1, Math.min(Number(limit || 20) || 20, 50));
-    const targets = postId
-      ? await env.DB.prepare(
-        "SELECT id, external_id, content FROM social_posts WHERE id = ? AND platform = 'threads' AND status = 'posted'",
-      )
-        .bind(Number(postId))
-        .all<{ id: number; external_id: string | null; content: string | null }>()
-      : await env.DB.prepare(
-        "SELECT id, external_id, content FROM social_posts WHERE platform = 'threads' AND status = 'posted' ORDER BY posted_at DESC, updated_at DESC LIMIT 10",
-      )
-        .all<{ id: number; external_id: string | null; content: string | null }>();
+    const filters = ["platform = 'threads'", "status = 'posted'"];
+    const values: unknown[] = [];
+    if (postId) {
+      filters.unshift("id = ?");
+      values.unshift(Number(postId));
+    }
+    await appendScopedFilter(env, "social_posts", filters, values, userId);
+    const targets = await env.DB.prepare(
+      `SELECT id, external_id, content FROM social_posts WHERE ${filters.join(" AND ")} ORDER BY posted_at DESC, updated_at DESC LIMIT ?`,
+    )
+      .bind(...values, postId ? 1 : 10)
+      .all<{ id: number; external_id: string | null; content: string | null }>();
     const targetRows = (targets.results ?? []).filter((row) => row.external_id?.trim());
     if (targetRows.length === 0) return jsonResponse({ data: [] });
 
@@ -540,8 +573,18 @@ export async function createThreadsReply(env: Env, request: Request, userId = DE
       accountId: payload.account_id,
       userId,
     });
+    const publishedDetails = await fetchThreadsMediaDetails(published.credentials, published.externalId);
+    const publishedReplyToId = readThreadsReplyParentId(publishedDetails?.replied_to);
 
-    return jsonResponse({ success: true, external_id: published.externalId, account_id: published.accountId });
+    return jsonResponse({
+      success: true,
+      external_id: published.externalId,
+      account_id: published.accountId,
+      permalink: typeof publishedDetails?.permalink === "string" ? publishedDetails.permalink : null,
+      replied_to_id: publishedReplyToId,
+      verified_reply_target: publishedReplyToId ? publishedReplyToId === replyToId : null,
+      reply_audience: typeof publishedDetails?.reply_audience === "string" ? publishedDetails.reply_audience : null,
+    });
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Failed to publish Threads reply", 500);
   }
@@ -737,11 +780,14 @@ export async function deleteThreadsAccount(env: Env, accountId: string, userId =
     const values: unknown[] = [id];
     await appendScopedFilter(env, "social_accounts", filters, values, userId);
     await env.DB.prepare(`DELETE FROM social_accounts WHERE ${filters.join(" AND ")}`).bind(...values).run();
+    const settingsHasWorkspaceId = await tableHasWorkspaceId(env, "app_settings");
     const settingsHasUserId = await tableHasUserId(env, "app_settings");
-    await env.DB.prepare(settingsHasUserId
+    await env.DB.prepare(settingsHasWorkspaceId
+      ? "DELETE FROM app_settings WHERE workspace_id = ? AND key LIKE ?"
+      : settingsHasUserId
       ? "DELETE FROM app_settings WHERE user_id = ? AND key LIKE ?"
       : "DELETE FROM app_settings WHERE key LIKE ?")
-      .bind(...(settingsHasUserId ? [ownerId(userId), `social_account:${id}:%`] : [`social_account:${id}:%`]))
+      .bind(...(settingsHasWorkspaceId ? [workspaceId(userId), `social_account:${id}:%`] : settingsHasUserId ? [ownerId(userId), `social_account:${id}:%`] : [`social_account:${id}:%`]))
       .run();
     return jsonResponse({ success: true });
   } catch {

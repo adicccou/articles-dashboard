@@ -9,6 +9,21 @@ export type DashboardUser = {
   timezone: string;
   created_at: string;
   updated_at: string;
+  workspace_id?: number;
+  workspace_role?: "owner" | "admin" | "member";
+  workspace?: DashboardWorkspace;
+};
+
+export type DashboardWorkspace = {
+  id: number;
+  slug: string;
+  name: string;
+  status: "active" | "suspended" | "archived";
+  plan: string;
+  owner_user_id: number | null;
+  timezone: string;
+  created_at: string;
+  updated_at: string;
 };
 
 export type AuthState = {

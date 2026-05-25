@@ -101,6 +101,12 @@
   font-size: 0.78rem;
 }
 
+.replies-card__owner-reply-link {
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 .replies-card__meta {
   align-items: center;
   justify-content: flex-end;

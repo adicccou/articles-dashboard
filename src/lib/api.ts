@@ -1,5 +1,15 @@
 import type { ArticleAssistPayload, ArticleCoverPayload, ArticleCoverResponse, ArticleInput, ArticleRecord, ArticleStylePayload, ArticleStyleResponse, AuthState, DashboardBootstrap, DashboardUser, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, SocialAccount, SocialAccountInput, SocialComment, SocialPost, SocialReplySuggestion, StudioApp, StudioCampaign, StudioCrawlerRun, StudioSignal, StudioStrategistPost, StudioSummary, ThreadsCampaignResult, ThreadsMediaResponse, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorkersResponse, MlTradingAssetsResponse, MlTradingDiagnostics, MlTradingSettings } from "./types";
 
+type SocialReplyPublishResponse = {
+  success: boolean;
+  external_id: string;
+  account_id?: number;
+  permalink?: string | null;
+  replied_to_id?: string | null;
+  verified_reply_target?: boolean | null;
+  reply_audience?: string | null;
+};
+
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
     credentials: "include",
@@ -397,12 +407,12 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   createTwitterReply: (reply_to_id: string, text: string) =>
-    request<{ success: boolean; external_id: string }>("/api/social/twitter/replies", {
+    request<SocialReplyPublishResponse>("/api/social/twitter/replies", {
       method: "POST",
       body: JSON.stringify({ reply_to_id, text }),
     }),
   createRedditReply: (reply_to_id: string, text: string) =>
-    request<{ success: boolean; external_id: string; account_id: number }>("/api/social/reddit/replies", {
+    request<SocialReplyPublishResponse>("/api/social/reddit/replies", {
       method: "POST",
       body: JSON.stringify({ reply_to_id, text }),
     }),
@@ -454,7 +464,7 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   createThreadsReply: (reply_to_id: string, text: string, image_url?: string) =>
-    request<{ success: boolean; external_id: string; account_id: number }>("/api/social/threads/replies", {
+    request<SocialReplyPublishResponse>("/api/social/threads/replies", {
       method: "POST",
       body: JSON.stringify({ reply_to_id, text, image_url }),
     }),

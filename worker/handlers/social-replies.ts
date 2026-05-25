@@ -2,7 +2,7 @@ import type { Env } from "../lib/types";
 import { errorResponse, jsonResponse, parseJson } from "../lib/http";
 import { callAiText } from "../lib/ai";
 import { formatGeminiUserError } from "../lib/gemini";
-import { DEFAULT_USER_ID, ownerId, tableHasUserId } from "../lib/ownership";
+import { DEFAULT_USER_ID, ownerId, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
 
 type ReplyAiSettings = {
   geminiApiKey: string;
@@ -28,12 +28,15 @@ const REPLY_CHAR_LIMITS: Record<string, number> = {
 };
 
 async function readReplyAiSettings(env: Env, userId = DEFAULT_USER_ID): Promise<ReplyAiSettings> {
+  const hasWorkspaceId = await tableHasWorkspaceId(env, "app_settings");
   const hasUserId = await tableHasUserId(env, "app_settings");
   const rows = await env.DB.prepare(
-    hasUserId
+    hasWorkspaceId
+      ? "SELECT key, value FROM app_settings WHERE workspace_id = ? AND key IN ('gemini_api_key', 'gemini_flash_model', 'gemini_pro_model', 'global_ai_rules')"
+      : hasUserId
       ? "SELECT key, value FROM app_settings WHERE user_id = ? AND key IN ('gemini_api_key', 'gemini_flash_model', 'gemini_pro_model', 'global_ai_rules')"
       : "SELECT key, value FROM app_settings WHERE key IN ('gemini_api_key', 'gemini_flash_model', 'gemini_pro_model', 'global_ai_rules')",
-  ).bind(...(hasUserId ? [ownerId(userId)] : [])).all<{ key: string; value: string }>();
+  ).bind(...(hasWorkspaceId ? [workspaceId(userId)] : hasUserId ? [ownerId(userId)] : [])).all<{ key: string; value: string }>();
 
   const settings: ReplyAiSettings = {
     geminiApiKey: "",

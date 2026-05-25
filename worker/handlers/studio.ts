@@ -3,7 +3,7 @@ import { errorResponse, jsonResponse, parseJson } from "../lib/http";
 import { callAiText } from "../lib/ai";
 import { getSocialPostSchemaCapabilities } from "./twitter";
 import { plannerHasSocialPostLinks } from "./planner";
-import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId } from "../lib/ownership";
+import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
 
 type StudioStatus = "active" | "inactive" | "archived";
 type StudioCampaignType = "post" | "reply";
@@ -296,12 +296,15 @@ function sourcePostKey(platform: string, value: { target_url?: unknown; target_e
 }
 
 async function readStudioAiSettings(env: Env, userId = DEFAULT_USER_ID): Promise<StudioAiSettings> {
+  const hasWorkspaceId = await tableHasWorkspaceId(env, "app_settings");
   const hasUserId = await tableHasUserId(env, "app_settings");
   const rows = await env.DB.prepare(
-    hasUserId
+    hasWorkspaceId
+      ? "SELECT key, value FROM app_settings WHERE workspace_id = ? AND key IN ('gemini_api_key', 'gemini_flash_model', 'gemini_pro_model', 'global_ai_rules')"
+      : hasUserId
       ? "SELECT key, value FROM app_settings WHERE user_id = ? AND key IN ('gemini_api_key', 'gemini_flash_model', 'gemini_pro_model', 'global_ai_rules')"
       : "SELECT key, value FROM app_settings WHERE key IN ('gemini_api_key', 'gemini_flash_model', 'gemini_pro_model', 'global_ai_rules')",
-  ).bind(...(hasUserId ? [ownerId(userId)] : [])).all<{ key: string; value: string }>();
+  ).bind(...(hasWorkspaceId ? [workspaceId(userId)] : hasUserId ? [ownerId(userId)] : [])).all<{ key: string; value: string }>();
 
   const settings: StudioAiSettings = {
     geminiApiKey: "",

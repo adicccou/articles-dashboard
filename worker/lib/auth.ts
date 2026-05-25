@@ -1,5 +1,6 @@
 import type { Env } from "./types";
 import type { DashboardUser } from "./ownership";
+import { attachPrimaryWorkspace } from "./ownership";
 import { authenticateDashboardUser, ensureDefaultUser, getUserById, normalizeUsername } from "./users";
 
 const encoder = new TextEncoder();
@@ -73,7 +74,7 @@ export async function getSessionUser(request: Request, env: Env): Promise<Dashbo
     if (!timingSafeEqual(expected, signature)) return null;
     const user = await getUserById(env, id);
     if (user?.status === "active" && normalizeUsername(user.username) === normalizeUsername(username)) {
-      return user;
+      return attachPrimaryWorkspace(env, user);
     }
     if (id === 1) {
       const defaultUser = await ensureDefaultUser(env);

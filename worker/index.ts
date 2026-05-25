@@ -3,6 +3,7 @@ import { createSite, getPublishedArticleBySlug, getPublishedArticlesForSite, lis
 import { json, parseJson, text } from "./lib/http";
 import type { Env } from "./lib/types";
 import type { DashboardUser } from "./lib/ownership";
+import { activeScopeId } from "./lib/ownership";
 import { authenticateDashboardUser } from "./lib/users";
 import {
   listCampaigns,
@@ -1185,124 +1186,124 @@ export default {
     if (url.pathname === "/api/studio" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await getStudioSummary(env, user.id);
+      return await getStudioSummary(env, activeScopeId(user));
     }
 
     if (url.pathname === "/api/studio/accounts" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await listStudioAccounts(env, user.id);
+      return await listStudioAccounts(env, activeScopeId(user));
     }
 
     if (url.pathname === "/api/studio/apps" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await listStudioApps(env, user.id);
+      return await listStudioApps(env, activeScopeId(user));
     }
 
     if (url.pathname === "/api/studio/apps" && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await createStudioApp(env, request, user.id);
+      return await createStudioApp(env, request, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/studio/apps/") && request.method === "PUT") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
-      return await updateStudioApp(env, id, request, user.id);
+      return await updateStudioApp(env, id, request, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/studio/apps/") && request.method === "DELETE") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
-      return await deleteStudioApp(env, id, user.id);
+      return await deleteStudioApp(env, id, activeScopeId(user));
     }
 
     if (url.pathname === "/api/studio/campaigns" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await listStudioCampaigns(env, user.id);
+      return await listStudioCampaigns(env, activeScopeId(user));
     }
 
     if (url.pathname === "/api/studio/campaigns" && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await createStudioCampaign(env, request, user.id);
+      return await createStudioCampaign(env, request, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/studio/campaigns/") && request.method === "PUT") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
-      return await updateStudioCampaign(env, id, request, user.id);
+      return await updateStudioCampaign(env, id, request, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/studio/campaigns/") && request.method === "DELETE") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
-      return await deleteStudioCampaign(env, id, user.id);
+      return await deleteStudioCampaign(env, id, activeScopeId(user));
     }
 
     if (url.pathname === "/api/studio/crawler-runs" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await listStudioCrawlerRuns(env, url, user.id);
+      return await listStudioCrawlerRuns(env, url, activeScopeId(user));
     }
 
     if (url.pathname === "/api/studio/crawler-runs" && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await createStudioCrawlerRun(env, request, user.id);
+      return await createStudioCrawlerRun(env, request, activeScopeId(user));
     }
 
     if (url.pathname === "/api/studio/signals" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await listStudioSignals(env, url, user.id);
+      return await listStudioSignals(env, url, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/studio/signals/") && request.method === "DELETE") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
-      return await deleteStudioSignal(env, id, user.id);
+      return await deleteStudioSignal(env, id, activeScopeId(user));
     }
 
     if (url.pathname === "/api/studio/strategist-posts" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await listStudioStrategistPosts(env, url, user.id);
+      return await listStudioStrategistPosts(env, url, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/studio/strategist-posts/") && url.pathname.endsWith("/schedule") && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
-      return await scheduleStudioStrategistPost(env, id, request, user.id);
+      return await scheduleStudioStrategistPost(env, id, request, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/studio/strategist-posts/") && url.pathname.endsWith("/unpost") && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
-      return await unpostStudioStrategistPost(env, id, user.id);
+      return await unpostStudioStrategistPost(env, id, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/studio/strategist-posts/") && url.pathname.endsWith("/regenerate") && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
-      return await regenerateStudioStrategistPost(env, id, user.id);
+      return await regenerateStudioStrategistPost(env, id, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/studio/strategist-posts/") && request.method === "PUT") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
-      return await updateStudioStrategistPost(env, id, request, user.id);
+      return await updateStudioStrategistPost(env, id, request, activeScopeId(user));
     }
 
     if (url.pathname === "/api/sites" && request.method === "GET") {
@@ -1403,19 +1404,19 @@ export default {
     if (url.pathname === "/api/settings" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return getAppSettings(env, user.id);
+      return getAppSettings(env, activeScopeId(user));
     }
 
     if (url.pathname === "/api/settings" && request.method === "PUT") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return updateAppSettings(env, request, url.origin, user.id);
+      return updateAppSettings(env, request, url.origin, activeScopeId(user));
     }
 
     if (url.pathname === "/api/settings/sync-agent" && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return syncAgentFromSettings(env, url.origin, user.id);
+      return syncAgentFromSettings(env, url.origin, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/media/") && request.method === "GET") {
@@ -1427,7 +1428,7 @@ export default {
     if (url.pathname === "/api/reddit/auth/authorize" && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await handleAuthorizeRequest(env, request, user.id);
+      return await handleAuthorizeRequest(env, request, activeScopeId(user));
     }
 
     if (url.pathname === "/api/reddit/auth/callback" && request.method === "GET") {
@@ -1438,48 +1439,48 @@ export default {
     if (url.pathname === "/api/reddit/accounts" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await listRedditAccounts(env, user.id);
+      return await listRedditAccounts(env, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/reddit/accounts/") && request.method === "PUT") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
-      return await updateRedditAccount(env, id, request, user.id);
+      return await updateRedditAccount(env, id, request, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/reddit/accounts/") && request.method === "DELETE") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
-      return await deleteRedditAccount(env, id, user.id);
+      return await deleteRedditAccount(env, id, activeScopeId(user));
     }
 
     // Reddit campaign endpoints
     if (url.pathname === "/api/reddit/campaigns" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await listCampaigns(env, user.id);
+      return await listCampaigns(env, activeScopeId(user));
     }
 
     if (url.pathname === "/api/reddit/campaigns" && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await createCampaign(env, request, user.id);
+      return await createCampaign(env, request, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/reddit/campaigns/") && request.method === "PUT") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
-      return await updateCampaign(env, id, request, user.id);
+      return await updateCampaign(env, id, request, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/reddit/campaigns/") && request.method === "DELETE") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
-      return await deleteCampaign(env, id, user.id);
+      return await deleteCampaign(env, id, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/reddit/campaigns/") && url.pathname.endsWith("/stats") && request.method === "GET") {
@@ -1533,61 +1534,61 @@ export default {
     if (url.pathname === "/api/trading/lean-status" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await getLeanStatus(env, user.id);
+      return await getLeanStatus(env, activeScopeId(user));
     }
 
     if (url.pathname === "/api/trading/learning-report" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await getLearningReport(env, user.id);
+      return await getLearningReport(env, activeScopeId(user));
     }
 
     if ((url.pathname === "/api/trading/nautilus/workers" || url.pathname === "/api/trading/custom-lean/workers") && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await getCustomLeanWorkers(env, user.id);
+      return await getCustomLeanWorkers(env, activeScopeId(user));
     }
 
     if ((url.pathname === "/api/trading/nautilus/diagnostics" || url.pathname === "/api/trading/custom-lean/diagnostics") && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await getCustomLeanDiagnostics(env, user.id);
+      return await getCustomLeanDiagnostics(env, activeScopeId(user));
     }
 
     if ((url.pathname === "/api/trading/nautilus/settings" || url.pathname === "/api/trading/custom-lean/settings") && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await getCustomLeanSettings(env, user.id);
+      return await getCustomLeanSettings(env, activeScopeId(user));
     }
 
     if ((url.pathname === "/api/trading/nautilus/settings" || url.pathname === "/api/trading/custom-lean/settings") && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await updateCustomLeanSettings(env, request, url.origin, user.id);
+      return await updateCustomLeanSettings(env, request, url.origin, activeScopeId(user));
     }
 
     if (url.pathname === "/api/trading/ml/assets" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await getMlTradingAssets(env, user.id);
+      return await getMlTradingAssets(env, activeScopeId(user));
     }
 
     if (url.pathname === "/api/trading/ml/diagnostics" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await getMlTradingDiagnostics(env, user.id);
+      return await getMlTradingDiagnostics(env, activeScopeId(user));
     }
 
     if (url.pathname === "/api/trading/ml/settings" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await getMlTradingSettings(env, user.id);
+      return await getMlTradingSettings(env, activeScopeId(user));
     }
 
     if (url.pathname === "/api/trading/ml/settings" && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await updateMlTradingSettings(env, request, url.origin, user.id);
+      return await updateMlTradingSettings(env, request, url.origin, activeScopeId(user));
     }
 
     if (url.pathname === "/api/trading/strategies" && request.method === "GET") {
@@ -1666,27 +1667,27 @@ export default {
     if (url.pathname === "/api/planner/items" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await listPlannerItems(env, user.id);
+      return await listPlannerItems(env, activeScopeId(user));
     }
 
     if (url.pathname === "/api/planner/items" && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await createPlannerItem(env, request, user.id);
+      return await createPlannerItem(env, request, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/planner/items/") && request.method === "PUT") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
-      return await updatePlannerItem(env, id, request, user.id);
+      return await updatePlannerItem(env, id, request, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/planner/items/") && request.method === "DELETE") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
-      return await deletePlannerItem(env, id, user.id);
+      return await deletePlannerItem(env, id, activeScopeId(user));
     }
 
     if (url.pathname === "/api/trading/notes" && request.method === "GET") {
@@ -1720,7 +1721,7 @@ export default {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const platform = url.searchParams.get("platform") ?? "twitter";
-      return await listSocialPosts(env, platform, user.id);
+      return await listSocialPosts(env, platform, activeScopeId(user));
     }
 
     if (url.pathname === "/api/social/posts" && request.method === "POST") {
@@ -1732,7 +1733,7 @@ export default {
         method: "POST",
         body: JSON.stringify({ title: body.title, subreddit: body.subreddit, content: body.content, scheduled_at: body.scheduled_at, image_url: body.image_url, account_id: body.account_id, reply_to_id: body.reply_to_id }),
         headers: { "Content-Type": "application/json" },
-      }), user.id);
+      }), activeScopeId(user));
     }
 
     if (url.pathname === "/api/social/twitter/search" && request.method === "GET") {
@@ -1745,14 +1746,14 @@ export default {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
-      return await updateSocialPost(env, id, request, user.id);
+      return await updateSocialPost(env, id, request, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/social/posts/") && request.method === "DELETE") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
-      return await deleteSocialPost(env, id, user.id);
+      return await deleteSocialPost(env, id, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/social/posts/") && url.pathname.endsWith("/publish") && request.method === "POST") {
@@ -1763,19 +1764,19 @@ export default {
         .bind(id)
         .first<{ platform: string }>();
       if (!post) return json({ error: "Social post not found" }, { status: 404 });
-      if (post.platform === "threads") return await publishThreadsPost(env, id, user.id);
-      if (post.platform === "twitter") return await publishTwitterPost(env, id, user.id);
+      if (post.platform === "threads") return await publishThreadsPost(env, id, activeScopeId(user));
+      if (post.platform === "twitter") return await publishTwitterPost(env, id, activeScopeId(user));
       if (post.platform === "reddit") return await publishRedditPost(env, id);
       return json({ error: "Direct publishing is not available for this platform yet." }, { status: 400 });
     }
 
     if (url.pathname === "/api/social/comments" && request.method === "GET") {
-      const unauthorized = await requireAuth(request, env);
-      if (unauthorized) return unauthorized;
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
       const platform = (url.searchParams.get("platform") ?? "threads").trim().toLowerCase();
       const postId = url.searchParams.get("post_id");
       const limit = url.searchParams.get("limit");
-      if (platform === "threads") return await listThreadsComments(env, postId, limit);
+      if (platform === "threads") return await listThreadsComments(env, postId, limit, activeScopeId(user));
       if (platform === "twitter" || platform === "x" || platform === "twitter/x") return await listTwitterComments(env, postId, limit);
       if (platform === "reddit") return await listRedditComments(env, postId, limit);
       return json({ error: "Unsupported social platform." }, { status: 400 });
@@ -1784,13 +1785,13 @@ export default {
     if (url.pathname === "/api/social/reply-suggestion" && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await suggestSocialReply(env, request, user.id);
+      return await suggestSocialReply(env, request, activeScopeId(user));
     }
 
     if (url.pathname === "/api/social/twitter/replies" && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await createTwitterReply(env, request, user.id);
+      return await createTwitterReply(env, request, activeScopeId(user));
     }
 
     if (url.pathname === "/api/social/reddit/search" && request.method === "GET") {
@@ -1809,41 +1810,41 @@ export default {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[5];
-      return await publishThreadsPost(env, id, user.id);
+      return await publishThreadsPost(env, id, activeScopeId(user));
     }
 
     // Twitter accounts
     if (url.pathname === "/api/social/twitter/accounts" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await listTwitterAccounts(env, user.id);
+      return await listTwitterAccounts(env, activeScopeId(user));
     }
 
     if (url.pathname === "/api/social/twitter/accounts" && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await addTwitterAccount(env, request, user.id);
+      return await addTwitterAccount(env, request, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/social/twitter/accounts/") && request.method === "PUT") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[5];
-      return await updateTwitterAccount(env, id, request, user.id);
+      return await updateTwitterAccount(env, id, request, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/social/twitter/accounts/") && request.method === "DELETE") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[5];
-      return await deleteTwitterAccount(env, id, user.id);
+      return await deleteTwitterAccount(env, id, activeScopeId(user));
     }
 
     // Threads accounts
     if (url.pathname === "/api/threads/auth/authorize" && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await authorizeThreadsAccount(env, request, user.id);
+      return await authorizeThreadsAccount(env, request, activeScopeId(user));
     }
 
     if (url.pathname === "/api/threads/auth/callback" && request.method === "GET") {
@@ -1853,45 +1854,45 @@ export default {
     if (url.pathname === "/api/social/threads/accounts" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await listThreadsAccounts(env, user.id);
+      return await listThreadsAccounts(env, activeScopeId(user));
     }
 
     if (url.pathname === "/api/social/threads/accounts" && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await addThreadsAccount(env, request, user.id);
+      return await addThreadsAccount(env, request, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/social/threads/accounts/") && request.method === "PUT") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[5];
-      return await updateThreadsAccount(env, id, request, user.id);
+      return await updateThreadsAccount(env, id, request, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/social/threads/accounts/") && request.method === "DELETE") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[5];
-      return await deleteThreadsAccount(env, id, user.id);
+      return await deleteThreadsAccount(env, id, activeScopeId(user));
     }
 
     if (url.pathname === "/api/social/threads/search" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await searchThreads(env, url, user.id);
+      return await searchThreads(env, url, activeScopeId(user));
     }
 
     if (url.pathname === "/api/social/threads/replies" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await listThreadsReplies(env, url, user.id);
+      return await listThreadsReplies(env, url, activeScopeId(user));
     }
 
     if (url.pathname === "/api/social/threads/replies" && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await createThreadsReply(env, request, user.id);
+      return await createThreadsReply(env, request, activeScopeId(user));
     }
 
     if (url.pathname === "/api/social/threads/campaign-results" && request.method === "GET") {

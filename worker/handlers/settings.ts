@@ -1,5 +1,5 @@
 import { errorResponse, jsonResponse, parseJson } from "../lib/http";
-import { DEFAULT_USER_ID, ownerId, tableHasUserId } from "../lib/ownership";
+import { DEFAULT_USER_ID, ownerId, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
 import type { Env } from "../lib/types";
 
 type StoredSettings = {
@@ -84,14 +84,17 @@ const DEFAULTS: StoredSettings = {
 };
 
 async function readSettings(env: Env, userId = DEFAULT_USER_ID): Promise<StoredSettings> {
+  const hasWorkspaceId = await tableHasWorkspaceId(env, "app_settings");
   const hasUserId = await tableHasUserId(env, "app_settings");
   const statement = env.DB.prepare(
-    hasUserId
+    hasWorkspaceId
+      ? "SELECT key, value, updated_at FROM app_settings WHERE workspace_id = ?"
+      : hasUserId
       ? "SELECT key, value, updated_at FROM app_settings WHERE user_id = ?"
       : "SELECT key, value, updated_at FROM app_settings",
   );
-  const rows = hasUserId
-    ? await statement.bind(ownerId(userId)).all<{
+  const rows = hasWorkspaceId || hasUserId
+    ? await statement.bind(hasWorkspaceId ? workspaceId(userId) : ownerId(userId)).all<{
       key: string;
       value: string;
       updated_at: string;
@@ -119,6 +122,17 @@ async function upsertSetting(
   updatedAt: string,
   userId = DEFAULT_USER_ID,
 ): Promise<void> {
+  if (await tableHasWorkspaceId(env, "app_settings")) {
+    await env.DB.prepare(
+      `INSERT INTO app_settings (workspace_id, key, value, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(workspace_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    )
+      .bind(workspaceId(userId), key, value, updatedAt)
+      .run();
+    return;
+  }
+
   if (await tableHasUserId(env, "app_settings")) {
     await env.DB.prepare(
       `INSERT INTO app_settings (user_id, key, value, updated_at)

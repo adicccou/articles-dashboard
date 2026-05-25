@@ -1,6 +1,6 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
-import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId } from "../lib/ownership";
+import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
 
 const IMAGE_URL_ALIASES = ["image_url", "imageUrl", "imageURL", "image", "photo", "picture", "media", "media_url", "mediaUrl", "media_urls", "mediaUrls", "url"] as const;
 
@@ -104,6 +104,17 @@ async function upsertSetting(
   updatedAt: string,
   userId = DEFAULT_USER_ID,
 ): Promise<void> {
+  if (await tableHasWorkspaceId(env, "app_settings")) {
+    await env.DB.prepare(
+      `INSERT INTO app_settings (workspace_id, key, value, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(workspace_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    )
+      .bind(workspaceId(userId), key, value, updatedAt)
+      .run();
+    return;
+  }
+
   if (await tableHasUserId(env, "app_settings")) {
     await env.DB.prepare(
       `INSERT INTO app_settings (user_id, key, value, updated_at)
@@ -125,11 +136,14 @@ async function upsertSetting(
 }
 
 async function readSetting(env: Env, key: string, userId = DEFAULT_USER_ID): Promise<string | null> {
+  const hasWorkspaceId = await tableHasWorkspaceId(env, "app_settings");
   const hasUserId = await tableHasUserId(env, "app_settings");
-  const row = await env.DB.prepare(hasUserId
+  const row = await env.DB.prepare(hasWorkspaceId
+    ? "SELECT value FROM app_settings WHERE workspace_id = ? AND key = ?"
+    : hasUserId
     ? "SELECT value FROM app_settings WHERE user_id = ? AND key = ?"
     : "SELECT value FROM app_settings WHERE key = ?")
-    .bind(...(hasUserId ? [ownerId(userId), key] : [key]))
+    .bind(...(hasWorkspaceId ? [workspaceId(userId), key] : hasUserId ? [ownerId(userId), key] : [key]))
     .first<{ value: string }>();
   return row?.value?.trim() || null;
 }
@@ -904,14 +918,22 @@ export async function publishTwitterPost(env: Env, postId: string, userId = DEFA
 
 export async function listTwitterAccounts(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
+    const accountHasWorkspaceId = await tableHasWorkspaceId(env, "social_accounts");
+    const settingsHasWorkspaceId = await tableHasWorkspaceId(env, "app_settings");
     const accountHasUserId = await tableHasUserId(env, "social_accounts");
     const settingsHasUserId = await tableHasUserId(env, "app_settings");
-    const joinScope = settingsHasUserId
+    const joinScope = settingsHasWorkspaceId
+      ? accountHasWorkspaceId
+        ? " AND {alias}.workspace_id = account.workspace_id"
+        : " AND {alias}.workspace_id = ?"
+      : settingsHasUserId
       ? accountHasUserId
         ? " AND {alias}.user_id = account.user_id"
         : " AND {alias}.user_id = ?"
       : "";
-    const joinValues = settingsHasUserId && !accountHasUserId
+    const joinValues = settingsHasWorkspaceId && !accountHasWorkspaceId
+      ? [workspaceId(userId), workspaceId(userId), workspaceId(userId), workspaceId(userId)]
+      : settingsHasUserId && !accountHasUserId
       ? [ownerId(userId), ownerId(userId), ownerId(userId), ownerId(userId)]
       : [];
     const filters = ["account.platform = 'twitter'"];
@@ -1072,11 +1094,14 @@ export async function deleteTwitterAccount(env: Env, accountId: string, userId =
     const values: unknown[] = [id];
     await appendScopedFilter(env, "social_accounts", filters, values, userId);
     await env.DB.prepare(`DELETE FROM social_accounts WHERE ${filters.join(" AND ")}`).bind(...values).run();
+    const settingsHasWorkspaceId = await tableHasWorkspaceId(env, "app_settings");
     const settingsHasUserId = await tableHasUserId(env, "app_settings");
-    await env.DB.prepare(settingsHasUserId
+    await env.DB.prepare(settingsHasWorkspaceId
+      ? "DELETE FROM app_settings WHERE workspace_id = ? AND key LIKE ?"
+      : settingsHasUserId
       ? "DELETE FROM app_settings WHERE user_id = ? AND key LIKE ?"
       : "DELETE FROM app_settings WHERE key LIKE ?")
-      .bind(...(settingsHasUserId ? [ownerId(userId), `social_account:${id}:%`] : [`social_account:${id}:%`]))
+      .bind(...(settingsHasWorkspaceId ? [workspaceId(userId), `social_account:${id}:%`] : settingsHasUserId ? [ownerId(userId), `social_account:${id}:%`] : [`social_account:${id}:%`]))
       .run();
     return jsonResponse({ success: true });
   } catch {

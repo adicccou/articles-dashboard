@@ -1,5 +1,6 @@
 import { errorResponse, jsonResponse, parseJson } from "../lib/http";
 import type { DashboardUser } from "../lib/ownership";
+import { activeScopeId, attachPrimaryWorkspace } from "../lib/ownership";
 import type { Env } from "../lib/types";
 import { hashPassword, listDashboardUsers, normalizeUsername, publicUser } from "../lib/users";
 
@@ -102,7 +103,18 @@ export async function createUser(env: Env, user: DashboardUser, request: Request
       )
       .first<DashboardUser>();
 
-    return jsonResponse(created ? publicUser(created) : { username }, { status: 201 });
+    if (created) {
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO workspace_members (
+          workspace_id, user_id, role, status, created_at, updated_at
+        )
+        VALUES (?, ?, ?, 'active', ?, ?)`,
+      )
+        .bind(activeScopeId(user), created.id, payload.role === "admin" ? "admin" : "member", now, now)
+        .run();
+    }
+
+    return jsonResponse(created ? await attachPrimaryWorkspace(env, publicUser(created)) : { username }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error && error.message.toLowerCase().includes("unique")
       ? "Username or email already exists"

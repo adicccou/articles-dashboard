@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { ArrowPathIcon } from "@heroicons/react/24/outline";
+import type { IconType } from "react-icons";
+import { SiReddit, SiThreads, SiX } from "react-icons/si";
 import { api } from "../lib/api";
 import type { SocialComment } from "../lib/types";
 import { formatDisplayDateTime } from "../lib/datetime";
@@ -12,10 +15,10 @@ const REPLY_LIMITS: Record<Platform, number> = {
   twitter: 280,
   threads: 500,
 };
-const PLATFORMS: Array<{ id: Platform; label: string; icon: string }> = [
-  { id: "reddit", label: "Reddit", icon: "🟠" },
-  { id: "twitter", label: "Twitter", icon: "𝕏" },
-  { id: "threads", label: "Threads", icon: "🧵" },
+const PLATFORMS: Array<{ id: Platform; label: string; Icon: IconType }> = [
+  { id: "reddit", label: "Reddit", Icon: SiReddit },
+  { id: "twitter", label: "Twitter", Icon: SiX },
+  { id: "threads", label: "Threads", Icon: SiThreads },
 ];
 
 function readStoredPlatform(): Platform {
@@ -240,8 +243,7 @@ export function RepliesPage() {
       setPostingReply(true);
       setComposerError(null);
       let publishedReply:
-        | { success: boolean; external_id: string }
-        | { success: boolean; external_id: string; account_id: number }
+        | { success: boolean; external_id: string; permalink?: string | null }
         | null = null;
 
       if (composerComment.platform === "threads") {
@@ -264,6 +266,7 @@ export function RepliesPage() {
             owner_reply_text: replyText,
             owner_replied_at: repliedAt,
             owner_reply_external_id: publishedReply?.external_id ?? item.owner_reply_external_id ?? null,
+            owner_reply_permalink: publishedReply?.permalink ?? item.owner_reply_permalink ?? null,
           };
         }),
       }));
@@ -289,7 +292,7 @@ export function RepliesPage() {
               onClick={() => setPlatform(item.id)}
               type="button"
             >
-              <span className="social-tab__icon">{item.icon}</span>
+              <item.Icon className={`social-tab__icon social-tab__icon--${item.id}`} aria-hidden="true" />
               {item.label}
               <span className="ui-tab__badge replies-tab__badge">{commentsByPlatform[item.id].length}</span>
             </button>
@@ -299,14 +302,16 @@ export function RepliesPage() {
         <div className="social-platform-actions">
           <button
             type="button"
-            className="button-secondary"
+            className="button-secondary dashboard-icon-button"
             onClick={() => {
               setRefreshing(true);
               void load();
             }}
             disabled={refreshing}
+            aria-label="Refresh replies"
+            title="Refresh"
           >
-            {refreshing ? "Refreshing..." : "Refresh"}
+            <ArrowPathIcon aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
           </button>
         </div>
       </div>
@@ -362,6 +367,11 @@ export function RepliesPage() {
                       <div className="replies-card__owner-reply-header">
                         <strong>Your reply</strong>
                         {comment.owner_replied_at ? <span>{formatDisplayDateTime(comment.owner_replied_at)}</span> : null}
+                        {comment.owner_reply_permalink ? (
+                          <a className="replies-card__owner-reply-link" href={comment.owner_reply_permalink} target="_blank" rel="noreferrer">
+                            Open reply
+                          </a>
+                        ) : null}
                       </div>
                       <p>{comment.owner_reply_text}</p>
                     </section>

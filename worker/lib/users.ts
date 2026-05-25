@@ -1,6 +1,6 @@
 import type { Env } from "./types";
 import type { DashboardUser } from "./ownership";
-import { DEFAULT_USER_ID } from "./ownership";
+import { DEFAULT_USER_ID, attachPrimaryWorkspace, ensureDefaultWorkspace } from "./ownership";
 
 const PASSWORD_HASH_PREFIX = "pbkdf2-sha256";
 const PASSWORD_ITERATIONS = 120000;
@@ -50,6 +50,9 @@ export function publicUser(row: DashboardUser): DashboardUser {
     timezone: row.timezone || "Asia/Kuala_Lumpur",
     created_at: row.created_at,
     updated_at: row.updated_at,
+    workspace_id: row.workspace_id,
+    workspace_role: row.workspace_role,
+    workspace: row.workspace,
   };
 }
 
@@ -114,7 +117,8 @@ export async function ensureDefaultUser(env: Env): Promise<DashboardUser> {
 
   const user = await getUserById(env, DEFAULT_USER_ID);
   if (!user) throw new Error("Default dashboard user could not be created");
-  return user;
+  await ensureDefaultWorkspace(env);
+  return attachPrimaryWorkspace(env, user);
 }
 
 export async function hashPassword(password: string): Promise<string> {
@@ -175,7 +179,9 @@ export async function authenticateDashboardUser(
     const row = await env.DB.prepare("SELECT password_hash FROM dashboard_users WHERE id = ?")
       .bind(user.id)
       .first<{ password_hash: string | null }>();
-    if (row?.password_hash && await verifyPassword(password, row.password_hash)) return user;
+    if (row?.password_hash && await verifyPassword(password, row.password_hash)) {
+      return attachPrimaryWorkspace(env, user);
+    }
   }
 
   if (username === normalizeUsername(env.ADMIN_USERNAME) && env.ADMIN_PASSWORD && timingSafeEqual(password, env.ADMIN_PASSWORD)) {
@@ -193,5 +199,5 @@ export async function listDashboardUsers(env: Env): Promise<DashboardUser[]> {
      FROM dashboard_users
      ORDER BY created_at ASC, id ASC`,
   ).all<DashboardUser>();
-  return (rows.results ?? []).map(publicUser);
+  return Promise.all((rows.results ?? []).map((user) => attachPrimaryWorkspace(env, publicUser(user))));
 }
