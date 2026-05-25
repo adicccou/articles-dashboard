@@ -208,8 +208,8 @@ export async function suggestArticleField(env: Env, request: Request): Promise<R
 
     const responseText = await callAiText({
       apiKey: settings.geminiApiKey,
-      model: settings.geminiProModel,
-      fallbackModel: settings.geminiFlashModel,
+      model: settings.geminiFlashModel,
+      fallbackModel: settings.geminiProModel,
       maxTokens: 500,
       system: [
         "You are an expert editor for a founder-run marketing dashboard.",

@@ -142,7 +142,7 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-async function tableHasColumn(env: Env, table: "studio_campaigns" | "studio_crawler_runs", column: string): Promise<boolean> {
+async function tableHasColumn(env: Env, table: string, column: string): Promise<boolean> {
   const key = `${table}.${column}`;
   if (columnCapabilityCache.has(key)) return columnCapabilityCache.get(key) ?? false;
   const rows = await env.DB.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
@@ -879,7 +879,20 @@ export async function listStudioAccounts(env: Env, userId = DEFAULT_USER_ID): Pr
          ORDER BY platform ASC, updated_at DESC`,
       ).bind(...socialValues).all<Record<string, unknown>>(),
       env.DB.prepare(
-        `SELECT id, 'reddit' AS platform, name AS username, status, created_at, updated_at
+        `SELECT id,
+                'reddit' AS platform,
+                name AS username,
+                CASE
+                  WHEN status = 'active'
+                   AND (
+                    length(trim(coalesce(access_token, ''))) > 0
+                    OR length(trim(coalesce(refresh_token, ''))) > 0
+                   )
+                  THEN 'active'
+                  ELSE 'inactive'
+                END AS status,
+                created_at,
+                updated_at
          FROM reddit_accounts
          ${redditFilters.length ? `WHERE ${redditFilters.join(" AND ")}` : ""}
          ORDER BY updated_at DESC`,
@@ -925,27 +938,40 @@ export async function createStudioApp(env: Env, request: Request, userId = DEFAU
     const name = cleanText(payload.name);
     if (!name) return errorResponse("App name is required", 400);
     const now = nowIso();
+    const hasArticlesApiUrl = await tableHasColumn(env, "studio_apps", "articles_api_url");
     const scoped = await scopedInsertColumns(env, "studio_apps", userId);
+    const columns = [...scoped.columns, "name", "website_url", "app_store_url"];
+    const placeholders = [...scoped.columns.map(() => "?"), "?", "?", "?"];
+    const values: unknown[] = [
+      ...scoped.values,
+      name,
+      cleanText(payload.website_url) || null,
+      cleanText(payload.app_store_url) || null,
+    ];
+    if (hasArticlesApiUrl) {
+      columns.push("articles_api_url");
+      placeholders.push("?");
+      values.push(cleanText(payload.articles_api_url) || null);
+    }
+    columns.push("description", "ai_context", "status", "created_at", "updated_at");
+    placeholders.push("?", "?", "?", "?", "?");
+    values.push(
+      cleanText(payload.description),
+      cleanText(payload.ai_context),
+      payload.status ?? "active",
+      now,
+      now,
+    );
     const app = await env.DB.prepare(
-      `INSERT INTO studio_apps (${[...scoped.columns, "name", "website_url", "app_store_url", "articles_api_url", "description", "ai_context", "status", "created_at", "updated_at"].join(", ")})
-       VALUES (${[...scoped.columns.map(() => "?"), "?", "?", "?", "?", "?", "?", "?", "?", "?"].join(", ")})
+      `INSERT INTO studio_apps (${columns.join(", ")})
+       VALUES (${placeholders.join(", ")})
        RETURNING *`,
     )
-      .bind(
-        ...scoped.values,
-        name,
-        cleanText(payload.website_url) || null,
-        cleanText(payload.app_store_url) || null,
-        cleanText(payload.articles_api_url) || null,
-        cleanText(payload.description),
-        cleanText(payload.ai_context),
-        payload.status ?? "active",
-        now,
-        now,
-      )
+      .bind(...values)
       .first<Record<string, unknown>>();
     return jsonResponse(mapApp(app ?? {}), { status: 201 });
-  } catch {
+  } catch (error) {
+    console.error("Failed to create Studio app", error);
     return errorResponse("Failed to create Studio app", 500);
   }
 }
@@ -960,7 +986,10 @@ export async function updateStudioApp(env: Env, appId: string, request: Request,
     if (payload.name !== undefined) { updates.push("name = ?"); values.push(cleanText(payload.name)); }
     if (payload.website_url !== undefined) { updates.push("website_url = ?"); values.push(cleanText(payload.website_url) || null); }
     if (payload.app_store_url !== undefined) { updates.push("app_store_url = ?"); values.push(cleanText(payload.app_store_url) || null); }
-    if (payload.articles_api_url !== undefined) { updates.push("articles_api_url = ?"); values.push(cleanText(payload.articles_api_url) || null); }
+    if (payload.articles_api_url !== undefined && await tableHasColumn(env, "studio_apps", "articles_api_url")) {
+      updates.push("articles_api_url = ?");
+      values.push(cleanText(payload.articles_api_url) || null);
+    }
     if (payload.description !== undefined) { updates.push("description = ?"); values.push(cleanText(payload.description)); }
     if (payload.ai_context !== undefined) { updates.push("ai_context = ?"); values.push(cleanText(payload.ai_context)); }
     if (payload.status !== undefined) { updates.push("status = ?"); values.push(payload.status); }
@@ -1031,6 +1060,7 @@ export async function createStudioCampaign(
     if (platforms.length === 0) return errorResponse("Select at least one social platform", 400);
     if (accountRefs.length === 0) return errorResponse("Select at least one connected account", 400);
     const now = nowIso();
+    const hasCampaignType = await tableHasColumn(env, "studio_campaigns", "campaign_type");
     const hasResultLimit = await tableHasColumn(env, "studio_campaigns", "result_limit");
     const hasCreatedByUserId = await tableHasColumn(env, "studio_campaigns", "created_by_user_id");
     const scoped = await scopedInsertColumns(env, "studio_campaigns", userId);
@@ -1042,9 +1072,14 @@ export async function createStudioCampaign(
       placeholders.push("?");
       values.push(ownerId(actorUserId));
     }
-    columns.push("app_id", "name", "campaign_type");
-    placeholders.push("?", "?", "?");
-    values.push(appId, name, campaignType);
+    columns.push("app_id", "name");
+    placeholders.push("?", "?");
+    values.push(appId, name);
+    if (hasCampaignType) {
+      columns.push("campaign_type");
+      placeholders.push("?");
+      values.push(campaignType);
+    }
     if (hasResultLimit) {
       columns.push("result_limit");
       placeholders.push("?");
@@ -1068,7 +1103,8 @@ export async function createStudioCampaign(
       .bind(...values)
       .first<Record<string, unknown>>();
     return jsonResponse(mapCampaign(campaign ?? {}), { status: 201 });
-  } catch {
+  } catch (error) {
+    console.error("Failed to create Studio campaign", error);
     return errorResponse("Failed to create Studio campaign", 500);
   }
 }
@@ -1082,7 +1118,10 @@ export async function updateStudioCampaign(env: Env, campaignId: string, request
     const values: unknown[] = [];
     if (payload.app_id !== undefined) { updates.push("app_id = ?"); values.push(Number(payload.app_id)); }
     if (payload.name !== undefined) { updates.push("name = ?"); values.push(cleanText(payload.name)); }
-    if (payload.campaign_type !== undefined) { updates.push("campaign_type = ?"); values.push(payload.campaign_type === "reply" ? "reply" : "post"); }
+    if (payload.campaign_type !== undefined && await tableHasColumn(env, "studio_campaigns", "campaign_type")) {
+      updates.push("campaign_type = ?");
+      values.push(payload.campaign_type === "reply" ? "reply" : "post");
+    }
     if (payload.result_limit !== undefined && await tableHasColumn(env, "studio_campaigns", "result_limit")) {
       updates.push("result_limit = ?");
       values.push(normalizeResultLimit(payload.result_limit));
@@ -1210,6 +1249,7 @@ export async function createStudioCrawlerRun(
       crawler_playbook_error: aiError ?? null,
       quality_attempts: 0,
     });
+    const hasCampaignType = await tableHasColumn(env, "studio_crawler_runs", "campaign_type");
     const hasResultLimit = await tableHasColumn(env, "studio_crawler_runs", "result_limit");
     const hasRequestedByUserId = await tableHasColumn(env, "studio_crawler_runs", "requested_by_user_id");
     const scoped = await scopedInsertColumns(env, "studio_crawler_runs", userId);
@@ -1221,9 +1261,14 @@ export async function createStudioCrawlerRun(
       placeholders.push("?");
       values.push(requestedByUserId);
     }
-    columns.push("campaign_id", "app_id", "campaign_type");
-    placeholders.push("?", "?", "?");
-    values.push(campaignId, appId, campaignType);
+    columns.push("campaign_id", "app_id");
+    placeholders.push("?", "?");
+    values.push(campaignId, appId);
+    if (hasCampaignType) {
+      columns.push("campaign_type");
+      placeholders.push("?");
+      values.push(campaignType);
+    }
     if (hasResultLimit) {
       columns.push("result_limit");
       placeholders.push("?");
@@ -1247,7 +1292,8 @@ export async function createStudioCrawlerRun(
       .bind(...values)
       .first<Record<string, unknown>>();
     return jsonResponse(mapCrawlerRun(run ?? {}), { status: 201 });
-  } catch {
+  } catch (error) {
+    console.error("Failed to create Studio crawler run", error);
     return errorResponse("Failed to create Studio crawler run", 500);
   }
 }

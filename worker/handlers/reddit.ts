@@ -2,7 +2,8 @@ import type { Env } from "../lib/types";
 import type { RedditCampaign } from "../../src/lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 import { getSocialPostSchemaCapabilities } from "./twitter";
-import { DEFAULT_USER_ID, appendScopedFilter, scopedInsertColumns } from "../lib/ownership";
+import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
+import { defaultPlaywrightProfileKey, playwrightUserSettingKey } from "../lib/playwright-accounts";
 
 interface CreateCampaignPayload {
   name: string;
@@ -27,6 +28,9 @@ type RedditAccountRow = {
   access_token: string | null;
   refresh_token: string | null;
   token_expires_at: string | null;
+  connection_mode?: "official_api" | "playwright";
+  playwright_login?: string | null;
+  playwright_password?: string | null;
 };
 
 type RedditSocialPostRow = {
@@ -67,26 +71,85 @@ type RedditCommentReplyResponse = {
 
 const REDDIT_API_BASE = "https://oauth.reddit.com";
 const REDDIT_TOKEN_URL = "https://www.reddit.com/api/v1/access_token";
+const REDDIT_WEB_BASE = "https://www.reddit.com";
+const REDDIT_WEB_USER_AGENT = "BlogPoster/1.0 subreddit crawler";
 
-async function getActiveRedditAccount(env: Env, requestedAccountId?: number): Promise<RedditAccountRow | null> {
+function hasUsableRedditAccessToken(account: RedditAccountRow): boolean {
+  return Boolean(account.access_token?.trim());
+}
+
+async function readRedditJson<T>(response: Response, fallbackMessage: string): Promise<T> {
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+  if (!contentType.includes("json")) {
+    throw new Error(fallbackMessage);
+  }
+  try {
+    return await response.json() as T;
+  } catch {
+    throw new Error(fallbackMessage);
+  }
+}
+
+async function readSetting(env: Env, key: string, userId = DEFAULT_USER_ID): Promise<string | null> {
+  const hasWorkspaceId = await tableHasWorkspaceId(env, "app_settings");
+  const hasUserId = await tableHasUserId(env, "app_settings");
+  const row = await env.DB.prepare(hasWorkspaceId
+    ? "SELECT value FROM app_settings WHERE workspace_id = ? AND key = ?"
+    : hasUserId
+    ? "SELECT value FROM app_settings WHERE user_id = ? AND key = ?"
+    : "SELECT value FROM app_settings WHERE key = ?")
+    .bind(...(hasWorkspaceId ? [workspaceId(userId), key] : hasUserId ? [ownerId(userId), key] : [key]))
+    .first<{ value: string }>();
+  return row?.value?.trim() || null;
+}
+
+async function readPlaywrightSettings(
+  env: Env,
+  accountId: number,
+  scopeId = DEFAULT_USER_ID,
+  dashboardUserId = DEFAULT_USER_ID,
+): Promise<{ login: string | null; password: string | null; profileKey: string | null }> {
+  const [login, password, profileKey] = await Promise.all([
+    readSetting(env, playwrightUserSettingKey("reddit_account", accountId, dashboardUserId, "login"), scopeId),
+    readSetting(env, playwrightUserSettingKey("reddit_account", accountId, dashboardUserId, "password"), scopeId),
+    readSetting(env, playwrightUserSettingKey("reddit_account", accountId, dashboardUserId, "profile_key"), scopeId),
+  ]);
+  return { login, password, profileKey };
+}
+
+async function getActiveRedditAccount(env: Env, requestedAccountId?: number, userId = DEFAULT_USER_ID): Promise<RedditAccountRow | null> {
+  const filters = ["status = 'active'"];
+  const values: unknown[] = [];
+  if (requestedAccountId) {
+    filters.push("id = ?");
+    values.push(requestedAccountId);
+  }
+  await appendScopedFilter(env, "reddit_accounts", filters, values, userId);
   const requested = requestedAccountId
     ? await env.DB.prepare(
-      "SELECT id, name, access_token, refresh_token, token_expires_at FROM reddit_accounts WHERE id = ? AND status = 'active'",
-    ).bind(requestedAccountId).first<RedditAccountRow>()
+      `SELECT id, name, access_token, refresh_token, token_expires_at
+       FROM reddit_accounts
+       WHERE ${filters.join(" AND ")}`,
+    ).bind(...values).first<RedditAccountRow>()
     : null;
   if (requested) return requested;
   return env.DB.prepare(
-    "SELECT id, name, access_token, refresh_token, token_expires_at FROM reddit_accounts WHERE status = 'active' ORDER BY updated_at DESC, id DESC LIMIT 1",
-  ).first<RedditAccountRow>();
+    `SELECT id, name, access_token, refresh_token, token_expires_at
+     FROM reddit_accounts
+     WHERE ${filters.join(" AND ")}
+     ORDER BY updated_at DESC, id DESC
+     LIMIT 1`,
+  ).bind(...values).first<RedditAccountRow>();
 }
 
 async function ensureRedditAccessToken(env: Env, account: RedditAccountRow): Promise<RedditAccountRow> {
-  if (!account.token_expires_at || !account.refresh_token || !env.REDDIT_CLIENT_ID || !env.REDDIT_CLIENT_SECRET) {
+  const refreshToken = account.refresh_token?.trim();
+  if (!refreshToken || !env.REDDIT_CLIENT_ID || !env.REDDIT_CLIENT_SECRET) {
     return account;
   }
 
-  const expiresAt = Date.parse(account.token_expires_at);
-  if (Number.isFinite(expiresAt) && expiresAt > Date.now() + 60_000) {
+  const expiresAt = account.token_expires_at ? Date.parse(account.token_expires_at) : NaN;
+  if (hasUsableRedditAccessToken(account) && Number.isFinite(expiresAt) && expiresAt > Date.now() + 60_000) {
     return account;
   }
 
@@ -99,13 +162,16 @@ async function ensureRedditAccessToken(env: Env, account: RedditAccountRow): Pro
     },
     body: new URLSearchParams({
       grant_type: "refresh_token",
-      refresh_token: account.refresh_token,
+      refresh_token: refreshToken,
     }).toString(),
   });
   if (!response.ok) {
     throw new Error("Failed to refresh the Reddit access token.");
   }
-  const payload = await response.json() as { access_token?: string; expires_in?: number };
+  const payload = await readRedditJson<{ access_token?: string; expires_in?: number }>(
+    response,
+    "Failed to refresh the Reddit access token.",
+  );
   if (!payload.access_token) {
     throw new Error("Reddit token refresh did not return a usable access token.");
   }
@@ -135,7 +201,12 @@ async function redditRequest(account: RedditAccountRow, path: string, init?: Req
   });
 }
 
-async function getScopedRedditAccount(env: Env, userId: number, requestedAccountId?: number): Promise<RedditAccountRow | null> {
+async function getScopedRedditAccount(
+  env: Env,
+  userId: number,
+  requestedAccountId?: number,
+  dashboardUserId = DEFAULT_USER_ID,
+): Promise<RedditAccountRow | null> {
   const filters = ["status = 'active'"];
   const values: unknown[] = [];
   if (requestedAccountId) {
@@ -143,7 +214,7 @@ async function getScopedRedditAccount(env: Env, userId: number, requestedAccount
     values.push(requestedAccountId);
   }
   await appendScopedFilter(env, "reddit_accounts", filters, values, userId);
-  return env.DB.prepare(
+  const account = await env.DB.prepare(
     `SELECT id, name, access_token, refresh_token, token_expires_at
      FROM reddit_accounts
      WHERE ${filters.join(" AND ")}
@@ -152,6 +223,18 @@ async function getScopedRedditAccount(env: Env, userId: number, requestedAccount
   )
     .bind(...values)
     .first<RedditAccountRow>();
+  if (!account) return null;
+
+  const [connectionMode, playwright] = await Promise.all([
+    readSetting(env, `reddit_account:${account.id}:connection_mode`, userId),
+    readPlaywrightSettings(env, account.id, userId, dashboardUserId),
+  ]);
+  return {
+    ...account,
+    connection_mode: connectionMode === "playwright" ? "playwright" : "official_api",
+    playwright_login: playwright.login,
+    playwright_password: playwright.password,
+  };
 }
 
 function normalizeSubscribedSubreddit(data: Record<string, unknown>) {
@@ -165,6 +248,172 @@ function normalizeSubscribedSubreddit(data: Record<string, unknown>) {
     subscribers: typeof data.subscribers === "number" ? data.subscribers : null,
     over18: Boolean(data.over18),
     icon_url: data.icon_img ? String(data.icon_img) : null,
+  };
+}
+
+type RedditSubredditOption = ReturnType<typeof normalizeSubscribedSubreddit>;
+
+function normalizeSubredditName(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .replace(/^\/?r\//i, "")
+    .replace(/[^A-Za-z0-9_]/g, "");
+}
+
+function subredditOptionFromName(value: unknown): RedditSubredditOption | null {
+  const name = normalizeSubredditName(value);
+  if (!name) return null;
+  return normalizeSubscribedSubreddit({
+    display_name: name,
+    display_name_prefixed: `r/${name}`,
+  });
+}
+
+function uniqueSubredditOptions(subreddits: RedditSubredditOption[]): RedditSubredditOption[] {
+  return Array.from(
+    new Map(subreddits.filter((subreddit) => subreddit.name).map((subreddit) => [
+      subreddit.name.toLowerCase(),
+      subreddit,
+    ])).values(),
+  ).sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function cookieHeaderFromSetCookie(value: string | null): string {
+  if (!value) return "";
+  return value
+    .split(/,(?=\s*[^;,\s]+=)/g)
+    .map((part) => part.split(";")[0]?.trim() ?? "")
+    .filter(Boolean)
+    .join("; ");
+}
+
+function possibleRedditUsernames(account: RedditAccountRow): string[] {
+  const candidates = [account.name, account.playwright_login]
+    .map((value) => String(value ?? "")
+      .trim()
+      .replace(/^@/, "")
+      .replace(/\s*\([^)]*\)\s*$/g, "")
+      .trim())
+    .filter((value) => /^[A-Za-z0-9_-]{3,20}$/.test(value));
+  return Array.from(new Set(candidates));
+}
+
+async function fetchRedditWebListing(url: string, cookieHeader?: string): Promise<RedditApiListing | null> {
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "User-Agent": REDDIT_WEB_USER_AGENT,
+  };
+  if (cookieHeader) headers.Cookie = cookieHeader;
+  const response = await fetch(url, { headers });
+  if (!response.ok) return null;
+  try {
+    return await response.json() as RedditApiListing;
+  } catch {
+    return null;
+  }
+}
+
+async function getRedditWebLoginCookie(account: RedditAccountRow): Promise<string> {
+  const username = account.playwright_login?.trim() || account.name.trim();
+  const password = account.playwright_password?.trim() || "";
+  if (!username || !password) return "";
+
+  const response = await fetch(`${REDDIT_WEB_BASE}/api/login/${encodeURIComponent(username)}`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
+      "User-Agent": REDDIT_WEB_USER_AGENT,
+    },
+    body: new URLSearchParams({
+      api_type: "json",
+      user: username,
+      passwd: password,
+      rem: "true",
+    }).toString(),
+    redirect: "manual",
+  });
+
+  let payload: { json?: { errors?: unknown[] } } | null = null;
+  try {
+    payload = await response.json() as { json?: { errors?: unknown[] } };
+  } catch {
+    payload = null;
+  }
+  const errors = payload?.json?.errors ?? [];
+  if (!response.ok || errors.length > 0) return "";
+  return cookieHeaderFromSetCookie(response.headers.get("set-cookie"));
+}
+
+async function loadSubscribedSubredditsFromRedditWeb(account: RedditAccountRow): Promise<RedditSubredditOption[]> {
+  const cookieHeader = await getRedditWebLoginCookie(account);
+  if (!cookieHeader) return [];
+
+  const subreddits: RedditSubredditOption[] = [];
+  let after: string | null = null;
+
+  for (let page = 0; page < 3; page += 1) {
+    const params = new URLSearchParams({ limit: "100", raw_json: "1" });
+    if (after) params.set("after", after);
+    const payload = await fetchRedditWebListing(`${REDDIT_WEB_BASE}/subreddits/mine/subscriber.json?${params.toString()}`, cookieHeader);
+    if (!payload) break;
+
+    const children = payload.data?.children ?? [];
+    children
+      .filter((child) => child.kind === "t5" && child.data)
+      .map((child) => normalizeSubscribedSubreddit(child.data as Record<string, unknown>))
+      .filter((subreddit) => subreddit.name)
+      .forEach((subreddit) => subreddits.push(subreddit));
+
+    after = payload.data?.after ?? null;
+    if (!after) break;
+  }
+
+  return uniqueSubredditOptions(subreddits);
+}
+
+async function loadSubredditsFromPublicRedditActivity(account: RedditAccountRow): Promise<RedditSubredditOption[]> {
+  const usernames = possibleRedditUsernames(account);
+  const subreddits: RedditSubredditOption[] = [];
+
+  for (const username of usernames) {
+    const endpoints = ["submitted", "comments", "overview"];
+    for (const endpoint of endpoints) {
+      const payload = await fetchRedditWebListing(
+        `${REDDIT_WEB_BASE}/user/${encodeURIComponent(username)}/${endpoint}.json?limit=100&raw_json=1`,
+      );
+      const children = payload?.data?.children ?? [];
+      children
+        .filter((child) => child.data)
+        .map((child) => subredditOptionFromName((child.data as Record<string, unknown>).subreddit))
+        .filter((subreddit): subreddit is RedditSubredditOption => Boolean(subreddit))
+        .forEach((subreddit) => subreddits.push(subreddit));
+    }
+    if (subreddits.length > 0) break;
+  }
+
+  return uniqueSubredditOptions(subreddits);
+}
+
+async function loadPlaywrightRedditSubreddits(
+  account: RedditAccountRow,
+): Promise<{ data: RedditSubredditOption[]; warning?: string }> {
+  const subscribed = await loadSubscribedSubredditsFromRedditWeb(account);
+  if (subscribed.length > 0) {
+    return { data: subscribed };
+  }
+
+  const publicActivity = await loadSubredditsFromPublicRedditActivity(account);
+  if (publicActivity.length > 0) {
+    return {
+      data: publicActivity,
+      warning: "Could not crawl Reddit subscriptions from the Playwright session, so suggestions are from public Reddit activity. You can still type any subreddit.",
+    };
+  }
+
+  return {
+    data: [],
+    warning: "Could not crawl subscribed subreddits for this Playwright account. Type the target subreddit manually.",
   };
 }
 
@@ -188,14 +437,14 @@ async function submitRedditSelfPost(
       text: payload.text ?? "",
     }).toString(),
   });
-  const responsePayload = await response.json() as {
+  const responsePayload = await readRedditJson<{
     json?: {
       errors?: unknown[];
       data?: {
         name?: string;
       };
     };
-  };
+  }>(response, "Reddit post publishing failed.");
   const errors = responsePayload.json?.errors ?? [];
   const externalId = responsePayload.json?.data?.name;
   if (!response.ok || errors.length > 0 || !externalId) {
@@ -212,7 +461,7 @@ async function fetchRedditPostComments(
 ): Promise<Array<Record<string, unknown>>> {
   const slug = externalId.replace(/^t3_/, "");
   const response = await redditRequest(account, `/comments/${encodeURIComponent(slug)}.json?limit=${limit}`);
-  const payload = await response.json() as RedditApiListing[];
+  const payload = await readRedditJson<RedditApiListing[]>(response, "Failed to load Reddit comments.");
   if (!response.ok || !Array.isArray(payload) || payload.length < 2) {
     throw new Error("Failed to load Reddit comments.");
   }
@@ -264,7 +513,7 @@ async function searchRedditSubmissions(
     limit: String(limit),
   }).toString();
   const response = await redditRequest(account, path);
-  const payload = await response.json() as RedditApiListing;
+  const payload = await readRedditJson<RedditApiListing>(response, "Failed to search Reddit posts.");
   if (!response.ok) {
     throw new Error("Failed to search Reddit posts.");
   }
@@ -290,7 +539,7 @@ async function submitRedditReply(
       text,
     }).toString(),
   });
-  const payload = await response.json() as RedditCommentReplyResponse;
+  const payload = await readRedditJson<RedditCommentReplyResponse>(response, "Reddit reply publishing failed.");
   const errors = payload.json?.errors ?? [];
   const externalId = payload.json?.data?.things?.[0]?.data?.name;
   if (!response.ok || errors.length > 0 || !externalId) {
@@ -493,7 +742,12 @@ export async function deleteCampaign(env: Env, campaignId: string, userId = DEFA
   }
 }
 
-export async function publishRedditPost(env: Env, postId: string): Promise<Response> {
+export async function publishRedditPost(
+  env: Env,
+  postId: string,
+  userId = DEFAULT_USER_ID,
+  dashboardUserId = DEFAULT_USER_ID,
+): Promise<Response> {
   try {
     const capabilities = await getSocialPostSchemaCapabilities(env);
     if (!capabilities.hasTitle || !capabilities.hasSubreddit) {
@@ -503,9 +757,14 @@ export async function publishRedditPost(env: Env, postId: string): Promise<Respo
     const id = Number(postId);
     if (Number.isNaN(id)) return errorResponse("Invalid post ID", 400);
     const replySelect = capabilities.hasReplyToId ? "reply_to_id" : "NULL AS reply_to_id";
+    const filters = ["id = ?", "platform = 'reddit'"];
+    const values: unknown[] = [id];
+    await appendScopedFilter(env, "social_posts", filters, values, userId);
     const post = await env.DB.prepare(
-      `SELECT id, title, subreddit, content, status, external_id, account_id, ${replySelect} FROM social_posts WHERE id = ? AND platform = 'reddit'`,
-    ).bind(id).first<RedditSocialPostRow>();
+      `SELECT id, title, subreddit, content, status, external_id, account_id, ${replySelect}
+       FROM social_posts
+       WHERE ${filters.join(" AND ")}`,
+    ).bind(...values).first<RedditSocialPostRow>();
     if (!post) return errorResponse("Reddit post not found", 404);
     const isReply = Boolean(post.reply_to_id?.trim());
     if (!isReply && !post.title?.trim()) return errorResponse("Reddit posts need a title.", 400);
@@ -513,8 +772,17 @@ export async function publishRedditPost(env: Env, postId: string): Promise<Respo
     if (isReply && !post.content?.trim()) return errorResponse("Reddit replies need text.", 400);
     if (post.status === "posted") return errorResponse("Post is already published", 400);
 
-    const account = await getActiveRedditAccount(env, post.account_id ?? undefined);
+    const account = await getActiveRedditAccount(env, post.account_id ?? undefined, userId);
     if (!account) return errorResponse("No active Reddit account is connected.", 400);
+    const connectionMode = await readSetting(env, `reddit_account:${account.id}:connection_mode`, userId);
+    if (connectionMode === "playwright") {
+      const playwright = await readPlaywrightSettings(env, account.id, userId, dashboardUserId);
+      const profileKey = playwright.profileKey || defaultPlaywrightProfileKey("reddit", account.id, dashboardUserId);
+      return errorResponse(
+        `This Reddit account is set to Playwright. Browser publishing must run through profile ${profileKey}; the Worker will not use official API credentials for it.`,
+        501,
+      );
+    }
     const readyAccount = await ensureRedditAccessToken(env, account);
     const externalId = isReply
       ? await submitRedditReply(readyAccount, post.reply_to_id?.trim() || "", post.content?.trim() || "")
@@ -528,17 +796,20 @@ export async function publishRedditPost(env: Env, postId: string): Promise<Respo
     await env.DB.prepare(
       `UPDATE social_posts
        SET status = 'posted', posted_at = ?, external_id = ?, account_id = ?, updated_at = ?
-       WHERE id = ?`,
+       WHERE ${filters.join(" AND ")}`,
     )
-      .bind(now, externalId, readyAccount.id, now, id)
+      .bind(now, externalId, readyAccount.id, now, ...values)
       .run();
     return jsonResponse({ success: true, external_id: externalId, posted_at: now, account_id: readyAccount.id });
   } catch (error) {
     const id = Number(postId);
     if (!Number.isNaN(id)) {
       const now = new Date().toISOString();
-      await env.DB.prepare("UPDATE social_posts SET status = 'failed', updated_at = ? WHERE id = ?")
-        .bind(now, id)
+      const filters = ["id = ?"];
+      const values: unknown[] = [id];
+      await appendScopedFilter(env, "social_posts", filters, values, userId);
+      await env.DB.prepare(`UPDATE social_posts SET status = 'failed', updated_at = ? WHERE ${filters.join(" AND ")}`)
+        .bind(now, ...values)
         .run();
     }
     return errorResponse(error instanceof Error ? error.message : "Failed to publish Reddit post", 500);
@@ -551,6 +822,12 @@ export async function listRedditComments(env: Env, postId?: string | null, limit
     const account = await getActiveRedditAccount(env);
     if (!account) return jsonResponse({ data: [] });
     const readyAccount = await ensureRedditAccessToken(env, account);
+    if (!hasUsableRedditAccessToken(readyAccount)) {
+      return jsonResponse({
+        data: [],
+        warning: "Reddit account is not connected yet.",
+      });
+    }
 
     const targets = postId
       ? await env.DB.prepare(
@@ -564,9 +841,15 @@ export async function listRedditComments(env: Env, postId?: string | null, limit
     let effectiveTargets = targetRows;
     if (!effectiveTargets.length) {
       const submissionsResponse = await redditRequest(readyAccount, `/user/${encodeURIComponent(readyAccount.name)}/submitted?limit=100`);
-      const submissionsPayload = await submissionsResponse.json() as RedditApiListing;
+      const submissionsPayload = await readRedditJson<RedditApiListing>(
+        submissionsResponse,
+        "Failed to load Reddit comments.",
+      );
+      if (!submissionsResponse.ok) {
+        throw new Error("Failed to load Reddit comments.");
+      }
       const children = submissionsPayload.data?.children ?? [];
-        effectiveTargets = children
+      effectiveTargets = children
         .filter((child) => child.kind === "t3" && child.data)
         .map((child) => {
           const data = child.data as Record<string, unknown>;
@@ -621,20 +904,39 @@ export async function listRedditComments(env: Env, postId?: string | null, limit
     });
     return jsonResponse({ data: merged });
   } catch (error) {
-    return errorResponse(error instanceof Error ? error.message : "Failed to load Reddit comments", 500);
+    console.warn("Failed to load Reddit comments", error);
+    return jsonResponse({
+      data: [],
+      warning: error instanceof Error ? error.message : "Failed to load Reddit comments",
+    });
   }
 }
 
-export async function listRedditSubscribedSubreddits(env: Env, url: URL, userId = DEFAULT_USER_ID): Promise<Response> {
+export async function listRedditSubscribedSubreddits(
+  env: Env,
+  url: URL,
+  userId = DEFAULT_USER_ID,
+  dashboardUserId = DEFAULT_USER_ID,
+): Promise<Response> {
   try {
     const requestedAccountId = Number(url.searchParams.get("account_id") || 0) || undefined;
-    const account = await getScopedRedditAccount(env, userId, requestedAccountId);
+    const account = await getScopedRedditAccount(env, userId, requestedAccountId, dashboardUserId);
     if (!account) {
       return jsonResponse({ data: [], account_id: null, account_name: null });
     }
 
     const readyAccount = await ensureRedditAccessToken(env, account);
-    if (!readyAccount.access_token?.trim()) {
+    if (readyAccount.connection_mode === "playwright") {
+      const crawled = await loadPlaywrightRedditSubreddits(readyAccount);
+      return jsonResponse({
+        data: crawled.data,
+        account_id: readyAccount.id,
+        account_name: readyAccount.name,
+        warning: crawled.warning,
+      });
+    }
+
+    if (!hasUsableRedditAccessToken(readyAccount)) {
       return jsonResponse({
         data: [],
         account_id: readyAccount.id,
@@ -650,7 +952,7 @@ export async function listRedditSubscribedSubreddits(env: Env, url: URL, userId 
       const params = new URLSearchParams({ limit: "100" });
       if (after) params.set("after", after);
       const response = await redditRequest(readyAccount, `/subreddits/mine/subscriber?${params.toString()}`);
-      const payload = await response.json() as RedditApiListing;
+      const payload = await readRedditJson<RedditApiListing>(response, "Failed to load subscribed subreddits.");
       if (!response.ok) {
         throw new Error("Failed to load subscribed subreddits.");
       }
@@ -666,9 +968,7 @@ export async function listRedditSubscribedSubreddits(env: Env, url: URL, userId 
       if (!after) break;
     }
 
-    const unique = Array.from(
-      new Map(subreddits.map((subreddit) => [subreddit.name.toLowerCase(), subreddit])).values(),
-    ).sort((left, right) => left.name.localeCompare(right.name));
+    const unique = uniqueSubredditOptions(subreddits);
 
     return jsonResponse({
       data: unique,

@@ -6,6 +6,14 @@ import { defaultPlaywrightProfileKey, playwrightUserSettingKey } from "../lib/pl
 type ExtraSocialPlatform = "linkedin" | "instagram" | "youtube";
 type AccountConnectionMode = "official_api" | "playwright";
 type AccountStatus = "active" | "inactive";
+type ExtraSocialPostRow = {
+  id: number;
+  platform: ExtraSocialPlatform;
+  content: string | null;
+  image_url: string | null;
+  status: string;
+  account_id: number | null;
+};
 
 type ExtraSocialAccountPayload = {
   platform?: ExtraSocialPlatform;
@@ -147,6 +155,167 @@ async function storedOfficialCredentialsReady(
   const settingKeys = REQUIRED_OFFICIAL_FIELDS[platform].map((field) => `social_account:${accountId}:${OFFICIAL_FIELD_SETTINGS[platform][field]}`);
   const values = await Promise.all(settingKeys.map((key) => readSetting(env, key, scopeId)));
   return values.every((value) => value.trim());
+}
+
+function graphApiVersion(): string {
+  return "v20.0";
+}
+
+function firstMediaUrl(raw: string | null): string {
+  const value = String(raw ?? "").trim();
+  if (!value) return "";
+  if (value.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return String(parsed.find((item) => String(item ?? "").trim()) ?? "").trim();
+      }
+    } catch {
+      return value;
+    }
+  }
+  return value.split(/[\n,]+/).map((item) => item.trim()).find(Boolean) ?? "";
+}
+
+async function readOfficialAccountFields(
+  env: Env,
+  platform: ExtraSocialPlatform,
+  accountId: number,
+  scopeId = DEFAULT_USER_ID,
+): Promise<Record<FieldName, string>> {
+  const entries = await Promise.all(Object.entries(OFFICIAL_FIELD_SETTINGS[platform]).map(async ([field, settingKey]) => {
+    const value = await readSetting(env, `social_account:${accountId}:${settingKey}`, scopeId);
+    return [field, value] as const;
+  }));
+  return Object.fromEntries(entries) as Record<FieldName, string>;
+}
+
+async function resolveExtraAccountForPost(
+  env: Env,
+  post: ExtraSocialPostRow,
+  scopeId = DEFAULT_USER_ID,
+  dashboardUserId = DEFAULT_USER_ID,
+): Promise<{
+  id: number;
+  platform: ExtraSocialPlatform;
+  username: string;
+  connectionMode: AccountConnectionMode;
+  playwright: { login: string; password: string; profileKey: string };
+} | null> {
+  const filters = [`platform = ?`, "status = 'active'"];
+  const values: unknown[] = [post.platform];
+  if (post.account_id) {
+    filters.push("id = ?");
+    values.push(post.account_id);
+  }
+  await appendScopedFilter(env, "social_accounts", filters, values, scopeId);
+  const account = await env.DB.prepare(
+    `SELECT id, platform, username
+     FROM social_accounts
+     WHERE ${filters.join(" AND ")}
+     ORDER BY updated_at DESC, id DESC
+     LIMIT 1`,
+  )
+    .bind(...values)
+    .first<{ id: number; platform: ExtraSocialPlatform; username: string }>();
+  if (!account) return null;
+
+  const [connectionModeValue, playwright] = await Promise.all([
+    readSetting(env, `social_account:${account.id}:connection_mode`, scopeId),
+    readPlaywrightSettings(env, account.id, scopeId, dashboardUserId),
+  ]);
+  return {
+    ...account,
+    connectionMode: connectionModeValue === "playwright" ? "playwright" : "official_api",
+    playwright,
+  };
+}
+
+async function publishInstagramOfficial(
+  env: Env,
+  post: ExtraSocialPostRow,
+  accountId: number,
+  scopeId = DEFAULT_USER_ID,
+): Promise<string> {
+  const credentials = await readOfficialAccountFields(env, "instagram", accountId, scopeId);
+  const accessToken = credentials.access_token.trim();
+  const instagramUserId = credentials.user_id.trim();
+  const imageUrl = firstMediaUrl(post.image_url);
+  if (!accessToken || !instagramUserId) throw new Error("Instagram official API credentials are incomplete.");
+  if (!imageUrl) throw new Error("Instagram official API publishing needs an attached public image URL.");
+
+  const mediaBody = new URLSearchParams({
+    image_url: imageUrl,
+    caption: post.content?.trim() ?? "",
+    access_token: accessToken,
+  });
+  const mediaResponse = await fetch(`https://graph.facebook.com/${graphApiVersion()}/${encodeURIComponent(instagramUserId)}/media`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: mediaBody.toString(),
+  });
+  const mediaPayload = await mediaResponse.json() as { id?: string; error?: { message?: string } };
+  if (!mediaResponse.ok || !mediaPayload.id) {
+    throw new Error(mediaPayload.error?.message || "Instagram media container creation failed.");
+  }
+
+  const publishBody = new URLSearchParams({
+    creation_id: mediaPayload.id,
+    access_token: accessToken,
+  });
+  const publishResponse = await fetch(`https://graph.facebook.com/${graphApiVersion()}/${encodeURIComponent(instagramUserId)}/media_publish`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: publishBody.toString(),
+  });
+  const publishPayload = await publishResponse.json() as { id?: string; error?: { message?: string } };
+  if (!publishResponse.ok || !publishPayload.id) {
+    throw new Error(publishPayload.error?.message || "Instagram publish failed.");
+  }
+  return publishPayload.id;
+}
+
+async function publishLinkedInOfficial(
+  env: Env,
+  post: ExtraSocialPostRow,
+  accountId: number,
+  scopeId = DEFAULT_USER_ID,
+): Promise<string> {
+  const credentials = await readOfficialAccountFields(env, "linkedin", accountId, scopeId);
+  const accessToken = credentials.access_token.trim();
+  const author = credentials.user_id.trim().startsWith("urn:")
+    ? credentials.user_id.trim()
+    : `urn:li:person:${credentials.user_id.trim()}`;
+  const text = post.content?.trim() ?? "";
+  if (!accessToken || !author) throw new Error("LinkedIn official API credentials are incomplete.");
+  if (!text) throw new Error("LinkedIn official API publishing needs post text.");
+
+  const response = await fetch("https://api.linkedin.com/v2/ugcPosts", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      "X-Restli-Protocol-Version": "2.0.0",
+    },
+    body: JSON.stringify({
+      author,
+      lifecycleState: "PUBLISHED",
+      specificContent: {
+        "com.linkedin.ugc.ShareContent": {
+          shareCommentary: { text },
+          shareMediaCategory: "NONE",
+        },
+      },
+      visibility: {
+        "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
+      },
+    }),
+  });
+  const responseText = await response.text();
+  if (!response.ok) {
+    throw new Error(responseText || "LinkedIn publish failed.");
+  }
+  return response.headers.get("x-restli-id") || responseText || `linkedin:${Date.now()}`;
 }
 
 function validateCreatePayload(payload: ExtraSocialAccountPayload, platform: ExtraSocialPlatform, connectionMode: AccountConnectionMode): string | null {
@@ -405,5 +574,69 @@ export async function deleteExtraSocialAccount(env: Env, accountId: string, scop
     return jsonResponse({ success: true });
   } catch {
     return errorResponse("Failed to delete social account", 500);
+  }
+}
+
+export async function publishExtraSocialPost(
+  env: Env,
+  postId: string,
+  scopeId = DEFAULT_USER_ID,
+  dashboardUserId = DEFAULT_USER_ID,
+): Promise<Response> {
+  const id = Number(postId);
+  if (Number.isNaN(id)) return errorResponse("Invalid post ID", 400);
+
+  try {
+    const filters = ["id = ?", `platform IN (${EXTRA_SOCIAL_PLATFORMS.map(() => "?").join(", ")})`];
+    const values: unknown[] = [id, ...EXTRA_SOCIAL_PLATFORMS];
+    await appendScopedFilter(env, "social_posts", filters, values, scopeId);
+    const post = await env.DB.prepare(
+      `SELECT id, platform, content, image_url, status, account_id
+       FROM social_posts
+       WHERE ${filters.join(" AND ")}`,
+    )
+      .bind(...values)
+      .first<ExtraSocialPostRow>();
+    if (!post) return errorResponse("Social post not found", 404);
+    if (post.status === "posted") return errorResponse("Post is already published", 400);
+
+    const account = await resolveExtraAccountForPost(env, post, scopeId, dashboardUserId);
+    if (!account) return errorResponse(`No active ${post.platform} account is connected.`, 400);
+
+    if (account.connectionMode === "playwright") {
+      const profileKey = account.playwright.profileKey || defaultPlaywrightProfileKey(post.platform, account.id, dashboardUserId);
+      return errorResponse(
+        `This ${post.platform} account is set to Playwright. Browser publishing must run through profile ${profileKey}; the Cloudflare Worker will not use official API credentials for it.`,
+        501,
+      );
+    }
+
+    let externalId = "";
+    if (post.platform === "instagram") {
+      externalId = await publishInstagramOfficial(env, post, account.id, scopeId);
+    } else if (post.platform === "linkedin") {
+      externalId = await publishLinkedInOfficial(env, post, account.id, scopeId);
+    } else {
+      return errorResponse("YouTube official API publishing is not implemented yet.", 501);
+    }
+
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      `UPDATE social_posts
+       SET status = 'posted', posted_at = ?, external_id = ?, account_id = ?, updated_at = ?
+       WHERE ${filters.join(" AND ")}`,
+    )
+      .bind(now, externalId, account.id, now, ...values)
+      .run();
+    return jsonResponse({ success: true, external_id: externalId, posted_at: now, account_id: account.id });
+  } catch (error) {
+    const now = new Date().toISOString();
+    const filters = ["id = ?"];
+    const values: unknown[] = [id];
+    await appendScopedFilter(env, "social_posts", filters, values, scopeId);
+    await env.DB.prepare(`UPDATE social_posts SET status = 'failed', updated_at = ? WHERE ${filters.join(" AND ")}`)
+      .bind(now, ...values)
+      .run();
+    return errorResponse(error instanceof Error ? error.message : "Failed to publish social post", 500);
   }
 }

@@ -451,6 +451,17 @@ export async function publishThreadsPost(env: Env, postId: string, userId = DEFA
     if (!post) return errorResponse("Threads post not found", 404);
     if (!post.content?.trim() && !post.image_url?.trim()) return errorResponse("Post content is empty", 400);
     if (post.status === "posted") return errorResponse("Post is already published", 400);
+    if (post.account_id) {
+      const connectionMode = await readSetting(env, `social_account:${post.account_id}:connection_mode`, userId);
+      if (connectionMode === "playwright") {
+        const playwright = await readPlaywrightSettings(env, post.account_id, userId);
+        const profileKey = playwright.profileKey || defaultPlaywrightProfileKey("threads", post.account_id, userId);
+        return errorResponse(
+          `This Threads account is set to Playwright. Browser publishing must run through profile ${profileKey}; the Worker will not use official API credentials for it.`,
+          501,
+        );
+      }
+    }
 
     const now = new Date().toISOString();
     const published = await publishThreadsText(env, {

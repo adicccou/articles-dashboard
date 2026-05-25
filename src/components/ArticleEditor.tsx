@@ -284,11 +284,41 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
   }
 
   function applyCategoryValue(value: string) {
-    setCategoryText(value);
+    const normalized = value.trim();
+    setCategoryText(normalized);
     const match = categories.find(
-      (category) => category.name.toLowerCase() === value.trim().toLowerCase(),
+      (category) => category.name.toLowerCase() === normalized.toLowerCase() ||
+        category.slug.toLowerCase() === slugify(normalized),
     );
     update("category_id", match?.id ?? null);
+  }
+
+  async function resolveCategoryId(): Promise<number | null> {
+    const normalized = categoryText.trim();
+    if (!normalized) return null;
+    const normalizedSlug = slugify(normalized);
+    const existing = categories.find(
+      (category) => category.name.toLowerCase() === normalized.toLowerCase() ||
+        category.slug.toLowerCase() === normalizedSlug,
+    );
+    if (existing) return existing.id;
+
+    try {
+      const created = await api.createCategory({
+        name: normalized,
+        slug: normalizedSlug,
+        description: null,
+      });
+      return created.id;
+    } catch (error) {
+      const latestCategories = await api.getCategories();
+      const match = latestCategories.find(
+        (category) => category.name.toLowerCase() === normalized.toLowerCase() ||
+          category.slug.toLowerCase() === normalizedSlug,
+      );
+      if (match) return match.id;
+      throw error;
+    }
   }
 
   async function handleAutofill(field: ArticleAssistField) {
@@ -385,12 +415,14 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
     try {
       const now = status === "published" ? new Date().toISOString() : null;
       const slug = form.slug || slugify(form.title);
+      const categoryId = await resolveCategoryId();
       await onSave(
         {
           ...form,
           slug,
           status,
           published_at: now,
+          category_id: categoryId,
           seo: {
             ...form.seo,
             meta_title: form.seo.meta_title || form.title,

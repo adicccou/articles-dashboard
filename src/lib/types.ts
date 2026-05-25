@@ -710,7 +710,7 @@ export type SocialAccountInput = {
 
 export type SocialPost = {
   id: number;
-  platform: "twitter" | "threads" | "reddit";
+  platform: "twitter" | "threads" | "reddit" | "linkedin" | "instagram" | "youtube";
   title?: string | null;
   subreddit?: string | null;
   account_id?: number | null;

@@ -1,4 +1,13 @@
-import { callGeminiText, type GeminiMessage } from "./gemini";
+import { callGeminiText, GeminiApiError, GeminiBillingError, type GeminiMessage } from "./gemini";
+
+function shouldUseFallbackModel(error: unknown, model: string, fallbackModel?: string): boolean {
+  if (!fallbackModel || fallbackModel === model) return false;
+  if (error instanceof GeminiBillingError) return false;
+  if (error instanceof GeminiApiError) {
+    return error.statusCode !== 401 && error.statusCode !== 403;
+  }
+  return false;
+}
 
 export async function callAiText({
   apiKey,
@@ -18,15 +27,8 @@ export async function callAiText({
   try {
     return await callGeminiText({ apiKey, model, maxTokens, system, messages });
   } catch (error) {
-    if (
-      fallbackModel &&
-      fallbackModel !== model &&
-      error &&
-      typeof error === "object" &&
-      "name" in error &&
-      error.name === "GeminiRateLimitError"
-    ) {
-      return callGeminiText({ apiKey, model: fallbackModel, maxTokens, system, messages });
+    if (shouldUseFallbackModel(error, model, fallbackModel)) {
+      return callGeminiText({ apiKey, model: fallbackModel as string, maxTokens, system, messages });
     }
     throw error;
   }

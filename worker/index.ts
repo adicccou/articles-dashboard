@@ -22,7 +22,7 @@ import { getKnowledgeBase, saveKnowledgeBase, getVersions, getVersion } from "./
 import { listStrategies, getStrategy, createStrategy, updateStrategy, activateStrategy, deactivateStrategy, deleteStrategy, getStrategyStats, getStrategyExecutions, getActiveStrategyInternal } from "./handlers/trading";
 import { generateArticleCover, styleArticleContent, suggestArticleField } from "./handlers/article-ai";
 import { suggestSocialReply } from "./handlers/social-replies";
-import { addExtraSocialAccount, deleteExtraSocialAccount, listExtraSocialAccounts, updateExtraSocialAccount } from "./handlers/social-accounts";
+import { addExtraSocialAccount, deleteExtraSocialAccount, listExtraSocialAccounts, publishExtraSocialPost, updateExtraSocialAccount } from "./handlers/social-accounts";
 import { completeCtraderConnectionFromAgent, getAppSettings, getCustomLeanDiagnostics, getCustomLeanSettings, getCustomLeanWorkers, getInternalAgentSettings, getLeanStatus, getLearningReport, getMlTradingAssets, getMlTradingDiagnostics, getMlTradingSettings, syncAgentFromSettings, updateAppSettings, updateCustomLeanSettings, updateMlTradingSettings } from "./handlers/settings";
 import {
   listPlannerItems,
@@ -1052,6 +1052,7 @@ export default {
       if (post.platform === "threads") return await publishThreadsPost(env, id);
       if (post.platform === "twitter") return await publishTwitterPost(env, id);
       if (post.platform === "reddit") return await publishRedditPost(env, id);
+      if (["instagram", "linkedin", "youtube"].includes(post.platform)) return await publishExtraSocialPost(env, id);
       return json({ error: "Direct publishing is not available for this platform yet." }, { status: 400 });
     }
 
@@ -1477,7 +1478,7 @@ export default {
     if (url.pathname === "/api/reddit/subreddits" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return await listRedditSubscribedSubreddits(env, url, activeScopeId(user));
+      return await listRedditSubscribedSubreddits(env, url, activeScopeId(user), user.id);
     }
 
     if (url.pathname === "/api/reddit/accounts" && request.method === "POST") {
@@ -1816,7 +1817,10 @@ export default {
       if (!post) return json({ error: "Social post not found" }, { status: 404 });
       if (post.platform === "threads") return await publishThreadsPost(env, id, activeScopeId(user));
       if (post.platform === "twitter") return await publishTwitterPost(env, id, activeScopeId(user));
-      if (post.platform === "reddit") return await publishRedditPost(env, id);
+      if (post.platform === "reddit") return await publishRedditPost(env, id, activeScopeId(user), user.id);
+      if (["instagram", "linkedin", "youtube"].includes(post.platform)) {
+        return await publishExtraSocialPost(env, id, activeScopeId(user), user.id);
+      }
       return json({ error: "Direct publishing is not available for this platform yet." }, { status: 400 });
     }
 

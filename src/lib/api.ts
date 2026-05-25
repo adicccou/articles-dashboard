@@ -65,6 +65,11 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   getCategories: () => request<ArticleCategory[]>("/api/categories"),
+  createCategory: (payload: { name: string; slug: string; description?: string | null }) =>
+    request<ArticleCategory>("/api/categories", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   listSites: () => request<Site[]>("/api/sites"),
   updateSite: (id: number, payload: Pick<Site, "name" | "slug" | "domain" | "status">) =>
     request<Site>(`/api/sites/${id}`, {
@@ -308,11 +313,20 @@ export const api = {
   // Social posts (shared across Twitter and Threads)
   listSocialPosts: (platform: string) =>
     request<SocialPost[]>(`/api/social/posts?platform=${platform}`),
-  createSocialPost: (platform: string, content: string, scheduled_at?: string, image_url?: string) =>
-    request<SocialPost>(`/api/social/posts`, {
+  createSocialPost: (
+    platform: string,
+    contentOrPayload: string | (Partial<SocialPost> & { content?: string; scheduled_at?: string | null }),
+    scheduled_at?: string,
+    image_url?: string,
+  ) => {
+    const payload = typeof contentOrPayload === "string"
+      ? { platform, content: contentOrPayload, scheduled_at, image_url }
+      : { platform, ...contentOrPayload };
+    return request<SocialPost>(`/api/social/posts`, {
       method: "POST",
-      body: JSON.stringify({ platform, content, scheduled_at, image_url }),
-    }),
+      body: JSON.stringify(payload),
+    });
+  },
   updateSocialPost: (id: number, payload: Partial<SocialPost>) =>
     request<{ success: boolean; updated_at: string }>(`/api/social/posts/${id}`, {
       method: "PUT",
