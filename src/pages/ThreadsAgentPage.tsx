@@ -122,7 +122,7 @@ export const ThreadsAgentPage = forwardRef<SocialAgentToolbarHandle>(function Th
                 description: content,
                 item_type: "post",
                 platform: "threads",
-                status: "approved",
+                status: "planned",
                 scheduled_for: scheduledAt,
               });
             }

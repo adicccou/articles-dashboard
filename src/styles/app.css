@@ -30,6 +30,11 @@
   color: #475569;
 }
 
+.app-bootstrap-shell {
+  min-height: 100vh;
+  background: #f9fafb;
+}
+
 .login-screen {
   background: #f9fafb;
 }
@@ -135,6 +140,10 @@
 .settings-modal .api-panel__section {
   display: grid;
   gap: 10px;
+}
+
+.settings-modal .api-panel__section.api-panel__section--hidden {
+  display: none;
 }
 
 .settings-modal .api-panel__inputs {

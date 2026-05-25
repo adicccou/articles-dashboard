@@ -2,15 +2,21 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { PencilSquareIcon, TrashIcon } from "@heroicons/react/24/solid";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
+import { ModalCloseButton } from "../components/ModalCloseButton";
 import { formatDisplayDateTime, formatDisplayTime, formatMonthDay, formatMonthYear, formatWeekRange, formatWeekdayShort } from "../lib/datetime";
 import { getPostImageUrls, isVideoMediaUrl, serializePostMediaUrls } from "../lib/socialPostMedia";
-import type { PlannerItem, PlannerItemInput, RedditAccount, SocialAccount } from "../lib/types";
+import type { PlannerItem, PlannerItemInput, RedditAccount, RedditSubscribedSubreddit, SocialAccount } from "../lib/types";
 import "../styles/planner-page.css";
 
 type SchedulerView = "list" | "calendar" | "week";
 
 const schedulerPlatformOrder: Array<SocialAccount["platform"]> = ["twitter", "threads", "reddit"];
-const PLANNER_VIEW_STORAGE_KEY = "blogposter:planner:view";
+const PLANNER_VIEW_STORAGE_KEY = "dashboard:planner:view";
+const LEGACY_PLANNER_VIEW_STORAGE_KEY = "blogposter:planner:view";
+const AUTO_SCHEDULE_HOURS = [10, 13, 16];
+const AUTO_SCHEDULE_MIN_GAP_MS = 90 * 60 * 1000;
+const AUTO_SCHEDULE_MAX_ITEMS_PER_DAY = 1;
+const AUTO_SCHEDULE_LOOKAHEAD_DAYS = 14;
 
 type ScheduleFormState = {
   id?: number;
@@ -19,8 +25,10 @@ type ScheduleFormState = {
   media_urls: string[];
   item_type: PlannerItem["item_type"];
   platform: string;
-  status: PlannerItem["status"];
+  status: PlannerItemInput["status"];
   scheduled_for: string;
+  account_id: string;
+  subreddit: string;
   related_strategy_id: string;
 };
 
@@ -41,6 +49,8 @@ function createEmptyScheduleForm(platform = ""): ScheduleFormState {
     platform,
     status: "planned",
     scheduled_for: "",
+    account_id: "",
+    subreddit: "",
     related_strategy_id: "",
   };
 }
@@ -51,6 +61,65 @@ function plannerMediaKind(urls: string[]): "none" | "image" | "video" | "mixed" 
   const hasImage = urls.some((url) => !isVideoMediaUrl(url));
   if (hasVideo && hasImage) return "mixed";
   return hasVideo ? "video" : "image";
+}
+
+function isSchedulerView(value: string | null): value is SchedulerView {
+  return value === "calendar" || value === "week" || value === "list";
+}
+
+function readStoredPlannerView(): SchedulerView {
+  if (typeof window === "undefined") return "list";
+  const stored = window.localStorage.getItem(PLANNER_VIEW_STORAGE_KEY)
+    ?? window.localStorage.getItem(LEGACY_PLANNER_VIEW_STORAGE_KEY);
+  return isSchedulerView(stored) ? stored : "list";
+}
+
+function storePlannerView(view: SchedulerView) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(PLANNER_VIEW_STORAGE_KEY, view);
+  window.localStorage.setItem(LEGACY_PLANNER_VIEW_STORAGE_KEY, view);
+}
+
+function toDateTimeLocalValue(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  const hours = `${date.getHours()}`.padStart(2, "0");
+  const minutes = `${date.getMinutes()}`.padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function chooseAutoSchedule(existingSlots: string[]) {
+  const now = new Date();
+  const minLead = new Date(now.getTime() + 45 * 60 * 1000);
+  const scheduled = existingSlots
+    .map((value) => new Date(value))
+    .filter((value) => !Number.isNaN(value.getTime()))
+    .sort((left, right) => left.getTime() - right.getTime());
+
+  for (let offset = 0; offset < AUTO_SCHEDULE_LOOKAHEAD_DAYS; offset += 1) {
+    const day = new Date(now);
+    day.setHours(0, 0, 0, 0);
+    day.setDate(day.getDate() + offset);
+
+    const dayItems = scheduled.filter((item) => sameDay(item, day));
+    if (dayItems.length >= AUTO_SCHEDULE_MAX_ITEMS_PER_DAY) continue;
+
+    for (const hour of AUTO_SCHEDULE_HOURS) {
+      const candidate = new Date(day);
+      candidate.setHours(hour, 0, 0, 0);
+      if (candidate.getTime() <= minLead.getTime()) continue;
+
+      const tooClose = dayItems.some((item) => Math.abs(item.getTime() - candidate.getTime()) < AUTO_SCHEDULE_MIN_GAP_MS);
+      if (tooClose) continue;
+      return candidate;
+    }
+  }
+
+  const fallback = new Date(minLead);
+  fallback.setDate(fallback.getDate() + 1);
+  fallback.setHours(AUTO_SCHEDULE_HOURS[0], 0, 0, 0);
+  return fallback;
 }
 
 function uploadedFileKind(files: File[]): "none" | "image" | "video" | "mixed" {
@@ -98,6 +167,15 @@ function normalizePlannerAccountPlatform(platform: string): SocialAccount["platf
   return null;
 }
 
+function normalizeSubredditInput(value: string): string {
+  return value.trim().replace(/^\/?r\//i, "").replace(/[^A-Za-z0-9_]/g, "");
+}
+
+function extractPlannerSubreddit(value?: string | null): string {
+  const match = String(value ?? "").match(/\bsubreddit\s*[:=]\s*(?:r\/)?([A-Za-z0-9_]{2,21})\b/i);
+  return match?.[1] ?? "";
+}
+
 function derivePlannerPlatforms(
   twitterAccounts: SocialAccount[],
   threadsAccounts: SocialAccount[],
@@ -141,8 +219,12 @@ function displayPlannerTitle(item: Pick<PlannerItem, "item_type" | "platform" | 
   return cleaned || rawTitle;
 }
 
-function plannerStatusLabel(status: PlannerItem["status"]): string {
-  return status === "published" ? "published" : status;
+function normalizePlannerStatus(status?: PlannerItem["status"] | PlannerItemInput["status"] | null): NonNullable<PlannerItemInput["status"]> {
+  return status === "published" ? "published" : "planned";
+}
+
+function plannerStatusLabel(status: PlannerItem["status"] | PlannerItemInput["status"]): string {
+  return normalizePlannerStatus(status) === "published" ? "Published" : "Planned";
 }
 
 function startOfMonth(date: Date): Date {
@@ -200,21 +282,25 @@ const WEEK_HOUR_SLOTS = Array.from({ length: 24 }, (_, hour) => ({
 export function PlannerPage() {
   const [items, setItems] = useState<PlannerItem[]>([]);
   const [availablePlatforms, setAvailablePlatforms] = useState<Array<SocialAccount["platform"]>>([]);
+  const [redditAccounts, setRedditAccounts] = useState<RedditAccount[]>([]);
+  const [redditSubreddits, setRedditSubreddits] = useState<RedditSubscribedSubreddit[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [subredditWarning, setSubredditWarning] = useState<string | null>(null);
+  const [loadingSubreddits, setLoadingSubreddits] = useState(false);
   const [uploadingMedia, setUploadingMedia] = useState(false);
-  const [view, setView] = useState<SchedulerView>(() => {
-    if (typeof window === "undefined") return "list";
-    const stored = window.localStorage.getItem(PLANNER_VIEW_STORAGE_KEY);
-    return stored === "calendar" || stored === "week" || stored === "list" ? stored : "list";
-  });
+  const [improvingDescription, setImprovingDescription] = useState(false);
+  const [view, setView] = useState<SchedulerView>(readStoredPlannerView);
   const [search, setSearch] = useState("");
   const [calendarDate, setCalendarDate] = useState(() => new Date());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [form, setForm] = useState<ScheduleFormState>(createEmptyScheduleForm());
-  const submitLabel = form.scheduled_for ? "Schedule it" : "Publish";
-  const submitBusyLabel = form.scheduled_for ? "Scheduling..." : "Publishing...";
+
+  function selectView(nextView: SchedulerView) {
+    setView(nextView);
+    storePlannerView(nextView);
+  }
 
   async function load({ silent = false } = {}) {
     try {
@@ -228,12 +314,21 @@ export function PlannerPage() {
         api.listThreadsAccounts().catch(() => []),
         api.listRedditAccounts().catch(() => []),
       ]);
-      setItems(asArray<PlannerItem>(plannerItems));
+      const activeTwitterAccounts = asArray<SocialAccount>(twitterAccounts).filter((account) => account.status === "active");
+      const activeThreadsAccounts = asArray<SocialAccount>(threadsAccounts).filter((account) => account.status === "active");
+      const activeRedditAccounts = asArray<RedditAccount>(redditAccounts).filter((account) => account.status === "active");
+      setItems(
+        asArray<PlannerItem>(plannerItems).map((item) => ({
+          ...item,
+          status: normalizePlannerStatus(item.status),
+        })),
+      );
+      setRedditAccounts(activeRedditAccounts);
       setAvailablePlatforms(
         derivePlannerPlatforms(
-          asArray<SocialAccount>(twitterAccounts),
-          asArray<SocialAccount>(threadsAccounts),
-          asArray<RedditAccount>(redditAccounts),
+          activeTwitterAccounts,
+          activeThreadsAccounts,
+          activeRedditAccounts,
         ),
       );
       setError(null);
@@ -249,8 +344,7 @@ export function PlannerPage() {
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(PLANNER_VIEW_STORAGE_KEY, view);
+    storePlannerView(view);
   }, [view]);
 
   const filteredItems = useMemo(() => {
@@ -322,9 +416,98 @@ export function PlannerPage() {
     }
     return options;
   }, [availablePlatforms, form.platform]);
+  const plannerMediaEntries = useMemo(
+    () => form.media_urls.map((url, index) => ({ url, index, isVideo: isVideoMediaUrl(url) })),
+    [form.media_urls],
+  );
+  const plannerVideoMedia = useMemo(
+    () => plannerMediaEntries.filter((item) => item.isVideo),
+    [plannerMediaEntries],
+  );
+  const plannerImageMedia = useMemo(
+    () => plannerMediaEntries.filter((item) => !item.isVideo),
+    [plannerMediaEntries],
+  );
+  const hasMixedPlannerMedia = plannerVideoMedia.length > 0 && plannerImageMedia.length > 0;
+  const canSelectModalPlatform = !form.id;
+  const modalPlatformLabel = plannerPlatformLabel(form.platform);
+  const modalStatus = normalizePlannerStatus(form.status);
+  const isPublishedSchedule = modalStatus === "published";
+  const scheduledSlots = useMemo(
+    () => items
+      .filter((item) => item.id !== form.id)
+      .map((item) => item.scheduled_for)
+      .filter((value): value is string => Boolean(value)),
+    [form.id, items],
+  );
+  const normalizedModalPlatform = normalizePlannerAccountPlatform(form.platform);
+  const isRedditModal = normalizedModalPlatform === "reddit";
+  const selectedRedditAccount = useMemo(() => {
+    const selectedId = Number(form.account_id || 0);
+    return redditAccounts.find((account) => account.id === selectedId) ?? redditAccounts[0] ?? null;
+  }, [form.account_id, redditAccounts]);
+  const redditSubredditOptions = useMemo(() => {
+    const query = normalizeSubredditInput(form.subreddit).toLowerCase();
+    return redditSubreddits
+      .filter((subreddit) => {
+        if (!query) return true;
+        return (
+          subreddit.name.toLowerCase().includes(query) ||
+          subreddit.display_name.toLowerCase().includes(query) ||
+          String(subreddit.title ?? "").toLowerCase().includes(query)
+        );
+      })
+      .slice(0, 8);
+  }, [form.subreddit, redditSubreddits]);
+
+  useEffect(() => {
+    if (!isModalOpen || !isRedditModal || form.account_id || !selectedRedditAccount) return;
+    setForm((current) => ({ ...current, account_id: String(selectedRedditAccount.id) }));
+  }, [form.account_id, isModalOpen, isRedditModal, selectedRedditAccount]);
+
+  useEffect(() => {
+    if (!isModalOpen || !isRedditModal) {
+      setRedditSubreddits([]);
+      setSubredditWarning(null);
+      setLoadingSubreddits(false);
+      return;
+    }
+    if (!selectedRedditAccount) {
+      setRedditSubreddits([]);
+      setSubredditWarning("Add a Reddit account in Config to load subscribed subreddits.");
+      setLoadingSubreddits(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingSubreddits(true);
+    setSubredditWarning(null);
+    api.listRedditSubscribedSubreddits(selectedRedditAccount.id)
+      .then((response) => {
+        if (cancelled) return;
+        setRedditSubreddits(asArray<RedditSubscribedSubreddit>(response.data));
+        setSubredditWarning(response.warning ?? null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setRedditSubreddits([]);
+        setSubredditWarning(err instanceof Error ? err.message : "Failed to load subscribed subreddits.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingSubreddits(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isModalOpen, isRedditModal, selectedRedditAccount]);
 
   function openCreateModal() {
-    setForm(createEmptyScheduleForm(availablePlatforms[0] ?? ""));
+    const platform = availablePlatforms[0] ?? "";
+    setForm({
+      ...createEmptyScheduleForm(platform),
+      account_id: normalizePlannerAccountPlatform(platform) === "reddit" ? String(redditAccounts[0]?.id ?? "") : "",
+    });
     setIsModalOpen(true);
   }
 
@@ -336,8 +519,10 @@ export function PlannerPage() {
       media_urls: getPostImageUrls(item.image_url),
       item_type: item.item_type,
       platform: item.platform,
-      status: item.status,
+      status: normalizePlannerStatus(item.status),
       scheduled_for: toLocalDateTimeInput(item.scheduled_for),
+      account_id: item.account_id ? String(item.account_id) : "",
+      subreddit: item.subreddit ?? extractPlannerSubreddit(item.instruction),
       related_strategy_id: item.related_strategy_id ? String(item.related_strategy_id) : "",
     });
     setIsModalOpen(true);
@@ -348,9 +533,7 @@ export function PlannerPage() {
     setIsModalOpen(false);
   }
 
-  async function uploadPlannerMedia(event: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? []);
-    event.target.value = "";
+  async function uploadPlannerFiles(files: File[]) {
     if (files.length === 0) {
       return;
     }
@@ -391,6 +574,38 @@ export function PlannerPage() {
     }
   }
 
+  async function uploadPlannerMedia(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    await uploadPlannerFiles(files);
+  }
+
+  async function pastePlannerImage() {
+    try {
+      setError(null);
+      if (!navigator.clipboard?.read) {
+        setError("Clipboard image paste is not supported in this browser.");
+        return;
+      }
+      const items = await navigator.clipboard.read();
+      const files: File[] = [];
+      for (const item of items) {
+        const imageType = item.types.find((type) => type.startsWith("image/"));
+        if (!imageType) continue;
+        const blob = await item.getType(imageType);
+        const extension = imageType.split("/")[1] || "png";
+        files.push(new File([blob], `clipboard-image.${extension}`, { type: imageType }));
+      }
+      if (files.length === 0) {
+        setError("No image found in clipboard.");
+        return;
+      }
+      await uploadPlannerFiles(files);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to read image from clipboard");
+    }
+  }
+
   function removePlannerMedia(index: number) {
     setForm((current) => ({
       ...current,
@@ -398,10 +613,21 @@ export function PlannerPage() {
     }));
   }
 
-  async function saveSchedule(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function savePlannerItem(scheduledFor: string | null) {
     if (!form.platform.trim()) {
       setError("Platform is required.");
+      return;
+    }
+    const isRedditPost = normalizePlannerAccountPlatform(form.platform) === "reddit";
+    const subreddit = normalizeSubredditInput(form.subreddit);
+    const redditAccountId = selectedRedditAccount?.id ?? null;
+
+    if (isRedditPost && !redditAccountId) {
+      setError("Connect a Reddit account in Config before creating a Reddit post.");
+      return;
+    }
+    if (isRedditPost && !subreddit) {
+      setError("Choose a subreddit before creating a Reddit post.");
       return;
     }
 
@@ -413,8 +639,11 @@ export function PlannerPage() {
         image_url: form.item_type === "post" ? serializePostMediaUrls(form.media_urls) : null,
         item_type: form.item_type,
         platform: form.platform,
-        status: form.status,
-        scheduled_for: form.scheduled_for ? new Date(form.scheduled_for).toISOString() : null,
+        status: normalizePlannerStatus(form.status),
+        scheduled_for: scheduledFor,
+        account_id: isRedditPost ? redditAccountId : null,
+        subreddit: isRedditPost ? subreddit : null,
+        instruction: isRedditPost ? `subreddit: ${subreddit}` : null,
         related_strategy_id: form.related_strategy_id ? Number(form.related_strategy_id) : null,
       };
 
@@ -430,6 +659,35 @@ export function PlannerPage() {
       setError(err instanceof Error ? err.message : "Failed to save schedule");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveSchedule(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await savePlannerItem(form.scheduled_for ? new Date(form.scheduled_for).toISOString() : null);
+  }
+
+  async function autoSchedulePlannerItem() {
+    const scheduledAt = chooseAutoSchedule(scheduledSlots);
+    setForm((current) => ({ ...current, scheduled_for: toDateTimeLocalValue(scheduledAt) }));
+    await savePlannerItem(scheduledAt.toISOString());
+  }
+
+  async function improveDescription() {
+    const description = form.description.trim();
+    if (!description) {
+      setError("Add description text before improving it.");
+      return;
+    }
+    try {
+      setImprovingDescription(true);
+      setError(null);
+      const result = await api.improvePlannerDescription({ description, platform: form.platform });
+      setForm((current) => ({ ...current, description: result.value }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to improve description");
+    } finally {
+      setImprovingDescription(false);
     }
   }
 
@@ -456,19 +714,22 @@ export function PlannerPage() {
             <div className="ui-tabs__list scheduler-tabs scheduler-tabs--header">
               <button
                 className={view === "calendar" ? "ui-tab scheduler-tab ui-tab--active scheduler-tab--active" : "ui-tab scheduler-tab"}
-                onClick={() => setView("calendar")}
+                onClick={() => selectView("calendar")}
+                type="button"
               >
                 Calendar
               </button>
               <button
                 className={view === "week" ? "ui-tab scheduler-tab ui-tab--active scheduler-tab--active" : "ui-tab scheduler-tab"}
-                onClick={() => setView("week")}
+                onClick={() => selectView("week")}
+                type="button"
               >
                 Week
               </button>
               <button
                 className={view === "list" ? "ui-tab scheduler-tab ui-tab--active scheduler-tab--active" : "ui-tab scheduler-tab"}
-                onClick={() => setView("list")}
+                onClick={() => selectView("list")}
+                type="button"
               >
                 List
               </button>
@@ -503,43 +764,46 @@ export function PlannerPage() {
                 <span>Scheduled</span>
                 <span>Actions</span>
               </div>
-              {filteredItems.map((item) => (
-                <div className="scheduler-list__row" key={item.id}>
-                  <span>
-                    <button className="scheduler-title-button" onClick={() => openEditModal(item)}>
-                      {displayPlannerTitle(item)}
-                    </button>
-                    {item.description ? <small>{item.description}</small> : null}
-                  </span>
-                  <span>
-                    <span className={`scheduler-pill scheduler-pill--${item.item_type}`}>{plannerPlatformLabel(item.platform)}</span>
-                  </span>
-                  <span>
-                    <span className={`scheduler-status-chip scheduler-status-chip--${item.status}`}>
-                      {plannerStatusLabel(item.status)}
+              {filteredItems.map((item) => {
+                const status = normalizePlannerStatus(item.status);
+                return (
+                  <div className="scheduler-list__row" key={item.id}>
+                    <span>
+                      <button className="scheduler-title-button" onClick={() => openEditModal(item)}>
+                        {displayPlannerTitle(item)}
+                      </button>
+                      {item.description ? <small>{item.description}</small> : null}
                     </span>
-                  </span>
-                  <span>{item.scheduled_for ? formatDisplayDateTime(item.scheduled_for) : "—"}</span>
-                  <span className="scheduler-row-actions">
-                    <button
-                      className="button-secondary dashboard-icon-button"
-                      onClick={() => openEditModal(item)}
-                      aria-label={`Edit ${displayPlannerTitle(item)}`}
-                      title="Edit"
-                    >
-                      <PencilSquareIcon aria-hidden="true" />
-                    </button>
-                    <button
-                      className="scheduler-delete dashboard-icon-button"
-                      onClick={() => void deleteSchedule(item.id)}
-                      aria-label={`Delete ${displayPlannerTitle(item)}`}
-                      title="Delete"
-                    >
-                      <TrashIcon aria-hidden="true" />
-                    </button>
-                  </span>
-                </div>
-              ))}
+                    <span>
+                      <span className={`scheduler-pill scheduler-pill--${item.item_type}`}>{plannerPlatformLabel(item.platform)}</span>
+                    </span>
+                    <span>
+                      <span className={`scheduler-status-chip scheduler-status-chip--${status}`}>
+                        {plannerStatusLabel(status)}
+                      </span>
+                    </span>
+                    <span>{item.scheduled_for ? formatDisplayDateTime(item.scheduled_for) : "—"}</span>
+                    <span className="scheduler-row-actions">
+                      <button
+                        className="button-secondary dashboard-icon-button"
+                        onClick={() => openEditModal(item)}
+                        aria-label={`Edit ${displayPlannerTitle(item)}`}
+                        title="Edit"
+                      >
+                        <PencilSquareIcon aria-hidden="true" />
+                      </button>
+                      <button
+                        className="scheduler-delete dashboard-icon-button"
+                        onClick={() => void deleteSchedule(item.id)}
+                        aria-label={`Delete ${displayPlannerTitle(item)}`}
+                        title="Delete"
+                      >
+                        <TrashIcon aria-hidden="true" />
+                      </button>
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -655,18 +919,26 @@ export function PlannerPage() {
                     key={`${day.toISOString()}-${slot.hour}`}
                     className={`scheduler-week__cell${sameDay(day, today) ? " scheduler-week__cell--today" : ""}`}
                   >
-                    {itemsByHour[slot.hour]?.map((item) => (
-                      <button
-                        key={item.id}
-                        className={`scheduler-week__slot-item scheduler-week__slot-item--${item.item_type}`}
-                        onClick={() => openEditModal(item)}
-                      >
-                        <span className="scheduler-week__slot-time">
-                          {item.scheduled_for ? formatDisplayTime(item.scheduled_for) : slot.label}
-                        </span>
-                        <span className="scheduler-week__slot-title">{displayPlannerTitle(item)}</span>
-                      </button>
-                    ))}
+                    {itemsByHour[slot.hour]?.map((item) => {
+                      const status = normalizePlannerStatus(item.status);
+                      return (
+                        <button
+                          key={item.id}
+                          className={`scheduler-week__slot-item scheduler-week__slot-item--${item.item_type}`}
+                          onClick={() => openEditModal(item)}
+                        >
+                          <span className="scheduler-week__slot-meta">
+                            <span className="scheduler-week__slot-time">
+                              {item.scheduled_for ? formatDisplayTime(item.scheduled_for) : slot.label}
+                            </span>
+                            <span className={`scheduler-status-chip scheduler-status-chip--micro scheduler-status-chip--${status}`}>
+                              {plannerStatusLabel(status)}
+                            </span>
+                          </span>
+                          <span className="scheduler-week__slot-title">{displayPlannerTitle(item)}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 ))}
               </Fragment>
@@ -682,33 +954,129 @@ export function PlannerPage() {
             <form className="stack" onSubmit={saveSchedule}>
               <div className="panel__title-row">
                 <h2>{form.id ? "Edit Schedule" : "New post"}</h2>
-                <button type="button" className="button-secondary" onClick={closeModal}>
-                  Close
-                </button>
+                <ModalCloseButton onClick={closeModal} />
               </div>
               <div className="scheduler-platform-field">
                 <p className="scheduler-media-field__label">Platform</p>
-                <div className="scheduler-platform-chips" role="radiogroup" aria-label="Platform">
-                  {modalPlatforms.map((platform) => (
-                    <button
-                      key={platform}
-                      type="button"
-                      className={`scheduler-platform-chip${normalizePlannerAccountPlatform(form.platform) === platform ? " scheduler-platform-chip--active" : ""}`}
-                      onClick={() => setForm((current) => ({ ...current, platform }))}
-                      aria-pressed={normalizePlannerAccountPlatform(form.platform) === platform}
-                    >
-                      {plannerPlatformLabel(platform)}
-                    </button>
-                  ))}
-                </div>
+                {canSelectModalPlatform ? (
+                  <div className="scheduler-platform-chips" role="radiogroup" aria-label="Platform">
+                    {modalPlatforms.map((platform) => (
+                      <button
+                        key={platform}
+                        type="button"
+                        className={`scheduler-platform-chip${normalizePlannerAccountPlatform(form.platform) === platform ? " scheduler-platform-chip--active" : ""}`}
+                        onClick={() =>
+                          setForm((current) => ({
+                            ...current,
+                            platform,
+                            account_id: platform === "reddit" ? current.account_id || String(redditAccounts[0]?.id ?? "") : "",
+                            subreddit: platform === "reddit" ? current.subreddit : "",
+                          }))
+                        }
+                        aria-pressed={normalizePlannerAccountPlatform(form.platform) === platform}
+                      >
+                        {plannerPlatformLabel(platform)}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="scheduler-platform-chips scheduler-platform-chips--static" aria-label="Platform">
+                    <span className="scheduler-platform-chip scheduler-platform-chip--active">{modalPlatformLabel}</span>
+                  </div>
+                )}
               </div>
-              <label>
-                Description
+              {isRedditModal ? (
+                <div className="scheduler-reddit-target">
+                  <div className="scheduler-reddit-target__row">
+                    <label className="scheduler-reddit-target__field">
+                      <span className="scheduler-field-label-row">
+                        <span>Subreddit</span>
+                        {selectedRedditAccount ? <small>@{selectedRedditAccount.name}</small> : null}
+                      </span>
+                      <input
+                        list="scheduler-reddit-subreddits"
+                        value={form.subreddit}
+                        onChange={(event) => setForm((current) => ({ ...current, subreddit: event.target.value }))}
+                        placeholder="Search subscribed subreddits"
+                      />
+                      <datalist id="scheduler-reddit-subreddits">
+                        {redditSubreddits.map((subreddit) => (
+                          <option key={subreddit.name} value={subreddit.name}>
+                            {subreddit.display_name}
+                          </option>
+                        ))}
+                      </datalist>
+                    </label>
+                    {redditAccounts.length > 1 ? (
+                      <label className="scheduler-reddit-target__account">
+                        Account
+                        <select
+                          value={selectedRedditAccount ? String(selectedRedditAccount.id) : ""}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              account_id: event.target.value,
+                              subreddit: "",
+                            }))
+                          }
+                        >
+                          {redditAccounts.map((account) => (
+                            <option key={account.id} value={account.id}>
+                              @{account.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
+                  </div>
+                  {loadingSubreddits ? (
+                    <p className="scheduler-reddit-target__hint">Loading subscribed subreddits...</p>
+                  ) : subredditWarning ? (
+                    <p className="scheduler-reddit-target__hint">{subredditWarning}</p>
+                  ) : redditSubredditOptions.length > 0 ? (
+                    <div className="scheduler-reddit-target__suggestions" aria-label="Subscribed subreddit suggestions">
+                      {redditSubredditOptions.map((subreddit) => (
+                        <button
+                          key={subreddit.name}
+                          type="button"
+                          className="scheduler-reddit-target__suggestion"
+                          onClick={() => setForm((current) => ({ ...current, subreddit: subreddit.name }))}
+                        >
+                          {subreddit.display_name}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="scheduler-reddit-target__hint">No subscribed subreddits matched. You can still type one manually.</p>
+                  )}
+                </div>
+              ) : null}
+              <div className="scheduler-modal-status-field">
+                <p className="scheduler-media-field__label">Status</p>
+                <span className={`scheduler-status-chip scheduler-status-chip--${modalStatus}`}>
+                  {plannerStatusLabel(modalStatus)}
+                </span>
+              </div>
+              <label className="scheduler-description-field">
+                <span className="scheduler-field-label-row">
+                  <span>Description</span>
+                  {!isPublishedSchedule ? (
+                    <button
+                      className="button-secondary scheduler-improve-button"
+                      type="button"
+                      onClick={() => void improveDescription()}
+                      disabled={improvingDescription || saving || !form.description.trim()}
+                    >
+                      {improvingDescription ? "Improving..." : "Improve"}
+                    </button>
+                  ) : null}
+                </span>
                 <textarea
                   rows={4}
                   value={form.description}
                   onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
                   placeholder={form.item_type === "campaign" ? "Campaign brief, audience, CTA" : "Post angle, CTA, or draft outline"}
+                  disabled={isPublishedSchedule}
                 />
               </label>
               {form.item_type === "post" ? (
@@ -718,38 +1086,84 @@ export function PlannerPage() {
                       <label className="scheduler-media-field__label">Media</label>
                       <p className="scheduler-media-field__hint">Attach one video or one or more images for this post.</p>
                     </div>
-                    <label className="button-secondary scheduler-media-upload">
-                      <input
-                        accept="image/*,video/*"
-                        multiple
-                        onChange={(event) => void uploadPlannerMedia(event)}
-                        type="file"
-                      />
-                      {uploadingMedia ? "Uploading..." : form.media_urls.length ? "Add media" : "Upload media"}
-                    </label>
+                    <div className="scheduler-media-actions">
+                      <button
+                        className="button-secondary"
+                        type="button"
+                        onClick={() => void pastePlannerImage()}
+                        disabled={uploadingMedia}
+                      >
+                        Paste image
+                      </button>
+                      <label className="button-secondary scheduler-media-upload">
+                        <input
+                          accept="image/*,video/*"
+                          multiple
+                          onChange={(event) => void uploadPlannerMedia(event)}
+                          type="file"
+                          disabled={uploadingMedia}
+                        />
+                        {uploadingMedia ? "Uploading..." : form.media_urls.length ? "Add media" : "Upload media"}
+                      </label>
+                    </div>
                   </div>
                   {form.media_urls.length > 0 ? (
-                    <div className="scheduler-media-grid">
-                      {form.media_urls.map((url, index) => (
-                        <div className="scheduler-media-card" key={`${url}-${index}`}>
-                          <button
-                            className="scheduler-media-card__remove"
-                            onClick={() => removePlannerMedia(index)}
-                            type="button"
-                          >
-                            Remove
-                          </button>
-                          {isVideoMediaUrl(url) ? (
-                            <video className="scheduler-media-card__asset" src={url} controls playsInline />
-                          ) : (
-                            <img className="scheduler-media-card__asset" src={url} alt={`Uploaded post media ${index + 1}`} />
-                          )}
+                    hasMixedPlannerMedia ? (
+                      <div className="scheduler-media-mixed">
+                        <div className="scheduler-media-grid">
+                          {plannerVideoMedia.map(({ url, index }) => {
+                            return (
+                              <div className="scheduler-media-card" key={`${url}-${index}`}>
+                                <button
+                                  className="scheduler-media-card__remove"
+                                  onClick={() => removePlannerMedia(index)}
+                                  type="button"
+                                >
+                                  Remove
+                                </button>
+                                <video className="scheduler-media-card__asset" src={url} controls playsInline />
+                              </div>
+                            );
+                          })}
                         </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="scheduler-media-field__empty">No media attached yet.</p>
-                  )}
+                        <div className="scheduler-media-thumbnails">
+                          {plannerImageMedia.map(({ url, index }) => {
+                            return (
+                              <div className="scheduler-media-card scheduler-media-card--thumb" key={`${url}-${index}`}>
+                                <button
+                                  className="scheduler-media-card__remove"
+                                  onClick={() => removePlannerMedia(index)}
+                                  type="button"
+                                >
+                                  Remove
+                                </button>
+                                <img className="scheduler-media-card__asset" src={url} alt={`Uploaded post media ${index + 1}`} />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="scheduler-media-grid">
+                        {form.media_urls.map((url, index) => (
+                          <div className="scheduler-media-card" key={`${url}-${index}`}>
+                            <button
+                              className="scheduler-media-card__remove"
+                              onClick={() => removePlannerMedia(index)}
+                              type="button"
+                            >
+                              Remove
+                            </button>
+                            {isVideoMediaUrl(url) ? (
+                              <video className="scheduler-media-card__asset" src={url} controls playsInline />
+                            ) : (
+                              <img className="scheduler-media-card__asset" src={url} alt={`Uploaded post media ${index + 1}`} />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  ) : null}
                 </div>
               ) : null}
               <label>
@@ -762,9 +1176,19 @@ export function PlannerPage() {
                   }
                 />
               </label>
-              <button type="submit" disabled={saving}>
-                {saving ? submitBusyLabel : submitLabel}
-              </button>
+              <div className="scheduler-submit-actions">
+                <button type="submit" disabled={saving}>
+                  {saving ? "Publishing..." : "Publish"}
+                </button>
+                <button
+                  className="button-secondary"
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void autoSchedulePlannerItem()}
+                >
+                  {saving ? "Scheduling..." : "Auto-schedule it"}
+                </button>
+              </div>
             </form>
           </div>
         </div>

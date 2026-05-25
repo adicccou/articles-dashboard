@@ -1,4 +1,4 @@
-import type { ArticleAssistPayload, ArticleCoverPayload, ArticleCoverResponse, ArticleInput, ArticleRecord, ArticleStylePayload, ArticleStyleResponse, AuthState, DashboardBootstrap, DashboardUser, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, Site, SocialAccount, SocialAccountInput, SocialComment, SocialPost, SocialReplySuggestion, StudioAccount, StudioApp, StudioCampaign, StudioCrawlerRun, StudioSignal, StudioStrategistPost, StudioSummary, ThreadsCampaignResult, ThreadsMediaResponse, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorkersResponse, MlTradingAssetsResponse, MlTradingDiagnostics, MlTradingSettings } from "./types";
+import type { ArticleAssistPayload, ArticleCoverPayload, ArticleCoverResponse, ArticleInput, ArticleRecord, ArticleStylePayload, ArticleStyleResponse, AuthState, DashboardBootstrap, DashboardUser, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, RedditSubscribedSubreddit, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, Site, SocialAccount, SocialAccountInput, SocialComment, SocialPost, SocialReplySuggestion, StudioAccount, StudioApp, StudioCampaign, StudioCrawlerRun, StudioSignal, StudioStrategistPost, StudioSummary, ThreadsCampaignResult, ThreadsMediaResponse, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorkersResponse, MlTradingAssetsResponse, MlTradingDiagnostics, MlTradingSettings } from "./types";
 
 type SocialReplyPublishResponse = {
   success: boolean;
@@ -66,6 +66,13 @@ export const api = {
     }),
   getCategories: () => request<ArticleCategory[]>("/api/categories"),
   listSites: () => request<Site[]>("/api/sites"),
+  updateSite: (id: number, payload: Pick<Site, "name" | "slug" | "domain" | "status">) =>
+    request<Site>(`/api/sites/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  deleteSite: (id: number) =>
+    request<void>(`/api/sites/${id}`, { method: "DELETE" }),
   saveArticle: (payload: ArticleInput, id?: number) =>
     request<ArticleRecord>(id ? `/api/articles/${id}` : "/api/articles", {
       method: id ? "PUT" : "POST",
@@ -193,6 +200,11 @@ export const api = {
     request<{ success: boolean }>(`/api/planner/items/${id}`, {
       method: "DELETE",
     }),
+  improvePlannerDescription: (payload: { description: string; platform?: string | null }) =>
+    request<{ value: string }>("/api/planner/improve-description", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   listTradingNotes: () => request<TradingNote[]>("/api/trading/notes"),
   createTradingNote: (payload: TradingNoteInput) =>
     request<TradingNote>("/api/trading/notes", {
@@ -224,6 +236,17 @@ export const api = {
       method: "DELETE",
     }),
   listRedditAccounts: () => request<RedditAccount[]>("/api/reddit/accounts"),
+  listRedditSubscribedSubreddits: (accountId?: number | null) => {
+    const params = new URLSearchParams();
+    if (accountId) params.set("account_id", String(accountId));
+    const query = params.toString();
+    return request<{
+      data: RedditSubscribedSubreddit[];
+      account_id?: number | null;
+      account_name?: string | null;
+      warning?: string;
+    }>(`/api/reddit/subreddits${query ? `?${query}` : ""}`);
+  },
   addRedditAccount: (payload: {
     name: string;
     status?: "active" | "inactive";
@@ -392,6 +415,21 @@ export const api = {
     ),
 
   // Twitter accounts
+  listSocialAccounts: () => request<SocialAccount[]>("/api/social/accounts"),
+  addSocialAccount: (payload: SocialAccountInput & { platform: SocialAccount["platform"] }) =>
+    request<SocialAccount>("/api/social/accounts", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateSocialAccount: (id: number, payload: SocialAccountInput & { status?: "active" | "inactive" }) =>
+    request<{ success: boolean; updated_at: string }>(`/api/social/accounts/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  deleteSocialAccount: (id: number) =>
+    request<{ success: boolean }>(`/api/social/accounts/${id}`, {
+      method: "DELETE",
+    }),
   listTwitterAccounts: () => request<SocialAccount[]>("/api/social/twitter/accounts"),
   addTwitterAccount: (payload: SocialAccountInput) =>
     request<SocialAccount>("/api/social/twitter/accounts", {

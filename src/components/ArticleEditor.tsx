@@ -437,6 +437,32 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
         </div>
         {error ? <p className="error">{error}</p> : null}
         {assistMessage ? <p className="success">{assistMessage}</p> : null}
+        <div className="article-editor__site-selection">
+          {publishingSites.length === 0 ? (
+            <p className="muted">No active sites are available in Config yet.</p>
+          ) : (
+            <div className="chip-grid">
+              {publishingSites.map((site) => (
+                <label key={site.id} className={`chip ${selectedSites.has(site.id) ? "chip--selected" : ""}`}>
+                  <input
+                    type="checkbox"
+                    checked={selectedSites.has(site.id)}
+                    onChange={(e) => {
+                      setForm((current) => ({
+                        ...current,
+                        site_ids: e.target.checked
+                          ? [...current.site_ids, site.id]
+                          : current.site_ids.filter((id) => id !== site.id),
+                      }));
+                    }}
+                  />
+                  <span>{site.name}</span>
+                  <small>{site.slug}</small>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
         <label>
           Title
           <input
@@ -518,6 +544,9 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
             placeholder="A short teaser used in lists and SEO descriptions."
           />
         </label>
+      </section>
+
+      <section className="panel stack">
         <label>
           Content
           <div className="article-editor__surface">
@@ -630,37 +659,12 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
 
       <section className="panel stack">
         <div className="panel__title-row">
-          <h2>Sites & Publishing</h2>
+          <h2>Cover image</h2>
         </div>
-        <p className="article-editor__hint">Publishing targets are managed in Config.</p>
-        {publishingSites.length === 0 ? (
-          <p className="muted">No active sites are available in Config yet.</p>
-        ) : (
-          <div className="chip-grid">
-            {publishingSites.map((site) => (
-              <label key={site.id} className={`chip ${selectedSites.has(site.id) ? "chip--selected" : ""}`}>
-                <input
-                  type="checkbox"
-                  checked={selectedSites.has(site.id)}
-                  onChange={(e) => {
-                    setForm((current) => ({
-                      ...current,
-                      site_ids: e.target.checked
-                        ? [...current.site_ids, site.id]
-                        : current.site_ids.filter((id) => id !== site.id),
-                    }));
-                  }}
-                />
-                <span>{site.name}</span>
-                <small>{site.slug}</small>
-              </label>
-            ))}
-          </div>
-        )}
         <div className="grid-two">
           <label>
             <span className="article-editor__label-row">
-              <span>Cover image</span>
+              <span>Upload</span>
               <button
                 type="button"
                 className="button-secondary article-editor__autofill"

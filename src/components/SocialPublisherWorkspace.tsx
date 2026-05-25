@@ -12,6 +12,7 @@ import {
   PlusIcon,
   TrashIcon,
 } from "@heroicons/react/24/solid";
+import { ModalCloseButton } from "./ModalCloseButton";
 import type { IconType } from "react-icons";
 import type { SocialAccount, SocialPost } from "../lib/types";
 import { formatDisplayDate, formatDisplayDateTime } from "../lib/datetime";
@@ -236,9 +237,7 @@ function SocialPostComposerModal({
             <p className="social-kicker">Post</p>
             <h2>New {cleanPlatformLabel} {postContentLabel}</h2>
           </div>
-          <button className="button-secondary" type="button" onClick={onClose}>
-            Close
-          </button>
+          <ModalCloseButton onClick={onClose} />
         </div>
 
         {error ? <p className="error">{error}</p> : null}
@@ -543,9 +542,7 @@ export const SocialPublisherWorkspace = forwardRef<SocialAgentToolbarHandle, Soc
                 <p className="social-kicker">Setup</p>
                 <h2>{platformLabel}</h2>
               </div>
-              <button className="button-secondary" type="button" onClick={() => setIsSetupOpen(false)}>
-                Close
-              </button>
+              <ModalCloseButton onClick={() => setIsSetupOpen(false)} label={`Close ${platformLabel} setup`} />
             </div>
 
             <div className="ui-tabs__list social-panel-tabs social-panel-tabs--modal">

@@ -1,4 +1,5 @@
 import { TrashIcon } from "@heroicons/react/24/solid";
+import { ModalCloseButton } from "../ModalCloseButton";
 
 type RiskDraft = {
   risk_usd_min: number;
@@ -54,9 +55,7 @@ export function ExecutionControlsModal({
             <h3>{title}</h3>
             <p>{subtitle}</p>
           </div>
-          <button type="button" className="button-secondary" onClick={onClose} disabled={saving}>
-            Close
-          </button>
+          <ModalCloseButton onClick={onClose} disabled={saving} label="Close execution controls" />
         </div>
 
         <div className="execution-controls-modal__body">

@@ -2,13 +2,16 @@ import { jsonResponse, errorResponse, parseJson } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, scopedInsertColumns } from "../lib/ownership";
 import type { Env } from "../lib/types";
 
+type PlannerStatus = "planned" | "published";
+type LegacyPlannerStatus = PlannerStatus | "drafting" | "approved" | "archived";
+
 interface PlannerItemPayload {
   title: string;
   description?: string | null;
   image_url?: string | null;
   item_type?: "post" | "campaign";
   platform: string;
-  status?: "planned" | "drafting" | "approved" | "published" | "archived";
+  status?: LegacyPlannerStatus;
   scheduled_for?: string | null;
   social_post_id?: number | null;
   account_id?: number | null;
@@ -24,6 +27,10 @@ interface TradingNotePayload {
   title: string;
   content: string;
   note_type?: "analysis" | "idea" | "review" | "risk";
+}
+
+function normalizePlannerStatus(status?: LegacyPlannerStatus | null): PlannerStatus {
+  return status === "published" ? "published" : "planned";
 }
 
 export async function plannerHasSocialPostLinks(env: Env): Promise<boolean> {
@@ -61,7 +68,7 @@ export async function listPlannerItems(env: Env, userId = DEFAULT_USER_ID): Prom
           ${hasImageUrl ? "pi.image_url" : "NULL AS image_url"},
           pi.item_type,
           pi.platform,
-          pi.status,
+          CASE WHEN pi.status = 'published' THEN 'published' ELSE 'planned' END AS status,
           pi.scheduled_for,
           ${hasSocialPostLinks ? "pi.social_post_id" : "NULL AS social_post_id"},
           pi.account_id,
@@ -135,7 +142,7 @@ export async function createPlannerItem(env: Env, request: Request, userId = DEF
           ...(hasImageUrl ? [payload.image_url?.trim() || null] : []),
           payload.item_type ?? "post",
           payload.platform.trim(),
-          payload.status ?? "planned",
+          normalizePlannerStatus(payload.status),
           payload.scheduled_for ?? null,
           payload.social_post_id ?? null,
           payload.account_id ?? null,
@@ -180,7 +187,7 @@ export async function createPlannerItem(env: Env, request: Request, userId = DEF
           ...(hasImageUrl ? [payload.image_url?.trim() || null] : []),
           payload.item_type ?? "post",
           payload.platform.trim(),
-          payload.status ?? "planned",
+          normalizePlannerStatus(payload.status),
           payload.scheduled_for ?? null,
           payload.account_id ?? null,
           payload.instruction?.trim() || null,
@@ -239,7 +246,7 @@ export async function updatePlannerItem(
     }
     if (payload.status !== undefined) {
       updates.push("status = ?");
-      values.push(payload.status);
+      values.push(normalizePlannerStatus(payload.status));
     }
     if (payload.scheduled_for !== undefined) {
       updates.push("scheduled_for = ?");

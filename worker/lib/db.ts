@@ -47,6 +47,34 @@ export async function createSite(
   return result;
 }
 
+export async function updateSite(
+  env: Env,
+  siteId: number,
+  payload: Pick<SiteRow, "name" | "slug" | "domain" | "status">,
+): Promise<SiteRow> {
+  const now = new Date().toISOString();
+  const result = await env.DB.prepare(
+    `
+      UPDATE sites
+      SET name = ?, slug = ?, domain = ?, status = ?, updated_at = ?
+      WHERE id = ?
+      RETURNING id, name, slug, domain, status, created_at, updated_at
+    `,
+  )
+    .bind(payload.name, payload.slug, payload.domain, payload.status, now, siteId)
+    .first<SiteRow>();
+
+  if (!result) {
+    throw new Error("Failed to update site");
+  }
+
+  return result;
+}
+
+export async function deleteSite(env: Env, siteId: number): Promise<void> {
+  await env.DB.prepare("DELETE FROM sites WHERE id = ?").bind(siteId).run();
+}
+
 export async function listCategories(env: Env): Promise<ArticleCategory[]> {
   const result = await env.DB.prepare(
     `

@@ -76,22 +76,91 @@ function clampReply(value: string, maxLength: number): string {
   return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
+function normalizeText(value: string | null | undefined): string {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function detectReplyTopic(postContext: string, commentText: string): "feed_curation" | "phone_switch" | "trading_journal" | "generic" {
+  const combined = `${postContext} ${commentText}`.toLowerCase();
+  if (/\b(feed|curat|mute|block|junk|garbage|algo|algorithm|following|follow list|high-quality content|search)\b/i.test(combined)) {
+    return "feed_curation";
+  }
+  if (/\b(android|iphone|ios|switch|pixel|samsung|oneplus|locked in|lock-in)\b/i.test(combined)) {
+    return "phone_switch";
+  }
+  if (/\b(trade|trades|trading|journal|pnl|setup|setups|discipline|performance|reviewing)\b/i.test(combined)) {
+    return "trading_journal";
+  }
+  return "generic";
+}
+
 function buildFallbackReply(payload: SuggestSocialReplyPayload, platform: "twitter" | "threads" | "reddit"): string {
   const charLimit = REPLY_CHAR_LIMITS[platform] ?? 450;
-  const commentText = String(payload.comment_text ?? "").replace(/\s+/g, " ").trim().toLowerCase();
-  const askedQuestion = commentText.includes("?") || /\b(why|what|how)\b/i.test(commentText);
-  const supportive = /\b(exactly|true|same|agree|fair|right)\b/i.test(commentText);
-  const mentionsSwitch = /\b(android|iphone|ios|switch)\b/i.test(commentText);
+  const postContext = normalizeText(payload.post_preview ?? payload.post_title ?? "");
+  const commentText = normalizeText(payload.comment_text ?? "");
+  const lowerComment = commentText.toLowerCase();
+  const askedQuestion = commentText.includes("?") || /\b(why|what|how|does|still works|really)\b/i.test(commentText);
+  const skeptical = /\b(still works|hasn'?t|doesn'?t|not for me|really\?)\b/i.test(lowerComment);
+  const supportive = /\b(exactly|true|same|agree|fair|right)\b/i.test(lowerComment);
+  const topic = detectReplyTopic(postContext, commentText);
 
-  const opening = supportive ? "Exactly." : askedQuestion ? "Fair question." : "Yeah.";
-  const middle = mentionsSwitch
-    ? "For me it is mostly about less lock-in and more control over how I use the phone day to day."
-    : "For me it is mostly about having more control and more flexibility without being boxed into one setup.";
-  const closing = supportive
-    ? "That is what made the rough switch feel worth it."
-    : "That is the freedom part for me.";
+  if (topic === "feed_curation") {
+    if (skeptical || askedQuestion) {
+      return clampReply(
+        "Yeah, but not on its own. What helps me more now is muting fast, hiding junk immediately, and rebuilding the feed around a small set of high-signal accounts instead of trusting the default feed.",
+        charLimit,
+      );
+    }
+    return clampReply(
+      "Same here. The only thing that helps me is being ruthless with mutes and hides, then rebuilding around a small set of solid accounts. The default feed alone is still messy.",
+      charLimit,
+    );
+  }
 
-  return clampReply(`${opening} ${middle} ${closing}`, charLimit);
+  if (topic === "phone_switch") {
+    if (skeptical || askedQuestion) {
+      return clampReply(
+        "For me it still does, but not instantly. The big win was less lock-in, easier file access, and more control over the device once I cleaned up the setup.",
+        charLimit,
+      );
+    }
+    return clampReply(
+      "Yeah, that was the main upside for me too. Once I got past the setup friction, the extra control and less lock-in made the switch feel worth it.",
+      charLimit,
+    );
+  }
+
+  if (topic === "trading_journal") {
+    if (skeptical || askedQuestion) {
+      return clampReply(
+        "Only when I actually review the trades after logging them. If it is just a diary, not really. The value for me comes from spotting repeated mistakes and fixing them.",
+        charLimit,
+      );
+    }
+    return clampReply(
+      "Exactly. The logging alone is not the point for me. The useful part is reviewing setups and catching the same bad habits before they repeat.",
+      charLimit,
+    );
+  }
+
+  if (supportive) {
+    return clampReply(
+      "Exactly. That is usually the difference for me too once I get more specific about what is actually working and what is just noise.",
+      charLimit,
+    );
+  }
+
+  if (skeptical || askedQuestion) {
+    return clampReply(
+      "Fair question. For me it only works when I stay pretty deliberate with it and adjust quickly when the obvious approach stops helping.",
+      charLimit,
+    );
+  }
+
+  return clampReply(
+    "Yeah, that has been my experience too. It works a lot better once I stop relying on one default approach and get more deliberate about what I keep using.",
+    charLimit,
+  );
 }
 
 export async function suggestSocialReply(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
@@ -122,6 +191,10 @@ export async function suggestSocialReply(env: Env, request: Request, userId = DE
       system: [
         "You write natural social media replies for the account owner.",
         "Use the owner's original post and the incoming comment to draft one reply.",
+        "Stay strictly inside the topic of that exact post and that exact comment.",
+        "Answer what the commenter is actually reacting to before adding any extra context.",
+        "If the commenter questions whether something still works, answer that directly.",
+        "Never reuse canned phrasing from a different conversation or topic.",
         "Keep it human, calm, specific, and easy to post as-is.",
         "Do not sound like customer support or an AI assistant.",
         "Do not use markdown, labels, bullet points, or surrounding quotation marks.",

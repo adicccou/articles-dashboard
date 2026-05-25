@@ -6,8 +6,9 @@ import {
   TrashIcon,
   XMarkIcon,
 } from "@heroicons/react/24/solid";
+import { ModalCloseButton } from "../components/ModalCloseButton";
 import { api } from "../lib/api";
-import type { StudioAccount, StudioCampaign, StudioSignal, StudioStrategistPost, StudioSummary } from "../lib/types";
+import type { StudioAccount, StudioCampaign, StudioCrawlerRun, StudioSignal, StudioStrategistPost, StudioSummary } from "../lib/types";
 import { formatDisplayDateTime } from "../lib/datetime";
 import "../styles/studio-page.css";
 
@@ -65,6 +66,34 @@ function statusTone(status: string) {
   if (["pending", "running", "suggested", "asset_needed", "candidate", "filtered"].includes(status)) return "info";
   if (["failed", "archived", "rejected"].includes(status)) return "danger";
   return "neutral";
+}
+
+function sortRunsNewestFirst(runs: StudioCrawlerRun[]) {
+  return [...runs].sort((left, right) => {
+    const leftTime = new Date(left.updated_at || left.finished_at || left.started_at || left.created_at).getTime();
+    const rightTime = new Date(right.updated_at || right.finished_at || right.started_at || right.created_at).getTime();
+    return rightTime - leftTime;
+  });
+}
+
+function getCampaignDisplayStatus(
+  campaign: StudioCampaign,
+  runs: StudioCrawlerRun[],
+): { label: string; tone: string } {
+  const latestRun = sortRunsNewestFirst(runs)[0];
+  if (!latestRun) {
+    return { label: campaign.status, tone: statusTone(campaign.status) };
+  }
+  if (latestRun.status === "pending" || latestRun.status === "running") {
+    return { label: "Working", tone: statusTone("running") };
+  }
+  if (latestRun.status === "completed") {
+    return { label: "Ready", tone: statusTone("completed") };
+  }
+  if (latestRun.status === "failed") {
+    return { label: "Failed", tone: statusTone("failed") };
+  }
+  return { label: campaign.status, tone: statusTone(campaign.status) };
 }
 
 function formatScheduledLabel(value: string | null | undefined) {
@@ -1110,6 +1139,9 @@ export function StudioPage({ onUpload }: StudioPageProps) {
   const selectedCampaignResultLimit = selectedCampaign && selectedCampaignResults
     ? selectedCampaignResults.runs[0]?.result_limit ?? selectedCampaign.result_limit ?? DEFAULT_CAMPAIGN_RESULT_LIMIT
     : DEFAULT_CAMPAIGN_RESULT_LIMIT;
+  const selectedCampaignDisplayStatus = selectedCampaign && selectedCampaignResults
+    ? getCampaignDisplayStatus(selectedCampaign, selectedCampaignResults.runs)
+    : null;
 
   return (
     <div className="studio-page stack">
@@ -1183,7 +1215,9 @@ export function StudioPage({ onUpload }: StudioPageProps) {
               </div>
               <div>
                 <span className="studio-id">Status</span>
-                <span className={`studio-pill studio-pill--${statusTone(selectedCampaign.status)}`}>{selectedCampaign.status}</span>
+                <span className={`studio-pill studio-pill--${selectedCampaignDisplayStatus?.tone ?? statusTone(selectedCampaign.status)}`}>
+                  {selectedCampaignDisplayStatus?.label ?? selectedCampaign.status}
+                </span>
               </div>
               <div className="studio-campaign-overview__instructions">
                 <span className="studio-id">Instructions</span>
@@ -1389,9 +1423,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
                 <h2>{editingCampaignId ? "Edit campaign" : "Create campaign"}</h2>
                 <p className="studio-muted">Set the campaign target and queue the Pain Crawler from here.</p>
               </div>
-              <button className="button-secondary" type="button" onClick={closeCampaignModal}>
-                Close
-              </button>
+              <ModalCloseButton onClick={closeCampaignModal} label="Close campaign modal" />
             </div>
             <label>
               Campaign name

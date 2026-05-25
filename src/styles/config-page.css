@@ -176,6 +176,15 @@
     minmax(140px, 0.75fr);
 }
 
+.config-table--apps-sites .config-table__row {
+  grid-template-columns:
+    minmax(240px, 1.5fr)
+    minmax(200px, 1fr)
+    92px
+    120px
+    minmax(140px, 0.75fr);
+}
+
 .config-table--accounts .config-table__row {
   grid-template-columns:
     minmax(260px, 1fr)
@@ -190,6 +199,16 @@
     minmax(220px, 1fr)
     92px
     120px;
+}
+
+.config-overview__content--combined {
+  display: grid;
+  gap: 0;
+}
+
+.config-section {
+  display: grid;
+  gap: 16px;
 }
 
 .config-main-cell,

@@ -206,16 +206,18 @@ export function APIConnectionPanel({
   };
 
   const currentTab = tabMeta[activeTab];
+  const showTabIntro = activeTab !== "general";
 
   return (
     <div className="api-panel">
-      <h3 className="api-panel__title">{currentTab?.title ?? title}</h3>
-      <p className="api-panel__description">{currentTab?.description ?? description}</p>
+      {showTabIntro ? (
+        <>
+          <h3 className="api-panel__title">{currentTab?.title ?? title}</h3>
+          <p className="api-panel__description">{currentTab?.description ?? description}</p>
+        </>
+      ) : null}
 
       <div className={`api-panel__section ${activeTab === "general" ? "" : "api-panel__section--hidden"}`}>
-        <div className="api-panel__header">
-          <h4>Workspace Defaults</h4>
-        </div>
         <div className="api-panel__inputs">
           <label className="api-panel__field">
             <span className="api-panel__field-label">Workspace Timezone</span>
@@ -227,9 +229,6 @@ export function APIConnectionPanel({
               className="api-panel__input"
             />
           </label>
-          <p className="api-panel__helper">
-            Use an IANA timezone like Asia/Kuala_Lumpur, Europe/London, or America/New_York. Planning, reports, and relative times follow this setting.
-          </p>
           <div className="api-panel__button-row">
             <button
               onClick={async () => {
@@ -245,7 +244,7 @@ export function APIConnectionPanel({
               disabled={savingGeneral}
               className="api-panel__button"
             >
-              {savingGeneral ? "Saving..." : "Save General Settings"}
+              {savingGeneral ? "Saving..." : "Save Timezone"}
             </button>
           </div>
           {syncMessage ? <p className="api-panel__helper">{syncMessage}</p> : null}

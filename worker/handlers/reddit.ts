@@ -24,8 +24,8 @@ interface CreateCampaignPayload {
 type RedditAccountRow = {
   id: number;
   name: string;
-  access_token: string;
-  refresh_token: string;
+  access_token: string | null;
+  refresh_token: string | null;
   token_expires_at: string | null;
 };
 
@@ -48,6 +48,7 @@ type RedditApiThing = {
 type RedditApiListing = {
   data?: {
     children?: RedditApiThing[];
+    after?: string | null;
   };
 };
 
@@ -126,12 +127,45 @@ async function ensureRedditAccessToken(env: Env, account: RedditAccountRow): Pro
 
 async function redditRequest(account: RedditAccountRow, path: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
-  headers.set("Authorization", `Bearer ${account.access_token}`);
+  headers.set("Authorization", `Bearer ${account.access_token ?? ""}`);
   headers.set("User-Agent", "BlogPoster/1.0");
   return fetch(`${REDDIT_API_BASE}${path}`, {
     ...init,
     headers,
   });
+}
+
+async function getScopedRedditAccount(env: Env, userId: number, requestedAccountId?: number): Promise<RedditAccountRow | null> {
+  const filters = ["status = 'active'"];
+  const values: unknown[] = [];
+  if (requestedAccountId) {
+    filters.push("id = ?");
+    values.push(requestedAccountId);
+  }
+  await appendScopedFilter(env, "reddit_accounts", filters, values, userId);
+  return env.DB.prepare(
+    `SELECT id, name, access_token, refresh_token, token_expires_at
+     FROM reddit_accounts
+     WHERE ${filters.join(" AND ")}
+     ORDER BY updated_at DESC, id DESC
+     LIMIT 1`,
+  )
+    .bind(...values)
+    .first<RedditAccountRow>();
+}
+
+function normalizeSubscribedSubreddit(data: Record<string, unknown>) {
+  const name = String(data.display_name ?? "").trim();
+  const displayName = String(data.display_name_prefixed ?? (name ? `r/${name}` : "")).trim();
+  return {
+    name,
+    display_name: displayName || name,
+    title: data.title ? String(data.title) : null,
+    description: data.public_description ? String(data.public_description) : null,
+    subscribers: typeof data.subscribers === "number" ? data.subscribers : null,
+    over18: Boolean(data.over18),
+    icon_url: data.icon_img ? String(data.icon_img) : null,
+  };
 }
 
 async function submitRedditSelfPost(
@@ -588,6 +622,61 @@ export async function listRedditComments(env: Env, postId?: string | null, limit
     return jsonResponse({ data: merged });
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Failed to load Reddit comments", 500);
+  }
+}
+
+export async function listRedditSubscribedSubreddits(env: Env, url: URL, userId = DEFAULT_USER_ID): Promise<Response> {
+  try {
+    const requestedAccountId = Number(url.searchParams.get("account_id") || 0) || undefined;
+    const account = await getScopedRedditAccount(env, userId, requestedAccountId);
+    if (!account) {
+      return jsonResponse({ data: [], account_id: null, account_name: null });
+    }
+
+    const readyAccount = await ensureRedditAccessToken(env, account);
+    if (!readyAccount.access_token?.trim()) {
+      return jsonResponse({
+        data: [],
+        account_id: readyAccount.id,
+        account_name: readyAccount.name,
+        warning: "Connect Reddit with Official API to load subscribed subreddits.",
+      });
+    }
+
+    const subreddits: ReturnType<typeof normalizeSubscribedSubreddit>[] = [];
+    let after: string | null = null;
+
+    for (let page = 0; page < 3; page += 1) {
+      const params = new URLSearchParams({ limit: "100" });
+      if (after) params.set("after", after);
+      const response = await redditRequest(readyAccount, `/subreddits/mine/subscriber?${params.toString()}`);
+      const payload = await response.json() as RedditApiListing;
+      if (!response.ok) {
+        throw new Error("Failed to load subscribed subreddits.");
+      }
+
+      const children = payload.data?.children ?? [];
+      children
+        .filter((child) => child.kind === "t5" && child.data)
+        .map((child) => normalizeSubscribedSubreddit(child.data as Record<string, unknown>))
+        .filter((subreddit) => subreddit.name)
+        .forEach((subreddit) => subreddits.push(subreddit));
+
+      after = payload.data?.after ?? null;
+      if (!after) break;
+    }
+
+    const unique = Array.from(
+      new Map(subreddits.map((subreddit) => [subreddit.name.toLowerCase(), subreddit])).values(),
+    ).sort((left, right) => left.name.localeCompare(right.name));
+
+    return jsonResponse({
+      data: unique,
+      account_id: readyAccount.id,
+      account_name: readyAccount.name,
+    });
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Failed to load subscribed subreddits", 500);
   }
 }
 

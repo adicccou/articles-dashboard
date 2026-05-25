@@ -17,13 +17,21 @@
 .statistics-overview__content {
   display: grid;
   gap: 24px;
-  padding: 20px 0;
+  padding: 0;
 }
 
 .project-selector {
-  display: flex;
+  display: inline-flex;
   gap: 8px;
   flex-wrap: wrap;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 0;
+}
+
+.statistics-overview__content .project-selector {
+  margin-top: 0;
+  align-self: flex-start;
 }
 
 .project-tab {

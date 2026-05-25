@@ -108,7 +108,7 @@ export const TwitterAgentPage = forwardRef<SocialAgentToolbarHandle>(function Tw
                 description: content,
                 item_type: "post",
                 platform: "twitter",
-                status: "approved",
+                status: "planned",
                 scheduled_for: scheduledAt,
               });
             }

@@ -11,7 +11,7 @@ import { PlannerPage } from "./PlannerPage";
 import { ViewErrorBoundary } from "../components/ViewErrorBoundary";
 import { StatisticsPage } from "./StatisticsPage";
 import { RepliesPage } from "./RepliesPage";
-import { formatDisplayDateTime } from "../lib/datetime";
+import { formatDisplayDate, formatDisplayTime } from "../lib/datetime";
 import "../styles/articles-page.css";
 import "../styles/trading-page.css";
 
@@ -129,11 +129,40 @@ export function DashboardPage({
             </div>
             {articles.map((article) => (
               <div className="table__row article-row" key={article.id} onClick={() => onSelectArticle(article)}>
-                <span>{article.title}</span>
-                <span>{article.category?.name || "—"}</span>
-                <span>{article.status}</span>
-                <span>{article.site_ids.length}</span>
-                <span>{formatDisplayDateTime(article.updated_at)}</span>
+                <span className="article-row__title">
+                  {article.cover_image ? (
+                    <img
+                      className="article-row__thumbnail"
+                      src={article.cover_image}
+                      alt=""
+                      loading="lazy"
+                    />
+                  ) : null}
+                  <span className="article-row__title-copy">
+                    <span className="article-row__title-text">{article.title}</span>
+                    <span className="article-row__title-meta">
+                      <span className="article-row__slug">/{article.slug}</span>
+                      {article.excerpt ? (
+                        <span className="article-row__excerpt">{article.excerpt}</span>
+                      ) : null}
+                    </span>
+                  </span>
+                </span>
+                <span className="article-row__category">{article.category?.name || "Uncategorized"}</span>
+                <span>
+                  <span className={`social-status-pill article-status-pill article-status-pill--${article.status}`}>
+                    {article.status}
+                  </span>
+                </span>
+                <span>
+                  <span className="social-status-pill article-sites-pill">
+                    {article.site_ids.length} {article.site_ids.length === 1 ? "site" : "sites"}
+                  </span>
+                </span>
+                <span className="article-row__updated">
+                  <strong>{formatDisplayDate(article.updated_at, false)}</strong>
+                  <small>{formatDisplayTime(article.updated_at)}</small>
+                </span>
                 <button
                   className="article-row__delete dashboard-icon-button"
                   type="button"

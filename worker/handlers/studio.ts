@@ -16,6 +16,7 @@ type StudioAppPayload = {
   name?: string;
   website_url?: string | null;
   app_store_url?: string | null;
+  articles_api_url?: string | null;
   description?: string | null;
   ai_context?: string | null;
   status?: StudioStatus;
@@ -493,6 +494,7 @@ async function buildCrawlerBrief({
             `App name: ${cleanText(app?.name) || "Unknown"}`,
             `App website: ${cleanText(app?.website_url) || "Unknown"}`,
             `App store URL: ${cleanText(app?.app_store_url) || "Unknown"}`,
+            `Articles API: ${cleanText(app?.articles_api_url) || "Unknown"}`,
             `App description: ${cleanText(app?.description) || "None"}`,
             `App AI context: ${cleanText(app?.ai_context) || "None"}`,
             `Founder instructions: ${instructions}`,
@@ -561,6 +563,7 @@ function mapApp(row: Record<string, unknown>) {
     ...row,
     website_url: row.website_url ?? "",
     app_store_url: row.app_store_url ?? "",
+    articles_api_url: row.articles_api_url ?? "",
     description: row.description ?? "",
     ai_context: row.ai_context ?? "",
   };
@@ -924,8 +927,8 @@ export async function createStudioApp(env: Env, request: Request, userId = DEFAU
     const now = nowIso();
     const scoped = await scopedInsertColumns(env, "studio_apps", userId);
     const app = await env.DB.prepare(
-      `INSERT INTO studio_apps (${[...scoped.columns, "name", "website_url", "app_store_url", "description", "ai_context", "status", "created_at", "updated_at"].join(", ")})
-       VALUES (${[...scoped.columns.map(() => "?"), "?", "?", "?", "?", "?", "?", "?", "?"].join(", ")})
+      `INSERT INTO studio_apps (${[...scoped.columns, "name", "website_url", "app_store_url", "articles_api_url", "description", "ai_context", "status", "created_at", "updated_at"].join(", ")})
+       VALUES (${[...scoped.columns.map(() => "?"), "?", "?", "?", "?", "?", "?", "?", "?", "?"].join(", ")})
        RETURNING *`,
     )
       .bind(
@@ -933,6 +936,7 @@ export async function createStudioApp(env: Env, request: Request, userId = DEFAU
         name,
         cleanText(payload.website_url) || null,
         cleanText(payload.app_store_url) || null,
+        cleanText(payload.articles_api_url) || null,
         cleanText(payload.description),
         cleanText(payload.ai_context),
         payload.status ?? "active",
@@ -956,6 +960,7 @@ export async function updateStudioApp(env: Env, appId: string, request: Request,
     if (payload.name !== undefined) { updates.push("name = ?"); values.push(cleanText(payload.name)); }
     if (payload.website_url !== undefined) { updates.push("website_url = ?"); values.push(cleanText(payload.website_url) || null); }
     if (payload.app_store_url !== undefined) { updates.push("app_store_url = ?"); values.push(cleanText(payload.app_store_url) || null); }
+    if (payload.articles_api_url !== undefined) { updates.push("articles_api_url = ?"); values.push(cleanText(payload.articles_api_url) || null); }
     if (payload.description !== undefined) { updates.push("description = ?"); values.push(cleanText(payload.description)); }
     if (payload.ai_context !== undefined) { updates.push("ai_context = ?"); values.push(cleanText(payload.ai_context)); }
     if (payload.status !== undefined) { updates.push("status = ?"); values.push(payload.status); }

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { ModalCloseButton } from "./ModalCloseButton";
 import type { PlannerItem, PlannerItemInput, RedditCampaign } from "../lib/types";
 
 type AccountOption = {
@@ -190,7 +191,7 @@ export function SocialCampaignModal(props: SocialCampaignModalProps) {
           title: form.name.trim(),
           item_type: "campaign",
           platform,
-          status: "approved",
+          status: "planned",
           account_id: form.account_id,
           instruction: buildCampaignInstruction(form.search_query, form.instruction),
           interval_minutes: form.interval_minutes,
@@ -217,9 +218,7 @@ export function SocialCampaignModal(props: SocialCampaignModalProps) {
             <p className="social-kicker">Campaign</p>
             <h2>{titleLabel}</h2>
           </div>
-          <button className="button-secondary" type="button" onClick={onClose}>
-            Close
-          </button>
+          <ModalCloseButton onClick={onClose} />
         </div>
 
         {error ? <p className="error">{error}</p> : null}

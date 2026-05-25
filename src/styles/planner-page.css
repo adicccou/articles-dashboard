@@ -205,6 +205,7 @@
 
 .scheduler-status-chip {
   align-items: center;
+  border: 1px solid transparent;
   border-radius: 999px;
   display: inline-flex;
   font-size: 0.78rem;
@@ -216,24 +217,27 @@
 }
 
 .scheduler-status-chip--planned,
-.scheduler-status-chip--drafting {
-  background: #eef2ff;
-  color: #334155;
-}
-
-.scheduler-status-chip--approved {
-  background: #ecfdf5;
-  color: #166534;
+.scheduler-status-chip--drafting,
+.scheduler-status-chip--approved,
+.scheduler-status-chip--archived {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #475569;
 }
 
 .scheduler-status-chip--published {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: #dcfce7;
+  border-color: #bbf7d0;
+  color: #166534;
 }
 
-.scheduler-status-chip--archived {
-  background: #f1f5f9;
-  color: #64748b;
+.scheduler-status-chip--micro {
+  border-width: 0;
+  font-size: 0.4rem;
+  font-weight: 700;
+  line-height: 1;
+  min-height: 8px;
+  padding: 1px 2px;
 }
 
 .scheduler-calendar__nav {
@@ -346,7 +350,7 @@
 
 .scheduler-calendar__event:hover,
 .scheduler-calendar__event:active {
-  background: rgba(241, 245, 249, 0.75);
+  background: #dbeafe;
   color: #0f172a;
 }
 
@@ -487,7 +491,7 @@
 
 .scheduler-week__slot-item:hover,
 .scheduler-week__slot-item:active {
-  background: rgba(241, 245, 249, 0.75);
+  background: #dbeafe;
   color: #0f172a;
 }
 
@@ -506,8 +510,16 @@
   background: #f5f3ff;
 }
 
+.scheduler-week__slot-meta {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+
 .scheduler-week__slot-time {
   color: #64748b;
+  flex: 0 0 auto;
   font-size: 0.68rem;
   font-weight: 500;
 }
@@ -541,6 +553,13 @@
   gap: 10px;
 }
 
+.scheduler-modal-status-field {
+  align-items: start;
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
 .scheduler-platform-chips {
   display: flex;
   flex-wrap: wrap;
@@ -572,6 +591,104 @@
   color: #1d4ed8;
 }
 
+.scheduler-reddit-target {
+  border: 1px solid #dbe5f1;
+  border-radius: 14px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.scheduler-reddit-target__row {
+  align-items: end;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 220px);
+}
+
+.scheduler-reddit-target__field,
+.scheduler-reddit-target__account {
+  display: grid;
+  gap: 8px;
+}
+
+.scheduler-reddit-target__field:only-child {
+  grid-column: 1 / -1;
+}
+
+.scheduler-reddit-target__field small {
+  color: var(--text-soft);
+  font-size: 0.76rem;
+}
+
+.scheduler-reddit-target__suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scheduler-reddit-target__suggestion {
+  background: #f8fafc;
+  border: 1px solid #dbe5f1;
+  border-radius: 999px;
+  color: #334155;
+  font-size: 0.8rem;
+  font-weight: 700;
+  min-height: 32px;
+  padding: 0 10px;
+}
+
+.scheduler-reddit-target__suggestion:hover {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.scheduler-reddit-target__hint {
+  color: var(--text-soft);
+  font-size: 0.84rem;
+  margin: 0;
+}
+
+.scheduler-description-field {
+  display: grid;
+  gap: 8px;
+}
+
+.scheduler-description-field textarea:disabled {
+  background: #f8fafc;
+  color: #475569;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.scheduler-field-label-row,
+.scheduler-media-actions,
+.scheduler-submit-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.scheduler-field-label-row {
+  justify-content: space-between;
+}
+
+.scheduler-improve-button {
+  min-height: 34px;
+  padding: 0.45rem 0.8rem;
+}
+
+.scheduler-media-actions,
+.scheduler-submit-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.scheduler-submit-actions button {
+  flex: 1 1 220px;
+}
+
 .scheduler-media-field__header {
   display: flex;
   align-items: flex-start;
@@ -586,8 +703,7 @@
   color: #334155;
 }
 
-.scheduler-media-field__hint,
-.scheduler-media-field__empty {
+.scheduler-media-field__hint {
   margin: 4px 0 0;
   color: var(--text-soft);
   font-size: 0.84rem;
@@ -620,6 +736,17 @@
   gap: 12px;
 }
 
+.scheduler-media-mixed {
+  display: grid;
+  gap: 12px;
+}
+
+.scheduler-media-thumbnails {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 92px));
+}
+
 .scheduler-media-card {
   position: relative;
   border: 1px solid #dbe5f1;
@@ -638,6 +765,15 @@
   background: #e2e8f0;
 }
 
+.scheduler-media-card--thumb {
+  border-radius: 12px;
+  min-height: 92px;
+}
+
+.scheduler-media-card--thumb .scheduler-media-card__asset {
+  min-height: 92px;
+}
+
 .scheduler-media-card__remove {
   position: absolute;
   top: 10px;
@@ -648,6 +784,13 @@
   padding: 0.4rem 0.7rem;
   border-radius: 999px;
   font-size: 0.78rem;
+}
+
+.scheduler-media-card--thumb .scheduler-media-card__remove {
+  font-size: 0.72rem;
+  padding: 0.3rem 0.55rem;
+  right: 8px;
+  top: 8px;
 }
 
 .scheduler-media-card__remove:hover {

@@ -156,6 +156,16 @@ export type RedditAccount = {
   updated_at: string;
 };
 
+export type RedditSubscribedSubreddit = {
+  name: string;
+  display_name: string;
+  title?: string | null;
+  description?: string | null;
+  subscribers?: number | null;
+  over18?: boolean;
+  icon_url?: string | null;
+};
+
 export type RedditCampaign = {
   id: number;
   reddit_account_id: number;
@@ -628,6 +638,7 @@ export type PlannerItem = {
   scheduled_for?: string | null;
   social_post_id?: number | null;
   account_id?: number | null;
+  subreddit?: string | null;
   instruction?: string | null;
   interval_minutes?: number | null;
   duration_start?: string | null;
@@ -657,10 +668,11 @@ export type PlannerItemInput = {
   image_url?: string | null;
   item_type?: "post" | "campaign";
   platform: string;
-  status?: "planned" | "drafting" | "approved" | "published" | "archived";
+  status?: "planned" | "published";
   scheduled_for?: string | null;
   social_post_id?: number | null;
   account_id?: number | null;
+  subreddit?: string | null;
   instruction?: string | null;
   interval_minutes?: number | null;
   duration_start?: string | null;
@@ -679,7 +691,7 @@ export type TradingNoteInput = {
 
 export type SocialAccount = {
   id: number;
-  platform: "twitter" | "threads" | "reddit";
+  platform: "twitter" | "threads" | "reddit" | "linkedin" | "instagram" | "youtube";
   username: string;
   status: "active" | "inactive";
   connection_mode?: "official_api" | "playwright";
@@ -756,6 +768,7 @@ export type StudioApp = {
   name: string;
   website_url?: string | null;
   app_store_url?: string | null;
+  articles_api_url?: string | null;
   description: string;
   ai_context: string;
   status: "active" | "inactive" | "archived";

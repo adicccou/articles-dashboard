@@ -131,6 +131,9 @@ export function App() {
   }
 
   if (loading) {
+    if (surface === "marketing") {
+      return <div className="app-bootstrap-shell" aria-busy="true" aria-label="Loading dashboard" />;
+    }
     return <div className="loading-screen">Loading dashboard...</div>;
   }
 

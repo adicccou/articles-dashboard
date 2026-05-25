@@ -257,7 +257,6 @@ button.button-secondary:disabled {
 .scheduler-week__empty,
 .scheduler-empty,
 .scheduler-media-field__hint,
-.scheduler-media-field__empty,
 .error-panel__hint {
   @apply text-slate-500;
 }
@@ -417,7 +416,6 @@ button.button-secondary:disabled {
 
 .studio-pill--success,
 .scheduler-status-chip--published,
-.scheduler-status-chip--approved,
 .settings-modal__tab-status.connected,
 .api-panel__status.connected,
 .social-status-pill--success {
@@ -426,8 +424,10 @@ button.button-secondary:disabled {
 
 .studio-pill--warning,
 .scheduler-status-chip--planned,
-.scheduler-status-chip--drafting {
-  @apply border-blue-200 bg-blue-50 text-blue-700;
+.scheduler-status-chip--drafting,
+.scheduler-status-chip--approved,
+.scheduler-status-chip--archived {
+  @apply border-slate-200 bg-slate-50 text-slate-600;
 }
 
 .studio-pill--danger,
@@ -509,6 +509,10 @@ button.button-secondary:disabled {
 .dashboard-icon-button svg,
 .api-panel__status-icon {
   @apply h-4 w-4;
+}
+
+.modal-close-button {
+  flex-shrink: 0;
 }
 
 .social-heading-icon {
@@ -620,7 +624,9 @@ button.button-secondary:disabled {
 }
 
 .studio-campaign-overview__instructions {
-  @apply md:col-span-2;
+  grid-column: 1 / -1;
+  justify-self: stretch;
+  width: 100%;
 }
 
 .studio-choice-row,

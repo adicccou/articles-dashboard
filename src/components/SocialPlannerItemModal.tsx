@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ModalCloseButton } from "./ModalCloseButton";
 import type { PlannerItem, PlannerItemInput } from "../lib/types";
 
 type SocialPlannerItemModalProps = {
@@ -22,7 +23,7 @@ export function SocialPlannerItemModal({
 }: SocialPlannerItemModalProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [status, setStatus] = useState<PlannerItem["status"]>("planned");
+  const [status, setStatus] = useState<PlannerItemInput["status"]>("planned");
   const [scheduledFor, setScheduledFor] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,9 +38,7 @@ export function SocialPlannerItemModal({
             <p className="social-kicker">{actionLabel}</p>
             <h2>New {platformLabel} {actionLabel}</h2>
           </div>
-          <button className="button-secondary" type="button" onClick={onClose}>
-            Close
-          </button>
+          <ModalCloseButton onClick={onClose} />
         </div>
 
         {error ? <p className="error">{error}</p> : null}
@@ -102,12 +101,9 @@ export function SocialPlannerItemModal({
           <div className="grid-two">
             <label>
               Status
-              <select value={status} onChange={(event) => setStatus(event.target.value as PlannerItem["status"])}>
+              <select value={status} onChange={(event) => setStatus(event.target.value as PlannerItemInput["status"])}>
                 <option value="planned">Planned</option>
-                <option value="drafting">Drafting</option>
-                <option value="approved">Approved</option>
                 <option value="published">Published</option>
-                <option value="archived">Archived</option>
               </select>
             </label>
 

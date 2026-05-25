@@ -1,6 +1,7 @@
 .articles-overview {
   overflow: hidden;
   padding: 0;
+  box-shadow: none;
 }
 
 .articles-overview__content {
@@ -10,5 +11,135 @@
 }
 
 .articles-overview__content > .panel__title-row {
-  padding: 20px 20px 16px;
+  padding: 24px 24px 18px;
+}
+
+.articles-table {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid #e2e8f0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.articles-table .table__row {
+  grid-template-columns:
+    minmax(0, 2.8fr)
+    minmax(140px, 0.9fr)
+    minmax(120px, 0.7fr)
+    minmax(88px, 0.55fr)
+    minmax(118px, 0.7fr);
+  gap: 16px;
+  padding: 16px 24px;
+}
+
+.articles-table .table__row--header {
+  background: #f8fafc;
+  padding-bottom: 12px;
+  padding-top: 12px;
+}
+
+.article-row__title {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.article-row__thumbnail {
+  width: 44px;
+  min-width: 44px;
+  height: 30px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: #e2e8f0;
+}
+
+.article-row__title-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.article-row__title-text {
+  color: #0f172a;
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.4;
+  min-width: 0;
+}
+
+.article-row__title-meta {
+  align-items: center;
+  color: #64748b;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  min-width: 0;
+}
+
+.article-row__slug {
+  color: #2563eb;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.article-row__excerpt {
+  display: -webkit-box;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+.article-row {
+  align-items: flex-start;
+  padding-right: 82px;
+}
+
+.article-row:hover {
+  background: #f8fafc;
+}
+
+.article-row__category {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.article-status-pill,
+.article-sites-pill {
+  min-width: fit-content;
+}
+
+.article-status-pill--published {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #047857;
+}
+
+.article-status-pill--draft {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.article-row__updated {
+  display: grid;
+  gap: 4px;
+}
+
+.article-row__updated strong {
+  color: #0f172a;
+  font-size: 0.9rem;
+}
+
+.article-row__updated small {
+  color: #64748b;
+  font-size: 0.78rem;
+}
+
+.article-row__delete {
+  right: 24px;
 }

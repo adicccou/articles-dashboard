@@ -1,5 +1,5 @@
 import { clearSessionCookie, createSessionCookie, getSessionUser, validateSession } from "./lib/auth";
-import { createSite, getPublishedArticleBySlug, getPublishedArticlesForSite, listArticles, listSites, saveArticle, deleteArticle, listCategories, createCategory, deleteCategory } from "./lib/db";
+import { createSite, deleteSite, getPublishedArticleBySlug, getPublishedArticlesForSite, listArticles, listSites, saveArticle, deleteArticle, listCategories, createCategory, deleteCategory, updateSite } from "./lib/db";
 import { json, parseJson, text } from "./lib/http";
 import type { Env } from "./lib/types";
 import type { DashboardUser } from "./lib/ownership";
@@ -13,6 +13,7 @@ import {
   getCampaignStats,
   publishRedditPost,
   listRedditComments,
+  listRedditSubscribedSubreddits,
   searchRedditPosts,
   createRedditReply,
 } from "./handlers/reddit";
@@ -21,6 +22,7 @@ import { getKnowledgeBase, saveKnowledgeBase, getVersions, getVersion } from "./
 import { listStrategies, getStrategy, createStrategy, updateStrategy, activateStrategy, deactivateStrategy, deleteStrategy, getStrategyStats, getStrategyExecutions, getActiveStrategyInternal } from "./handlers/trading";
 import { generateArticleCover, styleArticleContent, suggestArticleField } from "./handlers/article-ai";
 import { suggestSocialReply } from "./handlers/social-replies";
+import { addExtraSocialAccount, deleteExtraSocialAccount, listExtraSocialAccounts, updateExtraSocialAccount } from "./handlers/social-accounts";
 import { completeCtraderConnectionFromAgent, getAppSettings, getCustomLeanDiagnostics, getCustomLeanSettings, getCustomLeanWorkers, getInternalAgentSettings, getLeanStatus, getLearningReport, getMlTradingAssets, getMlTradingDiagnostics, getMlTradingSettings, syncAgentFromSettings, updateAppSettings, updateCustomLeanSettings, updateMlTradingSettings } from "./handlers/settings";
 import {
   listPlannerItems,
@@ -33,6 +35,7 @@ import {
   deleteTradingNote,
   plannerHasSocialPostLinks,
 } from "./handlers/planner";
+import { improvePlannerDescription } from "./handlers/planner-ai";
 import {
   listSocialPosts,
   createSocialPost,
@@ -99,7 +102,7 @@ import { createUser, getProfile, listUsers, updateProfile } from "./handlers/use
 function withCors(response: Response): Response {
   const headers = new Headers(response.headers);
   headers.set("Access-Control-Allow-Origin", "*");
-  headers.set("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS");
+  headers.set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   headers.set("Access-Control-Allow-Headers", "Content-Type");
   return new Response(response.body, {
     status: response.status,
@@ -974,6 +977,12 @@ export default {
       return await deletePlannerItem(env, id);
     }
 
+    if (url.pathname === "/api/internal/planner/improve-description" && request.method === "POST") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      return await improvePlannerDescription(env, request);
+    }
+
     if (url.pathname === "/api/internal/reddit/campaigns" && request.method === "GET") {
       const unauthorized = await requireAgentAuth(request, env);
       if (unauthorized) return unauthorized;
@@ -1324,6 +1333,29 @@ export default {
       return json(await createSite(env, body), { status: 201 });
     }
 
+    if (url.pathname.startsWith("/api/sites/") && request.method === "PUT") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = Number(url.pathname.split("/").pop());
+      if (!Number.isFinite(id)) return json({ error: "Invalid site id" }, { status: 400 });
+      const body = await parseJson<{
+        name: string;
+        slug: string;
+        domain: string;
+        status: "active" | "inactive";
+      }>(request);
+      return json(await updateSite(env, id, body));
+    }
+
+    if (url.pathname.startsWith("/api/sites/") && request.method === "DELETE") {
+      const unauthorized = await requireAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const id = Number(url.pathname.split("/").pop());
+      if (!Number.isFinite(id)) return json({ error: "Invalid site id" }, { status: 400 });
+      await deleteSite(env, id);
+      return new Response(null, { status: 204 });
+    }
+
     if (url.pathname === "/api/articles" && request.method === "GET") {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
@@ -1440,6 +1472,12 @@ export default {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       return await listRedditAccounts(env, activeScopeId(user), user.id);
+    }
+
+    if (url.pathname === "/api/reddit/subreddits" && request.method === "GET") {
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      return await listRedditSubscribedSubreddits(env, url, activeScopeId(user));
     }
 
     if (url.pathname === "/api/reddit/accounts" && request.method === "POST") {
@@ -1696,6 +1734,12 @@ export default {
       return await deletePlannerItem(env, id, activeScopeId(user));
     }
 
+    if (url.pathname === "/api/planner/improve-description" && request.method === "POST") {
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      return await improvePlannerDescription(env, request, activeScopeId(user));
+    }
+
     if (url.pathname === "/api/trading/notes" && request.method === "GET") {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
@@ -1817,6 +1861,32 @@ export default {
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[5];
       return await publishThreadsPost(env, id, activeScopeId(user));
+    }
+
+    if (url.pathname === "/api/social/accounts" && request.method === "GET") {
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      return await listExtraSocialAccounts(env, activeScopeId(user), user.id);
+    }
+
+    if (url.pathname === "/api/social/accounts" && request.method === "POST") {
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      return await addExtraSocialAccount(env, request, activeScopeId(user), user.id);
+    }
+
+    if (url.pathname.startsWith("/api/social/accounts/") && request.method === "PUT") {
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      const id = url.pathname.split("/")[4];
+      return await updateExtraSocialAccount(env, id, request, activeScopeId(user), user.id);
+    }
+
+    if (url.pathname.startsWith("/api/social/accounts/") && request.method === "DELETE") {
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      const id = url.pathname.split("/")[4];
+      return await deleteExtraSocialAccount(env, id, activeScopeId(user));
     }
 
     // Twitter accounts

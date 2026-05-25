@@ -1,5 +1,6 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import { APIConnectionPanel, type SettingsTabId } from "./APIConnectionPanel";
+import { ModalCloseButton } from "./ModalCloseButton";
 import type { DashboardSurface } from "../lib/surface";
 import type { AppSettingsInput } from "../lib/types";
 
@@ -102,9 +103,7 @@ export function SettingsModal({
             <p className="settings-kicker">Workspace Settings</p>
             <h2>Settings</h2>
           </div>
-          <button type="button" className="button-secondary" onClick={onClose}>
-            Close
-          </button>
+          <ModalCloseButton onClick={onClose} label="Close settings" />
         </div>
 
         <div
