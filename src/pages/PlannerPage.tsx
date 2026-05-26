@@ -667,7 +667,12 @@ export function PlannerPage() {
       setLoadingSubreddits(false);
       return;
     }
-    if (!selectedRedditAccount) {
+    const accountsToLoad = selectedRedditAccounts.length > 0
+      ? selectedRedditAccounts
+      : selectedRedditAccount
+      ? [selectedRedditAccount]
+      : [];
+    if (accountsToLoad.length === 0) {
       setRedditSubreddits([]);
       setSubredditWarning("Add a Reddit account in Config to load subscribed subreddits.");
       setLoadingSubreddits(false);
@@ -677,11 +682,20 @@ export function PlannerPage() {
     let cancelled = false;
     setLoadingSubreddits(true);
     setSubredditWarning(null);
-    api.listRedditSubscribedSubreddits(selectedRedditAccount.id)
-      .then((response) => {
+    Promise.all(accountsToLoad.map((account) => api.listRedditSubscribedSubreddits(account.id)))
+      .then((responses) => {
         if (cancelled) return;
-        setRedditSubreddits(asArray<RedditSubscribedSubreddit>(response.data));
-        setSubredditWarning(response.warning ?? null);
+        const subreddits = new Map<string, RedditSubscribedSubreddit>();
+        const warnings = new Set<string>();
+        responses.forEach((response) => {
+          asArray<RedditSubscribedSubreddit>(response.data).forEach((subreddit) => {
+            const key = subreddit.name.toLowerCase();
+            if (key && !subreddits.has(key)) subreddits.set(key, subreddit);
+          });
+          if (response.warning) warnings.add(response.warning);
+        });
+        setRedditSubreddits([...subreddits.values()]);
+        setSubredditWarning(warnings.size > 0 ? [...warnings].join(" ") : null);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -695,7 +709,7 @@ export function PlannerPage() {
     return () => {
       cancelled = true;
     };
-  }, [isModalOpen, isRedditModal, selectedRedditAccount]);
+  }, [isModalOpen, isRedditModal, selectedRedditAccount, selectedRedditAccounts]);
 
   function clearDescriptionAutosaveTimer() {
     if (descriptionAutosaveTimeoutRef.current === null) return;

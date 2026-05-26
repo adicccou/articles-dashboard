@@ -1,6 +1,6 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
-import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
+import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasColumn, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
 import { defaultPlaywrightProfileKey, playwrightUserSettingKey } from "../lib/playwright-accounts";
 
 interface OAuthState {
@@ -551,6 +551,27 @@ export async function deleteRedditAccount(
     const filters = ["id = ?"];
     const values: unknown[] = [id];
     await appendScopedFilter(env, "reddit_accounts", filters, values, userId);
+    const existing = await env.DB.prepare(`SELECT id FROM reddit_accounts WHERE ${filters.join(" AND ")}`)
+      .bind(...values)
+      .first<{ id: number }>();
+    if (!existing) {
+      return errorResponse("Reddit account not found", 404);
+    }
+
+    await env.DB.prepare(
+      `DELETE FROM reddit_comments WHERE campaign_id IN (SELECT id FROM reddit_campaigns WHERE reddit_account_id = ?)`,
+    )
+      .bind(id)
+      .run();
+    await env.DB.prepare("DELETE FROM reddit_campaigns WHERE reddit_account_id = ?").bind(id).run();
+    await env.DB.prepare("UPDATE social_posts SET account_id = NULL WHERE platform = 'reddit' AND account_id = ?")
+      .bind(id)
+      .run();
+    if (await tableHasColumn(env, "planner_items", "account_id")) {
+      await env.DB.prepare("UPDATE planner_items SET account_id = NULL WHERE platform = 'reddit' AND account_id = ?")
+        .bind(id)
+        .run();
+    }
     await env.DB.prepare(`DELETE FROM reddit_accounts WHERE ${filters.join(" AND ")}`).bind(...values).run();
     const settingsHasWorkspaceId = await tableHasWorkspaceId(env, "app_settings");
     const settingsHasUserId = await tableHasUserId(env, "app_settings");
