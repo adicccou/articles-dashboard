@@ -3,7 +3,7 @@ import { createSite, deleteSite, getPublishedArticleBySlug, getPublishedArticles
 import { json, parseJson, text } from "./lib/http";
 import type { Env } from "./lib/types";
 import type { DashboardUser } from "./lib/ownership";
-import { activeScopeId } from "./lib/ownership";
+import { DEFAULT_USER_ID, activeScopeId } from "./lib/ownership";
 import { authenticateDashboardUser } from "./lib/users";
 import {
   listCampaigns,
@@ -17,7 +17,7 @@ import {
   searchRedditPosts,
   createRedditReply,
 } from "./handlers/reddit";
-import { addRedditAccount, handleAuthorizeRequest, handleOAuthCallback, listRedditAccounts, updateRedditAccount, deleteRedditAccount } from "./handlers/reddit-auth";
+import { addRedditAccount, handleAuthorizeRequest, handleOAuthCallback, listInternalRedditAccounts, listRedditAccounts, updateRedditAccount, deleteRedditAccount } from "./handlers/reddit-auth";
 import { getKnowledgeBase, saveKnowledgeBase, getVersions, getVersion } from "./handlers/knowledge-base";
 import { listStrategies, getStrategy, createStrategy, updateStrategy, activateStrategy, deactivateStrategy, deleteStrategy, getStrategyStats, getStrategyExecutions, getActiveStrategyInternal } from "./handlers/trading";
 import { generateArticleCover, styleArticleContent, suggestArticleField } from "./handlers/article-ai";
@@ -331,6 +331,39 @@ function buildDefaultCanonicalUrl(
   return `https://journl.day/articles/${articleSlug}`;
 }
 
+async function listInternalRedditSubreddits(env: Env): Promise<{
+  data: unknown[];
+  account_id?: number | null;
+  account_name?: string | null;
+  warning?: string | null;
+}> {
+  try {
+    const response = await listRedditSubscribedSubreddits(
+      env,
+      new URL("https://internal.local/api/reddit/subreddits"),
+      DEFAULT_USER_ID,
+      DEFAULT_USER_ID,
+    );
+    const payload = await response.json() as {
+      data?: unknown[];
+      account_id?: number | null;
+      account_name?: string | null;
+      warning?: string | null;
+    };
+    return {
+      data: Array.isArray(payload.data) ? payload.data.slice(0, 80) : [],
+      account_id: payload.account_id ?? null,
+      account_name: payload.account_name ?? null,
+      warning: response.ok ? payload.warning ?? null : payload.warning ?? "Could not load Reddit subreddit suggestions.",
+    };
+  } catch (error) {
+    return {
+      data: [],
+      warning: error instanceof Error ? error.message : "Could not load Reddit subreddit suggestions.",
+    };
+  }
+}
+
 async function handleInternalContext(env: Env) {
   const hasSocialPostLinks = await plannerHasSocialPostLinks(env);
   const socialPostSchema = await getSocialPostSchemaCapabilities(env);
@@ -358,6 +391,7 @@ async function handleInternalContext(env: Env) {
     tradingNotesResult,
     redditCampaignsResult,
     redditAccountsResult,
+    redditSubredditsResult,
     twitterAccountsResult,
     threadsAccountsResult,
     extraAccountsResult,
@@ -396,11 +430,8 @@ async function handleInternalContext(env: Env) {
        ORDER BY updated_at DESC
        LIMIT 20`,
     ).all(),
-    env.DB.prepare(
-      `SELECT id, name AS username, status, created_at
-       FROM reddit_accounts
-       ORDER BY created_at DESC`,
-    ).all(),
+    listInternalRedditAccounts(env),
+    listInternalRedditSubreddits(env),
     env.DB.prepare(
       `SELECT id, username, status, created_at
        FROM social_accounts
@@ -498,6 +529,7 @@ async function handleInternalContext(env: Env) {
         "knowledge_bases",
         "global_knowledge_base",
         "social_accounts",
+        "reddit_subreddits",
         "social_posts",
         "threads_replies",
         "threads_campaign_results",
@@ -554,13 +586,15 @@ async function handleInternalContext(env: Env) {
     global_knowledge_base: globalKnowledgeBase,
     social_platform_knowledge_bases: socialPlatformKnowledgeBases,
     social_accounts: {
-      reddit: redditAccountsResult.results ?? [],
+      reddit: redditAccountsResult,
       twitter: twitterAccountsResult.results ?? [],
       threads: threadsAccountsResult.results ?? [],
       instagram: extraAccountsResult.filter((account) => account.platform === "instagram"),
       linkedin: extraAccountsResult.filter((account) => account.platform === "linkedin"),
       youtube: extraAccountsResult.filter((account) => account.platform === "youtube"),
     },
+    reddit_subreddits: redditSubredditsResult.data,
+    reddit_subreddits_warning: redditSubredditsResult.warning ?? null,
     social_posts: {
       reddit: redditPostsResult.results ?? [],
       twitter: twitterPostsResult.results ?? [],

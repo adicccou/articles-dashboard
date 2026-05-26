@@ -384,10 +384,20 @@ export async function createSocialPost(
     const imageUrl = formatImageUrlValue(payload.image_url ?? payload) ?? "";
     const title = payload.title?.trim() ?? "";
     const subreddit = payload.subreddit?.trim().replace(/^r\//i, "") ?? "";
+    const replyToId = payload.reply_to_id?.trim() ?? "";
     const capabilities = await getSocialPostSchemaCapabilities(env);
     const requiresRedditMetadata = platform === "reddit";
     if (requiresRedditMetadata && !capabilities.hasTitle && !capabilities.hasSubreddit) {
       return errorResponse("Apply the latest social_posts migration before creating Reddit posts.", 400);
+    }
+    if (platform === "reddit" && !replyToId && !title) {
+      return errorResponse("Reddit posts need a title.", 400);
+    }
+    if (platform === "reddit" && !replyToId && !subreddit) {
+      return errorResponse("Choose a subreddit before creating a Reddit post.", 400);
+    }
+    if (platform === "reddit" && replyToId && !content) {
+      return errorResponse("Reddit replies need text.", 400);
     }
     if (!content && !imageUrl && !title) {
       return errorResponse("content or image_url is required", 400);
@@ -421,7 +431,7 @@ export async function createSocialPost(
     }
     if (capabilities.hasReplyToId) {
       columns.push("reply_to_id");
-      values.push(payload.reply_to_id?.trim() || null);
+      values.push(replyToId || null);
     }
     const placeholders = columns.map(() => "?").join(", ");
     const result = await env.DB.prepare(

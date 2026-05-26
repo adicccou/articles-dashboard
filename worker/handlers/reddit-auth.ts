@@ -313,6 +313,75 @@ export async function listRedditAccounts(
   }
 }
 
+async function readAllRedditPlaywrightUserSettings(
+  env: Env,
+  accountId: number,
+): Promise<Array<{ dashboard_user_id: number; login: string; password: string; profile_key: string }>> {
+  const rows = await env.DB.prepare("SELECT key, value FROM app_settings WHERE key LIKE ?")
+    .bind(`reddit_account:${accountId}:playwright_user:%`)
+    .all<{ key: string; value: string }>();
+  const grouped = new Map<number, { dashboard_user_id: number; login: string; password: string; profile_key: string }>();
+  const pattern = new RegExp(`^reddit_account:${accountId}:playwright_user:(\\d+):(login|password|profile_key)$`);
+
+  for (const row of rows.results ?? []) {
+    const match = String(row.key ?? "").match(pattern);
+    if (!match) continue;
+    const dashboardUserId = Number(match[1]);
+    const field = match[2] as "login" | "password" | "profile_key";
+    if (!dashboardUserId) continue;
+    const entry = grouped.get(dashboardUserId) ?? {
+      dashboard_user_id: dashboardUserId,
+      login: "",
+      password: "",
+      profile_key: defaultPlaywrightProfileKey("reddit", accountId, dashboardUserId),
+    };
+    entry[field] = String(row.value ?? "").trim();
+    grouped.set(dashboardUserId, entry);
+  }
+
+  return Array.from(grouped.values()).filter((entry) => entry.login || entry.password || entry.profile_key);
+}
+
+export async function listInternalRedditAccounts(env: Env) {
+  const rows = await env.DB.prepare(
+    `SELECT id, name AS username, status, access_token, created_at, updated_at
+     FROM reddit_accounts
+     ORDER BY created_at DESC`,
+  ).all<{
+    id: number;
+    username: string;
+    status: "active" | "inactive";
+    access_token: string | null;
+    created_at: string;
+    updated_at: string;
+  }>();
+
+  return Promise.all((rows.results ?? []).map(async (row) => {
+    const [connectionMode, playwrightUsers] = await Promise.all([
+      readSetting(env, `reddit_account:${row.id}:connection_mode`),
+      readAllRedditPlaywrightUserSettings(env, row.id),
+    ]);
+    const usesPlaywright = connectionMode === "playwright";
+    const readyPlaywrightUser = playwrightUsers.find((entry) => entry.login && entry.password) ?? playwrightUsers[0] ?? null;
+    return {
+      id: row.id,
+      platform: "reddit",
+      username: row.username,
+      name: row.username,
+      status: row.status,
+      connection_mode: usesPlaywright ? "playwright" : "official_api",
+      credentials_ready: usesPlaywright ? Boolean(readyPlaywrightUser?.login && readyPlaywrightUser.password) : Boolean(row.access_token?.trim()),
+      playwright_login: readyPlaywrightUser?.login || undefined,
+      playwright_password: readyPlaywrightUser?.password || undefined,
+      playwright_profile_key: readyPlaywrightUser?.profile_key || undefined,
+      playwright_ready: Boolean(readyPlaywrightUser?.login && readyPlaywrightUser.password),
+      playwright_users: playwrightUsers,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  }));
+}
+
 export async function addRedditAccount(
   env: Env,
   request: Request,
