@@ -5,6 +5,7 @@ import { asArray } from "../lib/collections";
 import { ModalCloseButton } from "../components/ModalCloseButton";
 import { formatDisplayDateTime, formatDisplayTime, formatMonthDay, formatMonthYear, formatWeekRange, formatWeekdayShort } from "../lib/datetime";
 import { getPostImageUrls, isVideoMediaUrl, serializePostMediaUrls } from "../lib/socialPostMedia";
+import { chooseAutoSchedule, collectActiveScheduledSocialSlots } from "../lib/socialSchedule";
 import type { PlannerItem, PlannerItemInput, RedditAccount, RedditSubscribedSubreddit, SocialAccount, SocialPost } from "../lib/types";
 import "../styles/planner-page.css";
 
@@ -13,10 +14,7 @@ type SchedulerView = "list" | "calendar" | "week";
 const schedulerPlatformOrder: Array<SocialAccount["platform"]> = ["twitter", "threads", "instagram", "reddit", "linkedin", "youtube"];
 const PLANNER_VIEW_STORAGE_KEY = "dashboard:planner:view";
 const LEGACY_PLANNER_VIEW_STORAGE_KEY = "blogposter:planner:view";
-const AUTO_SCHEDULE_HOURS = [10, 13, 16];
-const AUTO_SCHEDULE_MIN_GAP_MS = 90 * 60 * 1000;
-const AUTO_SCHEDULE_MAX_ITEMS_PER_DAY = 1;
-const AUTO_SCHEDULE_LOOKAHEAD_DAYS = 14;
+const DEFAULT_SCHEDULE_HOUR = 10;
 
 type ScheduleFormState = {
   id?: number;
@@ -95,45 +93,42 @@ function toDateTimeLocalValue(date: Date) {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
-function chooseAutoSchedule(existingSlots: string[]) {
-  const now = new Date();
-  const minLead = new Date(now.getTime() + 45 * 60 * 1000);
-  const scheduled = existingSlots
-    .map((value) => new Date(value))
-    .filter((value) => !Number.isNaN(value.getTime()))
-    .sort((left, right) => left.getTime() - right.getTime());
-
-  for (let offset = 0; offset < AUTO_SCHEDULE_LOOKAHEAD_DAYS; offset += 1) {
-    const day = new Date(now);
-    day.setHours(0, 0, 0, 0);
-    day.setDate(day.getDate() + offset);
-
-    const dayItems = scheduled.filter((item) => sameDay(item, day));
-    if (dayItems.length >= AUTO_SCHEDULE_MAX_ITEMS_PER_DAY) continue;
-
-    for (const hour of AUTO_SCHEDULE_HOURS) {
-      const candidate = new Date(day);
-      candidate.setHours(hour, 0, 0, 0);
-      if (candidate.getTime() <= minLead.getTime()) continue;
-
-      const tooClose = dayItems.some((item) => Math.abs(item.getTime() - candidate.getTime()) < AUTO_SCHEDULE_MIN_GAP_MS);
-      if (tooClose) continue;
-      return candidate;
-    }
-  }
-
-  const fallback = new Date(minLead);
-  fallback.setDate(fallback.getDate() + 1);
-  fallback.setHours(AUTO_SCHEDULE_HOURS[0], 0, 0, 0);
-  return fallback;
-}
-
 function uploadedFileKind(files: File[]): "none" | "image" | "video" | "mixed" {
   if (files.length === 0) return "none";
   const hasVideo = files.some((file) => file.type.startsWith("video/") || isVideoMediaUrl(file.name));
   const hasImage = files.some((file) => file.type.startsWith("image/") || !file.type || !isVideoMediaUrl(file.name));
   if (hasVideo && hasImage) return "mixed";
   return hasVideo ? "video" : "image";
+}
+
+function clipboardImageExtension(type: string): string {
+  if (type === "image/jpeg") return "jpg";
+  return type.split("/")[1]?.replace(/[^a-z0-9]/gi, "") || "png";
+}
+
+function normalizeClipboardImageFile(file: File, index: number): File {
+  if (file.name) return file;
+  const type = file.type || "image/png";
+  return new File([file], `clipboard-image-${index + 1}.${clipboardImageExtension(type)}`, {
+    type,
+    lastModified: file.lastModified || Date.now(),
+  });
+}
+
+function getClipboardImageFiles(clipboardData: DataTransfer | null): File[] {
+  const filesFromItems = Array.from(clipboardData?.items ?? [])
+    .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file))
+    .map(normalizeClipboardImageFile);
+
+  if (filesFromItems.length > 0) {
+    return filesFromItems;
+  }
+
+  return Array.from(clipboardData?.files ?? [])
+    .filter((file) => file.type.startsWith("image/"))
+    .map(normalizeClipboardImageFile);
 }
 
 function buildPlannerTitle(form: ScheduleFormState): string {
@@ -379,44 +374,49 @@ export function PlannerPage() {
     storePlannerView(nextView);
   }
 
+  async function loadSchedulerAccounts() {
+    const [twitterAccounts, threadsAccounts, redditAccounts, extraAccounts] = await Promise.all([
+      api.listTwitterAccounts().catch(() => []),
+      api.listThreadsAccounts().catch(() => []),
+      api.listRedditAccounts().catch(() => []),
+      api.listSocialAccounts().catch(() => []),
+    ]);
+    const activeTwitterAccounts = asArray<SocialAccount>(twitterAccounts).filter((account) => account.status === "active");
+    const activeThreadsAccounts = asArray<SocialAccount>(threadsAccounts).filter((account) => account.status === "active");
+    const activeRedditAccounts = asArray<RedditAccount>(redditAccounts).filter((account) => account.status === "active");
+    const activeExtraAccounts = asArray<SocialAccount>(extraAccounts).filter((account) => account.status === "active");
+    const plannerAccounts = derivePlannerAccounts(
+      activeTwitterAccounts,
+      activeThreadsAccounts,
+      activeRedditAccounts,
+      activeExtraAccounts,
+    );
+    setRedditAccounts(activeRedditAccounts);
+    setSchedulerAccounts(plannerAccounts);
+    setAvailablePlatforms(derivePlannerPlatforms(plannerAccounts));
+  }
+
   async function load({ silent = false } = {}) {
+    const accountsPromise = loadSchedulerAccounts().catch(() => undefined);
     try {
       if (!silent) {
         setLoading(true);
       }
 
-      const [plannerItems, twitterAccounts, threadsAccounts, redditAccounts, extraAccounts] = await Promise.all([
-        api.listPlannerItems(),
-        api.listTwitterAccounts().catch(() => []),
-        api.listThreadsAccounts().catch(() => []),
-        api.listRedditAccounts().catch(() => []),
-        api.listSocialAccounts().catch(() => []),
-      ]);
-      const activeTwitterAccounts = asArray<SocialAccount>(twitterAccounts).filter((account) => account.status === "active");
-      const activeThreadsAccounts = asArray<SocialAccount>(threadsAccounts).filter((account) => account.status === "active");
-      const activeRedditAccounts = asArray<RedditAccount>(redditAccounts).filter((account) => account.status === "active");
-      const activeExtraAccounts = asArray<SocialAccount>(extraAccounts).filter((account) => account.status === "active");
-      const plannerAccounts = derivePlannerAccounts(
-        activeTwitterAccounts,
-        activeThreadsAccounts,
-        activeRedditAccounts,
-        activeExtraAccounts,
-      );
+      const plannerItems = await api.listPlannerItems();
       setItems(
         asArray<PlannerItem>(plannerItems).map((item) => ({
           ...item,
           status: normalizePlannerStatus(item.status),
         })),
       );
-      setRedditAccounts(activeRedditAccounts);
-      setSchedulerAccounts(plannerAccounts);
-      setAvailablePlatforms(derivePlannerPlatforms(plannerAccounts));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load scheduler");
     } finally {
       setLoading(false);
     }
+    void accountsPromise;
   }
 
   useEffect(() => {
@@ -523,10 +523,7 @@ export function PlannerPage() {
   const modalStatus = normalizePlannerStatus(form.status);
   const isPublishedSchedule = modalStatus === "published";
   const scheduledSlots = useMemo(
-    () => items
-      .filter((item) => item.id !== form.id)
-      .map((item) => item.scheduled_for)
-      .filter((value): value is string => Boolean(value)),
+    () => collectActiveScheduledSocialSlots(items, form.id),
     [form.id, items],
   );
   const isRedditModal = normalizedModalPlatform === "reddit";
@@ -681,7 +678,7 @@ export function PlannerPage() {
     autosaveDescriptionTokenRef.current += 1;
   }
 
-  function slotDateTime(day: Date, hour = AUTO_SCHEDULE_HOURS[0]) {
+  function slotDateTime(day: Date, hour = DEFAULT_SCHEDULE_HOUR) {
     const scheduledAt = new Date(day);
     scheduledAt.setHours(hour, 0, 0, 0);
     return scheduledAt;
@@ -795,11 +792,18 @@ export function PlannerPage() {
     await uploadPlannerFiles(files);
   }
 
+  async function uploadClipboardImages(clipboardData: DataTransfer | null): Promise<boolean> {
+    const files = getClipboardImageFiles(clipboardData);
+    if (files.length === 0) return false;
+    await uploadPlannerFiles(files);
+    return true;
+  }
+
   async function pastePlannerImage() {
     try {
       setError(null);
       if (!navigator.clipboard?.read) {
-        setError("Clipboard image paste is not supported in this browser.");
+        setError("Browser blocked clipboard access. Press Ctrl+V while this editor is open, or use Upload media.");
         return;
       }
       const items = await navigator.clipboard.read();
@@ -808,8 +812,7 @@ export function PlannerPage() {
         const imageType = item.types.find((type) => type.startsWith("image/"));
         if (!imageType) continue;
         const blob = await item.getType(imageType);
-        const extension = imageType.split("/")[1] || "png";
-        files.push(new File([blob], `clipboard-image.${extension}`, { type: imageType }));
+        files.push(new File([blob], `clipboard-image-${files.length + 1}.${clipboardImageExtension(imageType)}`, { type: imageType }));
       }
       if (files.length === 0) {
         setError("No image found in clipboard.");
@@ -817,9 +820,28 @@ export function PlannerPage() {
       }
       await uploadPlannerFiles(files);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to read image from clipboard");
+      const message = err instanceof Error ? err.message : "";
+      setError(
+        message.toLowerCase().includes("permission")
+          ? "Browser blocked clipboard access. Press Ctrl+V while this editor is open, or use Upload media."
+          : "Failed to read image from clipboard",
+      );
     }
   }
+
+  useEffect(() => {
+    if (!isModalOpen || form.item_type !== "post") return;
+
+    function handleWindowPaste(event: ClipboardEvent) {
+      if (getClipboardImageFiles(event.clipboardData).length === 0) return;
+      event.preventDefault();
+      if (uploadingMedia) return;
+      void uploadClipboardImages(event.clipboardData);
+    }
+
+    window.addEventListener("paste", handleWindowPaste);
+    return () => window.removeEventListener("paste", handleWindowPaste);
+  }, [form.item_type, form.media_urls, isModalOpen, uploadingMedia]);
 
   function removePlannerMedia(index: number) {
     setForm((current) => ({
@@ -1004,10 +1026,6 @@ export function PlannerPage() {
     }
   }
 
-  if (loading) {
-    return <div className="loading-screen">Loading scheduler...</div>;
-  }
-
   return (
     <div className="scheduler-page">
       {error ? <p className="error panel">{error}</p> : null}
@@ -1051,6 +1069,8 @@ export function PlannerPage() {
             <button onClick={() => openCreateModal()}>New</button>
           </div>
         </div>
+
+        {loading ? <p className="scheduler-loading">Loading scheduler...</p> : null}
 
         {view === "list" ? (
         <div className="scheduler-view-panel">

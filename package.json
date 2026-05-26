@@ -7,6 +7,7 @@
     "dev": "npm run dev:marketing",
     "dev:marketing": "vite --mode marketing",
     "dev:trading": "vite --mode trading",
+    "test": "vitest run --config vitest.config.ts",
     "build": "npm run build:marketing",
     "build:marketing": "tsc -b && vite build --mode marketing",
     "build:trading": "tsc -b && vite build --mode trading",
@@ -37,6 +38,7 @@
     "tailwindcss": "^4.3.0",
     "typescript": "^5.8.3",
     "vite": "^7.0.0",
+    "vitest": "^4.1.7",
     "wrangler": "^4.15.2"
   }
 }

@@ -89,10 +89,12 @@ export function App() {
       setSites(data.sites);
       setArticles(data.articles);
       if (data.auth.authenticated) {
-        const cats = await api.getCategories();
-        setCategories(cats);
-        const settings = await api.getSettings();
-        setAppSettings(settings);
+        void Promise.all([
+          api.getCategories().then(setCategories),
+          api.getSettings().then(setAppSettings),
+        ]).catch((err) => {
+          setError(err instanceof Error ? err.message : "Failed to load dashboard settings");
+        });
       }
       setError(null);
     } catch (err) {
@@ -132,7 +134,11 @@ export function App() {
 
   if (loading) {
     if (surface === "marketing") {
-      return <div className="app-bootstrap-shell" aria-busy="true" aria-label="Loading dashboard" />;
+      return (
+        <div className="app-bootstrap-shell" aria-busy="true" aria-label="Loading dashboard">
+          <span>Loading dashboard...</span>
+        </div>
+      );
     }
     return <div className="loading-screen">Loading dashboard...</div>;
   }

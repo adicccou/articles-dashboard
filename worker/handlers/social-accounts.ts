@@ -161,20 +161,20 @@ function graphApiVersion(): string {
   return "v20.0";
 }
 
-function firstMediaUrl(raw: string | null): string {
+function mediaUrls(raw: string | null): string[] {
   const value = String(raw ?? "").trim();
-  if (!value) return "";
+  if (!value) return [];
   if (value.startsWith("[")) {
     try {
       const parsed = JSON.parse(value);
       if (Array.isArray(parsed)) {
-        return String(parsed.find((item) => String(item ?? "").trim()) ?? "").trim();
+        return parsed.map((item) => String(item ?? "").trim()).filter(Boolean);
       }
     } catch {
-      return value;
+      return [value];
     }
   }
-  return value.split(/[\n,]+/).map((item) => item.trim()).find(Boolean) ?? "";
+  return value.split(/[\n,]+/).map((item) => item.trim()).filter(Boolean);
 }
 
 async function readOfficialAccountFields(
@@ -240,27 +240,46 @@ async function publishInstagramOfficial(
   const credentials = await readOfficialAccountFields(env, "instagram", accountId, scopeId);
   const accessToken = credentials.access_token.trim();
   const instagramUserId = credentials.user_id.trim();
-  const imageUrl = firstMediaUrl(post.image_url);
+  const images = mediaUrls(post.image_url);
   if (!accessToken || !instagramUserId) throw new Error("Instagram official API credentials are incomplete.");
-  if (!imageUrl) throw new Error("Instagram official API publishing needs an attached public image URL.");
+  if (images.length === 0) throw new Error("Instagram official API publishing needs an attached public image URL.");
 
-  const mediaBody = new URLSearchParams({
-    image_url: imageUrl,
-    caption: post.content?.trim() ?? "",
-    access_token: accessToken,
-  });
-  const mediaResponse = await fetch(`https://graph.facebook.com/${graphApiVersion()}/${encodeURIComponent(instagramUserId)}/media`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: mediaBody.toString(),
-  });
-  const mediaPayload = await mediaResponse.json() as { id?: string; error?: { message?: string } };
-  if (!mediaResponse.ok || !mediaPayload.id) {
-    throw new Error(mediaPayload.error?.message || "Instagram media container creation failed.");
+  const createMediaContainer = async (body: URLSearchParams) => {
+    const mediaResponse = await fetch(`https://graph.facebook.com/${graphApiVersion()}/${encodeURIComponent(instagramUserId)}/media`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+    const mediaPayload = await mediaResponse.json() as { id?: string; error?: { message?: string } };
+    if (!mediaResponse.ok || !mediaPayload.id) {
+      throw new Error(mediaPayload.error?.message || "Instagram media container creation failed.");
+    }
+    return mediaPayload.id;
+  };
+
+  let creationId = "";
+  if (images.length === 1) {
+    creationId = await createMediaContainer(new URLSearchParams({
+      image_url: images[0],
+      caption: post.content?.trim() ?? "",
+      access_token: accessToken,
+    }));
+  } else {
+    const childIds = await Promise.all(images.map((imageUrl) => createMediaContainer(new URLSearchParams({
+      image_url: imageUrl,
+      is_carousel_item: "true",
+      access_token: accessToken,
+    }))));
+    creationId = await createMediaContainer(new URLSearchParams({
+      media_type: "CAROUSEL",
+      children: childIds.join(","),
+      caption: post.content?.trim() ?? "",
+      access_token: accessToken,
+    }));
   }
 
   const publishBody = new URLSearchParams({
-    creation_id: mediaPayload.id,
+    creation_id: creationId,
     access_token: accessToken,
   });
   const publishResponse = await fetch(`https://graph.facebook.com/${graphApiVersion()}/${encodeURIComponent(instagramUserId)}/media_publish`, {
@@ -383,6 +402,72 @@ export async function listExtraSocialAccounts(
   } catch {
     return errorResponse("Failed to list social accounts", 500);
   }
+}
+
+async function readAllPlaywrightUserSettings(
+  env: Env,
+  accountId: number,
+  platform: ExtraSocialPlatform,
+): Promise<Array<{ dashboard_user_id: number; login: string; password: string; profile_key: string }>> {
+  const rows = await env.DB.prepare("SELECT key, value FROM app_settings WHERE key LIKE ?")
+    .bind(`social_account:${accountId}:playwright_user:%`)
+    .all<{ key: string; value: string }>();
+  const grouped = new Map<number, { dashboard_user_id: number; login: string; password: string; profile_key: string }>();
+  const pattern = new RegExp(`^social_account:${accountId}:playwright_user:(\\d+):(login|password|profile_key)$`);
+
+  for (const row of rows.results ?? []) {
+    const match = String(row.key ?? "").match(pattern);
+    if (!match) continue;
+    const dashboardUserId = Number(match[1]);
+    const field = match[2] as "login" | "password" | "profile_key";
+    if (!dashboardUserId) continue;
+    const entry = grouped.get(dashboardUserId) ?? {
+      dashboard_user_id: dashboardUserId,
+      login: "",
+      password: "",
+      profile_key: defaultPlaywrightProfileKey(platform, accountId, dashboardUserId),
+    };
+    entry[field] = String(row.value ?? "").trim();
+    grouped.set(dashboardUserId, entry);
+  }
+
+  return Array.from(grouped.values()).filter((entry) => entry.login || entry.password || entry.profile_key);
+}
+
+export async function listInternalExtraSocialAccounts(env: Env) {
+  const rows = await env.DB.prepare(
+    `SELECT id, platform, username, status, created_at, updated_at
+     FROM social_accounts
+     WHERE platform IN (${EXTRA_SOCIAL_PLATFORMS.map(() => "?").join(", ")})
+     ORDER BY created_at DESC`,
+  ).bind(...EXTRA_SOCIAL_PLATFORMS).all<{
+    id: number;
+    platform: ExtraSocialPlatform;
+    username: string;
+    status: AccountStatus;
+    created_at: string;
+    updated_at: string;
+  }>();
+
+  return Promise.all((rows.results ?? []).map(async (row) => {
+    const [connectionMode, officialReady, playwrightUsers] = await Promise.all([
+      readSetting(env, `social_account:${row.id}:connection_mode`),
+      storedOfficialCredentialsReady(env, row.platform, row.id),
+      readAllPlaywrightUserSettings(env, row.id, row.platform),
+    ]);
+    const usesPlaywright = connectionMode === "playwright";
+    const readyPlaywrightUser = playwrightUsers.find((entry) => entry.login && entry.password) ?? playwrightUsers[0] ?? null;
+    return {
+      ...row,
+      connection_mode: usesPlaywright ? "playwright" : "official_api",
+      credentials_ready: usesPlaywright ? Boolean(readyPlaywrightUser?.login && readyPlaywrightUser.password) : officialReady,
+      playwright_login: readyPlaywrightUser?.login || undefined,
+      playwright_password: readyPlaywrightUser?.password || undefined,
+      playwright_profile_key: readyPlaywrightUser?.profile_key || undefined,
+      playwright_ready: Boolean(readyPlaywrightUser?.login && readyPlaywrightUser.password),
+      playwright_users: playwrightUsers,
+    };
+  }));
 }
 
 export async function addExtraSocialAccount(

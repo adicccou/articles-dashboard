@@ -22,7 +22,7 @@ import { getKnowledgeBase, saveKnowledgeBase, getVersions, getVersion } from "./
 import { listStrategies, getStrategy, createStrategy, updateStrategy, activateStrategy, deactivateStrategy, deleteStrategy, getStrategyStats, getStrategyExecutions, getActiveStrategyInternal } from "./handlers/trading";
 import { generateArticleCover, styleArticleContent, suggestArticleField } from "./handlers/article-ai";
 import { suggestSocialReply } from "./handlers/social-replies";
-import { addExtraSocialAccount, deleteExtraSocialAccount, listExtraSocialAccounts, publishExtraSocialPost, updateExtraSocialAccount } from "./handlers/social-accounts";
+import { addExtraSocialAccount, deleteExtraSocialAccount, listExtraSocialAccounts, listInternalExtraSocialAccounts, publishExtraSocialPost, updateExtraSocialAccount } from "./handlers/social-accounts";
 import { completeCtraderConnectionFromAgent, getAppSettings, getCustomLeanDiagnostics, getCustomLeanSettings, getCustomLeanWorkers, getInternalAgentSettings, getLeanStatus, getLearningReport, getMlTradingAssets, getMlTradingDiagnostics, getMlTradingSettings, syncAgentFromSettings, updateAppSettings, updateCustomLeanSettings, updateMlTradingSettings } from "./handlers/settings";
 import {
   listPlannerItems,
@@ -360,9 +360,11 @@ async function handleInternalContext(env: Env) {
     redditAccountsResult,
     twitterAccountsResult,
     threadsAccountsResult,
+    extraAccountsResult,
     redditPostsResult,
     twitterPostsResult,
     threadsPostsResult,
+    instagramPostsResult,
     threadsRepliesData,
     threadsCampaignResultsResult,
     knowledgeBasesResult,
@@ -411,6 +413,7 @@ async function handleInternalContext(env: Env) {
        WHERE platform = 'threads'
        ORDER BY created_at DESC`,
     ).all(),
+    listInternalExtraSocialAccounts(env),
     env.DB.prepare(
       `SELECT ${socialPostSelect}
        FROM social_posts
@@ -429,6 +432,13 @@ async function handleInternalContext(env: Env) {
       `SELECT ${socialPostSelect}
        FROM social_posts
        WHERE platform = 'threads'
+       ORDER BY updated_at DESC
+       LIMIT 20`,
+    ).all(),
+    env.DB.prepare(
+      `SELECT ${socialPostSelect}
+       FROM social_posts
+       WHERE platform = 'instagram'
        ORDER BY updated_at DESC
        LIMIT 20`,
     ).all(),
@@ -547,15 +557,54 @@ async function handleInternalContext(env: Env) {
       reddit: redditAccountsResult.results ?? [],
       twitter: twitterAccountsResult.results ?? [],
       threads: threadsAccountsResult.results ?? [],
+      instagram: extraAccountsResult.filter((account) => account.platform === "instagram"),
+      linkedin: extraAccountsResult.filter((account) => account.platform === "linkedin"),
+      youtube: extraAccountsResult.filter((account) => account.platform === "youtube"),
     },
     social_posts: {
       reddit: redditPostsResult.results ?? [],
       twitter: twitterPostsResult.results ?? [],
       threads: threadsPostsResult.results ?? [],
+      instagram: instagramPostsResult.results ?? [],
     },
     threads_replies: threadsRepliesData,
     threads_campaign_results: threadsCampaignResultsResult.results ?? [],
   });
+}
+
+async function handleInternalSocialPostPublishResult(env: Env, postId: string, request: Request) {
+  const id = Number(postId);
+  if (!Number.isFinite(id) || id <= 0) return json({ error: "Invalid social post ID" }, { status: 400 });
+  const payload = await parseJson<{
+    status?: "posted" | "failed";
+    external_id?: string | null;
+    posted_at?: string | null;
+    account_id?: number | null;
+  }>(request);
+  const status = payload.status === "failed" ? "failed" : "posted";
+  const now = new Date().toISOString();
+  const postedAt = status === "posted" ? (payload.posted_at || now) : null;
+  const existing = await env.DB.prepare("SELECT id FROM social_posts WHERE id = ?").bind(id).first<{ id: number }>();
+  if (!existing) return json({ error: "Social post not found" }, { status: 404 });
+
+  const updates = ["status = ?", "updated_at = ?"];
+  const values: unknown[] = [status, now];
+  if (status === "posted") {
+    updates.push("posted_at = ?");
+    values.push(postedAt);
+    updates.push("external_id = ?");
+    values.push(payload.external_id?.trim() || null);
+  }
+  if (payload.account_id !== undefined) {
+    updates.push("account_id = ?");
+    values.push(payload.account_id);
+  }
+
+  await env.DB.prepare(`UPDATE social_posts SET ${updates.join(", ")} WHERE id = ?`).bind(...values, id).run();
+  if (status === "posted") {
+    await env.DB.prepare("UPDATE planner_items SET status = 'published', updated_at = ? WHERE social_post_id = ?").bind(now, id).run();
+  }
+  return json({ success: true, id, status, posted_at: postedAt, external_id: payload.external_id ?? null });
 }
 
 async function handleInternalMediaUpload(request: Request, env: Env) {
@@ -1019,13 +1068,20 @@ export default {
     if (url.pathname === "/api/internal/social/posts" && request.method === "POST") {
       const unauthorized = await requireAgentAuth(request, env);
       if (unauthorized) return unauthorized;
-      const body = await parseJson<{ platform: string; title?: string; subreddit?: string; content?: string; scheduled_at?: string; image_url?: string; account_id?: number | null; reply_to_id?: string | null }>(request);
+      const body = await parseJson<{ platform: string; title?: string; subreddit?: string; content?: string; scheduled_at?: string; image_url?: unknown; account_id?: number | null; reply_to_id?: string | null }>(request);
       const platform = body.platform ?? "twitter";
       return await createSocialPost(env, platform, new Request(request.url, {
         method: "POST",
         body: JSON.stringify({ title: body.title, subreddit: body.subreddit, content: body.content, scheduled_at: body.scheduled_at, image_url: body.image_url, account_id: body.account_id, reply_to_id: body.reply_to_id }),
         headers: { "Content-Type": "application/json" },
       }));
+    }
+
+    if (url.pathname.startsWith("/api/internal/social/posts/") && url.pathname.endsWith("/publish-result") && request.method === "POST") {
+      const unauthorized = await requireAgentAuth(request, env);
+      if (unauthorized) return unauthorized;
+      const parts = url.pathname.split("/");
+      return await handleInternalSocialPostPublishResult(env, parts[5], request);
     }
 
     if (url.pathname === "/api/internal/social/twitter/search" && request.method === "GET") {

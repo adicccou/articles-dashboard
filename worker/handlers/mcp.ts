@@ -39,7 +39,7 @@ import {
 
 type JsonValue = null | string | number | boolean | JsonValue[] | { [key: string]: JsonValue };
 
-const SOCIAL_PLATFORMS = ["threads", "twitter", "reddit"] as const;
+const SOCIAL_PLATFORMS = ["threads", "twitter", "reddit", "instagram"] as const;
 const STUDIO_CAMPAIGN_TYPES = ["post", "reply"] as const;
 const STUDIO_APP_STATUSES = ["active", "inactive", "archived"] as const;
 const STUDIO_CAMPAIGN_STATUSES = ["active", "paused", "archived"] as const;
@@ -71,10 +71,11 @@ function normalizePlatform(platform: string): (typeof SOCIAL_PLATFORMS)[number] 
   const normalized = platform.trim().toLowerCase();
   if (normalized === "thread") return "threads";
   if (normalized === "x" || normalized === "twitter/x") return "twitter";
+  if (normalized === "ig") return "instagram";
   if (SOCIAL_PLATFORMS.includes(normalized as (typeof SOCIAL_PLATFORMS)[number])) {
     return normalized as (typeof SOCIAL_PLATFORMS)[number];
   }
-  throw new Error("Unsupported platform. Use threads, twitter, or reddit.");
+  throw new Error("Unsupported platform. Use threads, twitter, reddit, or instagram.");
 }
 
 async function responseJson<T>(response: Response): Promise<T> {
@@ -216,7 +217,7 @@ async function occupiedSocialDates(env: Env): Promise<Set<string>> {
     if (
       itemType === "post"
       && ACTIVE_PLANNER_STATUSES.has(status)
-      && ["threads", "thread", "twitter", "x", "twitter/x", "reddit"].includes(platform)
+      && ["threads", "thread", "twitter", "x", "twitter/x", "reddit", "instagram", "ig"].includes(platform)
     ) {
       const key = scheduledFor ? dateKey(scheduledFor) : null;
       if (key) occupied.add(key);
@@ -729,7 +730,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       description: "List Blogposter social posts for one platform or all platforms.",
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
       inputSchema: {
-        platform: z.enum(["threads", "twitter", "reddit", "all"]).default("all"),
+        platform: z.enum(["threads", "twitter", "reddit", "instagram", "all"]).default("all"),
         status: z.string().optional().describe("Optional status filter such as draft, scheduled, approved, posted, or failed."),
       },
     },
@@ -752,7 +753,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
     "find_next_free_social_slot",
     {
       title: "Find next free social slot",
-      description: "Find the next available social posting day across Threads, Twitter/X, and Reddit.",
+      description: "Find the next available social posting day across Threads, Twitter/X, Reddit, and Instagram.",
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
       inputSchema: {
         start_date: z.string().optional().describe("Optional YYYY-MM-DD or ISO date to start searching from."),
