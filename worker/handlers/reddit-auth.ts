@@ -4,6 +4,39 @@ import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tabl
 
 const REDDIT_OAUTH_URL = "https://www.reddit.com/api/v1/authorize";
 const REDDIT_TOKEN_URL = "https://www.reddit.com/api/v1/access_token";
+const DEFAULT_REDDIT_OAUTH_SCOPES = [
+  "identity",
+  "read",
+  "mysubreddits",
+  "submit",
+  "edit",
+].join(",");
+
+export function isRedditAuthConfigured(env: Env): boolean {
+  return Boolean(env.REDDIT_CLIENT_ID?.trim() && env.REDDIT_CLIENT_SECRET?.trim());
+}
+
+export function resolveRedditRedirectUri(env: Env, requestUrl: string): string {
+  const configured = env.REDDIT_REDIRECT_URI?.trim();
+  if (configured) return configured;
+  return new URL("/api/reddit/auth/callback", requestUrl).toString();
+}
+
+export function redditOAuthScopes(env: Env): string {
+  return env.REDDIT_SCOPES?.trim() || DEFAULT_REDDIT_OAUTH_SCOPES;
+}
+
+export function buildRedditAuthorizationUrl(env: Env, requestUrl: string, state: string): string {
+  const params = new URLSearchParams({
+    client_id: env.REDDIT_CLIENT_ID?.trim() || "",
+    response_type: "code",
+    state,
+    redirect_uri: resolveRedditRedirectUri(env, requestUrl),
+    scope: redditOAuthScopes(env),
+    duration: "permanent",
+  });
+  return `${REDDIT_OAUTH_URL}?${params.toString()}`;
+}
 
 function escapeHtml(value: string): string {
   return value
@@ -54,23 +87,16 @@ export async function handleAuthorizeRequest(
   try {
     const payload = await parseJson<{ account_name?: string }>(request);
 
-    if (!env.REDDIT_CLIENT_ID || !env.REDDIT_CLIENT_SECRET) {
-      return errorResponse("Reddit OAuth not configured", 500);
+    if (!isRedditAuthConfigured(env)) {
+      return errorResponse(
+        `Reddit OAuth is not configured. Add REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET to the Worker, and set this Reddit redirect URI: ${resolveRedditRedirectUri(env, request.url)}`,
+        500,
+      );
     }
 
     const state = crypto.randomUUID();
     const accountName = payload.account_name?.trim() || "Reddit";
-
-    const params = new URLSearchParams({
-      client_id: env.REDDIT_CLIENT_ID,
-      response_type: "code",
-      state,
-      redirect_uri: env.REDDIT_REDIRECT_URI || "http://localhost:5174/api/reddit/auth/callback",
-      scope: "submit,edit,read",
-      duration: "permanent",
-    });
-
-    const authUrl = `${REDDIT_OAUTH_URL}?${params.toString()}`;
+    const authUrl = buildRedditAuthorizationUrl(env, request.url, state);
 
     return jsonResponse(
       { auth_url: authUrl },
@@ -122,7 +148,7 @@ export async function handleOAuthCallback(
       });
     }
 
-    if (!env.REDDIT_CLIENT_ID || !env.REDDIT_CLIENT_SECRET) {
+    if (!isRedditAuthConfigured(env)) {
       return new Response(
         "<html><body><h1>Server Configuration Error</h1></body></html>",
         {
@@ -145,7 +171,7 @@ export async function handleOAuthCallback(
       body: new URLSearchParams({
         grant_type: "authorization_code",
         code,
-        redirect_uri: env.REDDIT_REDIRECT_URI || "http://localhost:5174/api/reddit/auth/callback",
+        redirect_uri: resolveRedditRedirectUri(env, url.toString()),
       }).toString(),
     });
 

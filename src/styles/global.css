@@ -76,6 +76,7 @@ nav[aria-label="Dashboard navigation"] button:last-child {
 }
 
 nav[aria-label="Dashboard navigation"] .dashboard-nav-menu {
+  overflow-y: hidden;
   scrollbar-width: none;
 }
 
@@ -89,10 +90,7 @@ nav[aria-label="Dashboard navigation"] .dashboard-nav-item.dashboard-nav-item {
 }
 
 nav[aria-label="Dashboard navigation"] .dashboard-nav-item::after {
-  @apply absolute left-0 right-0 bg-transparent;
-  bottom: -0.55rem;
-  content: "";
-  height: 2px;
+  display: none;
 }
 
 nav[aria-label="Dashboard navigation"] .dashboard-nav-item.dashboard-nav-item--active {

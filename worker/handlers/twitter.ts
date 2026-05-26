@@ -4,9 +4,10 @@ import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tabl
 import { markLinkedPlannerItemsPublished, markSocialPostsFailed, socialPostsHaveLastError, socialPublishErrorMessage } from "../lib/social-publish";
 
 const IMAGE_URL_ALIASES = ["image_url", "imageUrl", "imageURL", "image", "photo", "picture", "media", "media_url", "mediaUrl", "media_urls", "mediaUrls", "url"] as const;
-const TWITTER_OAUTH_REQUEST_TOKEN_URL = "https://api.x.com/oauth/request_token";
-const TWITTER_OAUTH_AUTHORIZE_URL = "https://api.x.com/oauth/authorize";
-const TWITTER_OAUTH_ACCESS_TOKEN_URL = "https://api.x.com/oauth/access_token";
+const TWITTER_OAUTH_REQUEST_TOKEN_URL = "https://api.twitter.com/oauth/request_token";
+const TWITTER_OAUTH_AUTHORIZE_URL = "https://api.twitter.com/oauth/authorize";
+const TWITTER_OAUTH_ACCESS_TOKEN_URL = "https://api.twitter.com/oauth/access_token";
+const TWITTER_X_OAUTH_ACCESS_TOKEN_URL = "https://api.x.com/oauth/access_token";
 const TWITTER_MEDIA_UPLOAD_URL = "https://upload.twitter.com/1.1/media/upload.json";
 const TWITTER_MAX_IMAGES_PER_POST = 4;
 const TWITTER_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -57,6 +58,13 @@ type TwitterPublishError = {
   status: number;
 };
 
+type TwitterAccessTokenExchange = {
+  body: string;
+  params: URLSearchParams;
+  ok: boolean;
+  status: number;
+};
+
 type SocialPostSchemaCapabilities = {
   hasTitle: boolean;
   hasSubreddit: boolean;
@@ -69,7 +77,7 @@ function handlerErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-function extractImageUrls(value: unknown): string[] {
+export function extractImageUrls(value: unknown): string[] {
   if (typeof value === "string") {
     const trimmed = value.trim();
     if (!trimmed) return [];
@@ -80,7 +88,7 @@ function extractImageUrls(value: unknown): string[] {
         return [trimmed];
       }
     }
-    return [trimmed];
+    return trimmed.split(/[\n,]+/).map((item) => item.trim()).filter(Boolean);
   }
   if (Array.isArray(value)) {
     const urls: string[] = [];
@@ -216,6 +224,23 @@ function stripXmlError(body: string): string {
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function formatTwitterOAuthErrorBody(body: string): string {
+  const stripped = stripXmlError(body);
+  return stripped || body || "Unknown error";
+}
+
+function isTwitterDownPage(body: string): boolean {
+  return /This page is down|I scream\. You scream|stop making jokes/i.test(body);
 }
 
 export function formatTwitterOAuthStartError(body: string, redirectUri: string): string {
@@ -367,6 +392,98 @@ async function buildTwitterOAuthHeader(
     accessSecret: credentials.accessSecret,
     queryParams,
   });
+}
+
+async function requestTwitterAccessToken(
+  endpoint: string,
+  pending: { api_key: string; api_secret: string; request_token_secret: string },
+  oauthToken: string,
+  oauthVerifier: string,
+  transport: "body" | "query" | "header",
+): Promise<TwitterAccessTokenExchange> {
+  const requestParams = {
+    oauth_token: oauthToken,
+    oauth_verifier: oauthVerifier,
+  };
+  const verifierParam = {
+    oauth_verifier: oauthVerifier,
+  };
+  const url = new URL(endpoint);
+  const headers: Record<string, string> = {};
+  let body: string | undefined;
+
+  if (transport === "query") {
+    for (const [key, value] of Object.entries(requestParams)) {
+      url.searchParams.set(key, value);
+    }
+  } else if (transport === "body") {
+    body = new URLSearchParams(verifierParam).toString();
+    headers["Content-Type"] = "application/x-www-form-urlencoded;charset=UTF-8";
+  }
+
+  const authorization = await buildTwitterOAuthAuthorizationHeader("POST", endpoint, {
+    apiKey: pending.api_key,
+    apiSecret: pending.api_secret,
+    accessToken: transport === "body" || transport === "header" ? oauthToken : undefined,
+    accessSecret: pending.request_token_secret,
+    queryParams: transport === "body" ? verifierParam : transport === "query" ? requestParams : undefined,
+    oauthParams: transport === "header" ? { oauth_verifier: oauthVerifier } : undefined,
+  });
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers: {
+      ...headers,
+      Authorization: authorization,
+    },
+    body,
+  });
+  const responseBody = await response.text();
+  return {
+    body: responseBody,
+    params: parseTwitterOAuthResponse(responseBody),
+    ok: response.ok,
+    status: response.status,
+  };
+}
+
+async function exchangeTwitterAccessToken(
+  pending: { api_key: string; api_secret: string; request_token_secret: string },
+  oauthToken: string,
+  oauthVerifier: string,
+): Promise<TwitterAccessTokenExchange> {
+  const attempts: Array<{ endpoint: string; transport: "body" | "query" | "header" }> = [
+    { endpoint: TWITTER_OAUTH_ACCESS_TOKEN_URL, transport: "body" },
+    { endpoint: TWITTER_OAUTH_ACCESS_TOKEN_URL, transport: "query" },
+    { endpoint: TWITTER_X_OAUTH_ACCESS_TOKEN_URL, transport: "body" },
+    { endpoint: TWITTER_X_OAUTH_ACCESS_TOKEN_URL, transport: "query" },
+    { endpoint: TWITTER_OAUTH_ACCESS_TOKEN_URL, transport: "header" },
+  ];
+  let lastResult: TwitterAccessTokenExchange | null = null;
+  let firstReadableFailure: TwitterAccessTokenExchange | null = null;
+
+  for (const attempt of attempts) {
+    const result = await requestTwitterAccessToken(
+      attempt.endpoint,
+      pending,
+      oauthToken,
+      oauthVerifier,
+      attempt.transport,
+    );
+    const accessToken = result.params.get("oauth_token")?.trim() || "";
+    const accessSecret = result.params.get("oauth_token_secret")?.trim() || "";
+    if (result.ok && accessToken && accessSecret) return result;
+    lastResult = result;
+    if (!firstReadableFailure && !isTwitterDownPage(result.body)) {
+      firstReadableFailure = result;
+    }
+  }
+
+  return firstReadableFailure ?? lastResult ?? {
+    body: "Unknown error",
+    params: new URLSearchParams(),
+    ok: false,
+    status: 500,
+  };
 }
 
 async function getTwitterCredentials(
@@ -1485,31 +1602,16 @@ export async function handleTwitterOAuthCallback(env: Env, url: URL): Promise<Re
     };
     const pendingUserId = ownerId(pending.user_id);
 
-    const authorization = await buildTwitterOAuthAuthorizationHeader("POST", TWITTER_OAUTH_ACCESS_TOKEN_URL, {
-      apiKey: pending.api_key,
-      apiSecret: pending.api_secret,
-      accessToken: oauthToken,
-      accessSecret: pending.request_token_secret,
-      oauthParams: {
-        oauth_verifier: oauthVerifier,
-      },
-    });
-    const response = await fetch(TWITTER_OAUTH_ACCESS_TOKEN_URL, {
-      method: "POST",
-      headers: {
-        Authorization: authorization,
-      },
-    });
-    const body = await response.text();
-    const params = parseTwitterOAuthResponse(body);
+    const exchange = await exchangeTwitterAccessToken(pending, oauthToken, oauthVerifier);
+    const params = exchange.params;
     const accessToken = params.get("oauth_token")?.trim() || "";
     const accessSecret = params.get("oauth_token_secret")?.trim() || "";
     const screenName = params.get("screen_name")?.trim() || "";
     const userId = params.get("user_id")?.trim() || "";
 
-    if (!response.ok || !accessToken || !accessSecret) {
-      return new Response(`<html><body><h1>Twitter/X token exchange failed</h1><p>${body || "Unknown error"}</p></body></html>`, {
-        status: 500,
+    if (!exchange.ok || !accessToken || !accessSecret) {
+      return new Response(`<html><body><h1>Twitter/X token exchange failed</h1><p>${escapeHtml(formatTwitterOAuthErrorBody(exchange.body))}</p></body></html>`, {
+        status: exchange.status >= 400 ? exchange.status : 500,
         headers: { "Content-Type": "text/html" },
       });
     }

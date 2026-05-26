@@ -18,6 +18,7 @@ export type Env = {
   REDDIT_CLIENT_ID?: string;
   REDDIT_CLIENT_SECRET?: string;
   REDDIT_REDIRECT_URI?: string;
+  REDDIT_SCOPES?: string;
   THREADS_CLIENT_ID?: string;
   THREADS_CLIENT_SECRET?: string;
   THREADS_REDIRECT_URI?: string;

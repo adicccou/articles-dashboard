@@ -952,7 +952,8 @@ export function ConfigPage() {
       });
       window.location.href = result.auth_url;
     } catch (err) {
-      setError(hostedOAuth ? "Failed to connect" : err instanceof Error ? err.message : "Failed to save account");
+      const message = err instanceof Error && err.message ? err.message : null;
+      setError(message || (hostedOAuth ? "Failed to connect" : "Failed to save account"));
     } finally {
       setSaving(false);
     }

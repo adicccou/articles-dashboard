@@ -426,7 +426,7 @@ async function parseMetaSignedRequest(signedRequest: string, appSecret: string):
   return payload;
 }
 
-function mediaUrls(raw: string | null): string[] {
+export function mediaUrls(raw: string | null): string[] {
   const value = String(raw ?? "").trim();
   if (!value) return [];
   if (value.startsWith("[")) {
