@@ -69,6 +69,26 @@ type ThreadsGraphError = {
   };
 };
 
+export function selectThreadsImageUrl(raw: string | null | undefined): string | undefined {
+  const value = String(raw ?? "").trim();
+  if (!value) return undefined;
+
+  if (value.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((item) => String(item ?? "").trim())
+          .find(Boolean);
+      }
+    } catch {
+      return value;
+    }
+  }
+
+  return value;
+}
+
 async function upsertSetting(env: Env, key: string, value: string, updatedAt: string, userId = DEFAULT_USER_ID): Promise<void> {
   if (await tableHasWorkspaceId(env, "app_settings")) {
     await env.DB.prepare(
@@ -466,7 +486,7 @@ export async function publishThreadsPost(env: Env, postId: string, userId = DEFA
     const now = new Date().toISOString();
     const published = await publishThreadsText(env, {
       text: post.content.trim(),
-      imageUrl: post.image_url?.trim() || undefined,
+      imageUrl: selectThreadsImageUrl(post.image_url),
       replyToId: post.reply_to_id?.trim() || undefined,
       accountId: post.account_id ?? undefined,
       userId,
