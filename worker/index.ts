@@ -813,7 +813,7 @@ async function handleMediaUpload(request: Request, env: Env) {
   return json({ key, url });
 }
 
-async function handleMediaFetch(env: Env, key: string) {
+async function handleMediaFetch(env: Env, key: string, includeBody = true) {
   const object = await env.MEDIA_BUCKET.get(key);
   if (!object) {
     return text("File not found", 404);
@@ -822,7 +822,8 @@ async function handleMediaFetch(env: Env, key: string) {
   const headers = new Headers();
   object.writeHttpMetadata(headers);
   headers.set("etag", object.httpEtag);
-  return new Response(object.body, { headers });
+  headers.set("cache-control", "public, max-age=31536000, immutable");
+  return new Response(includeBody ? object.body : null, { headers });
 }
 
 type WorkerSurface = "marketing" | "trading";
@@ -1542,9 +1543,9 @@ export default {
       return syncAgentFromSettings(env, url.origin, activeScopeId(user));
     }
 
-    if (url.pathname.startsWith("/api/media/") && request.method === "GET") {
+    if (url.pathname.startsWith("/api/media/") && (request.method === "GET" || request.method === "HEAD")) {
       const key = url.pathname.replace("/api/media/", "");
-      return handleMediaFetch(env, key);
+      return handleMediaFetch(env, key, request.method === "GET");
     }
 
     // Reddit OAuth endpoints

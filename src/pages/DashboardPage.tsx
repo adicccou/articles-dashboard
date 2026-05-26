@@ -12,6 +12,7 @@ import { ViewErrorBoundary } from "../components/ViewErrorBoundary";
 import { StatisticsPage } from "./StatisticsPage";
 import { RepliesPage } from "./RepliesPage";
 import { formatDisplayDate, formatDisplayTime } from "../lib/datetime";
+import { normalizeDashboardMediaUrl } from "../lib/mediaUrl";
 import "../styles/articles-page.css";
 import "../styles/trading-page.css";
 
@@ -133,7 +134,7 @@ export function DashboardPage({
                   {article.cover_image ? (
                     <img
                       className="article-row__thumbnail"
-                      src={article.cover_image}
+                      src={normalizeDashboardMediaUrl(article.cover_image)}
                       alt=""
                       loading="lazy"
                     />

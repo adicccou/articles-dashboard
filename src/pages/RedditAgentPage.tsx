@@ -5,7 +5,7 @@ import { api } from "../lib/api";
 import { SocialPlannerItemModal } from "../components/SocialPlannerItemModal";
 import { asArray } from "../lib/collections";
 import { formatDisplayDateTime } from "../lib/datetime";
-import { getPostImageUrls } from "../lib/socialPostMedia";
+import { getDisplayPostImageUrls } from "../lib/socialPostMedia";
 import type { SocialAgentToolbarHandle } from "../components/SocialPublisherWorkspace";
 
 export const RedditAgentPage = forwardRef<SocialAgentToolbarHandle>(function RedditAgentPage(_props, ref) {
@@ -48,7 +48,7 @@ export const RedditAgentPage = forwardRef<SocialAgentToolbarHandle>(function Red
   );
 
   function renderPlannerPostMedia(item: PlannerItem) {
-    const imageUrls = getPostImageUrls(item.image_url);
+    const imageUrls = getDisplayPostImageUrls(item.image_url);
     if (imageUrls.length === 0) {
       return (
         <div className="social-post-media social-post-media--placeholder" aria-label="No image attached">

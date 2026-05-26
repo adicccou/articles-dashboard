@@ -1,3 +1,5 @@
+import { normalizeDashboardMediaUrl } from "./mediaUrl";
+
 export function getPostImageUrls(raw: string | null | undefined): string[] {
   const value = String(raw ?? "").trim();
   if (!value) return [];
@@ -18,6 +20,12 @@ export function getPostImageUrls(raw: string | null | undefined): string[] {
   return value
     .split(/[\n,]+/)
     .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+export function getDisplayPostImageUrls(raw: string | null | undefined): string[] {
+  return getPostImageUrls(raw)
+    .map((url) => normalizeDashboardMediaUrl(url))
     .filter(Boolean);
 }
 

@@ -6,7 +6,8 @@ import { api } from "../lib/api";
 import { ModalCloseButton } from "../components/ModalCloseButton";
 import type { SocialComment, StudioAccount } from "../lib/types";
 import { formatDisplayDateTime } from "../lib/datetime";
-import { getPostImageUrls, isVideoMediaUrl } from "../lib/socialPostMedia";
+import { getDisplayPostImageUrls, isVideoMediaUrl } from "../lib/socialPostMedia";
+import { normalizeDashboardMediaUrl } from "../lib/mediaUrl";
 import "../styles/replies-page.css";
 
 type Platform = "reddit" | "twitter" | "threads";
@@ -599,7 +600,7 @@ export function RepliesPage() {
             <div className="replies-list">
               {paginatedThreads.map((thread, index) => {
                 const context = getCommentContext(thread.post);
-                const postMediaUrls = getPostImageUrls(thread.post.post_image_url);
+                const postMediaUrls = getDisplayPostImageUrls(thread.post.post_image_url);
                 const isCollapsed = collapsedThreads[thread.key] ?? false;
                 return (
                   <article className="social-thread-card replies-card" key={`${thread.key}-${index}`}>
@@ -774,7 +775,7 @@ export function RepliesPage() {
                   >
                     Remove
                   </button>
-                  <img src={composerAttachmentUrl} alt="Reply attachment preview" className="replies-compose__media-preview" />
+                  <img src={normalizeDashboardMediaUrl(composerAttachmentUrl)} alt="Reply attachment preview" className="replies-compose__media-preview" />
                 </div>
               ) : (
                 <p className="replies-compose__media-empty">

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api";
 import type { ArticleAssistField, ArticleInput, ArticleRecord, Site, ArticleCategory } from "../lib/types";
+import { normalizeDashboardMediaUrl } from "../lib/mediaUrl";
 import { slugify } from "../lib/slug";
 
 type ArticleEditorProps = {
@@ -720,7 +721,7 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
         {uploading ? <p className="muted">Uploading image...</p> : null}
         {form.cover_image ? (
           <div className="cover-preview-frame">
-            <img className="cover-preview" src={form.cover_image} alt="" />
+            <img className="cover-preview" src={normalizeDashboardMediaUrl(form.cover_image)} alt="" />
             <button
               type="button"
               className="cover-preview__remove"

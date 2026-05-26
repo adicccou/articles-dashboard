@@ -10,6 +10,7 @@ import { ModalCloseButton } from "../components/ModalCloseButton";
 import { api } from "../lib/api";
 import type { StudioAccount, StudioCampaign, StudioCrawlerRun, StudioSignal, StudioStrategistPost, StudioSummary } from "../lib/types";
 import { formatDisplayDateTime } from "../lib/datetime";
+import { normalizeDashboardMediaUrl } from "../lib/mediaUrl";
 import "../styles/studio-page.css";
 
 type Platform = "twitter" | "threads" | "reddit";
@@ -1080,9 +1081,9 @@ export function StudioPage({ onUpload }: StudioPageProps) {
           <div className="studio-media-box">
             {post.media_url ? (
               post.media_type === "video" ? (
-                <video src={post.media_url} controls />
+                <video src={normalizeDashboardMediaUrl(post.media_url)} controls />
               ) : (
-                <img src={post.media_url} alt={`${post.idea || "Studio post"} media`} />
+                <img src={normalizeDashboardMediaUrl(post.media_url)} alt={`${post.idea || "Studio post"} media`} />
               )
             ) : (
               <span>{post.media_type} needed</span>

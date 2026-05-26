@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
 import { ModalCloseButton } from "../components/ModalCloseButton";
 import { formatDisplayDateTime, formatDisplayTime, formatMonthDay, formatMonthYear, formatWeekRange, formatWeekdayShort } from "../lib/datetime";
+import { normalizeDashboardMediaUrl } from "../lib/mediaUrl";
 import { getPostImageUrls, isVideoMediaUrl, serializePostMediaUrls } from "../lib/socialPostMedia";
 import { chooseAutoSchedule, collectActiveScheduledSocialSlots } from "../lib/socialSchedule";
 import type { PlannerItem, PlannerItemInput, RedditAccount, RedditSubscribedSubreddit, SocialAccount, SocialPost } from "../lib/types";
@@ -1899,7 +1900,7 @@ export function PlannerPage() {
                                 >
                                   <TrashIcon aria-hidden="true" />
                                 </button>
-                                <video className="scheduler-media-card__asset" src={url} controls playsInline />
+                                <video className="scheduler-media-card__asset" src={normalizeDashboardMediaUrl(url)} controls playsInline />
                               </div>
                             );
                           })}
@@ -1917,7 +1918,7 @@ export function PlannerPage() {
                                 >
                                   <TrashIcon aria-hidden="true" />
                                 </button>
-                                <img className="scheduler-media-card__asset" src={url} alt={`Uploaded post media ${index + 1}`} />
+                                <img className="scheduler-media-card__asset" src={normalizeDashboardMediaUrl(url)} alt={`Uploaded post media ${index + 1}`} />
                               </div>
                             );
                           })}
@@ -1937,9 +1938,9 @@ export function PlannerPage() {
                               <TrashIcon aria-hidden="true" />
                             </button>
                             {isVideoMediaUrl(url) ? (
-                              <video className="scheduler-media-card__asset" src={url} controls playsInline />
+                              <video className="scheduler-media-card__asset" src={normalizeDashboardMediaUrl(url)} controls playsInline />
                             ) : (
-                              <img className="scheduler-media-card__asset" src={url} alt={`Uploaded post media ${index + 1}`} />
+                              <img className="scheduler-media-card__asset" src={normalizeDashboardMediaUrl(url)} alt={`Uploaded post media ${index + 1}`} />
                             )}
                           </div>
                         ))}

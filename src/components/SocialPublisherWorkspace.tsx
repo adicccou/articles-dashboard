@@ -16,7 +16,7 @@ import { ModalCloseButton } from "./ModalCloseButton";
 import type { IconType } from "react-icons";
 import type { SocialAccount, SocialPost } from "../lib/types";
 import { formatDisplayDate, formatDisplayDateTime } from "../lib/datetime";
-import { getPostImageUrls } from "../lib/socialPostMedia";
+import { getDisplayPostImageUrls } from "../lib/socialPostMedia";
 
 type Tab = "posts" | "replies";
 type SetupTab = "overview" | "knowledge" | "accounts";
@@ -158,7 +158,7 @@ function chooseAutoSchedule(existingSlots: string[]) {
 }
 
 function renderPostMedia(imageUrl: string | null | undefined, content: string) {
-  const imageUrls = getPostImageUrls(imageUrl);
+  const imageUrls = getDisplayPostImageUrls(imageUrl);
   if (imageUrls.length === 0) {
     return (
       <div className="social-post-media social-post-media--placeholder" aria-label="No image attached">
