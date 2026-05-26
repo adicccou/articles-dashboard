@@ -4,6 +4,7 @@ import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 import { getSocialPostSchemaCapabilities } from "./twitter";
 import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
 import { defaultPlaywrightProfileKey, playwrightUserSettingKey } from "../lib/playwright-accounts";
+import { markLinkedPlannerItemsPublished } from "../lib/social-publish";
 
 interface CreateCampaignPayload {
   name: string;
@@ -800,6 +801,7 @@ export async function publishRedditPost(
     )
       .bind(now, externalId, readyAccount.id, now, ...values)
       .run();
+    await markLinkedPlannerItemsPublished(env, id, now);
     return jsonResponse({ success: true, external_id: externalId, posted_at: now, account_id: readyAccount.id });
   } catch (error) {
     const id = Number(postId);

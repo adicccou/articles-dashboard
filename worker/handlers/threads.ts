@@ -2,6 +2,7 @@ import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
 import { defaultPlaywrightProfileKey, playwrightUserSettingKey } from "../lib/playwright-accounts";
+import { markLinkedPlannerItemsPublished, markSocialPostFailed } from "../lib/social-publish";
 import { listSocialPosts, createSocialPost, updateSocialPost, deleteSocialPost, getSocialPostSchemaCapabilities } from "./twitter";
 
 // Re-export post handlers using the 'threads' platform
@@ -498,9 +499,14 @@ export async function publishThreadsPost(env: Env, postId: string, userId = DEFA
     )
       .bind(now, published.externalId, now, ...values)
       .run();
+    await markLinkedPlannerItemsPublished(env, id, now);
 
     return jsonResponse({ success: true, external_id: published.externalId, posted_at: now });
   } catch (error) {
+    const id = Number(postId);
+    if (!Number.isNaN(id)) {
+      await markSocialPostFailed(env, id, new Date().toISOString());
+    }
     return errorResponse(error instanceof Error ? error.message : "Failed to publish Threads post", 500);
   }
 }

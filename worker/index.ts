@@ -5,6 +5,7 @@ import type { Env } from "./lib/types";
 import type { DashboardUser } from "./lib/ownership";
 import { DEFAULT_USER_ID, activeScopeId } from "./lib/ownership";
 import { authenticateDashboardUser } from "./lib/users";
+import { markLinkedPlannerItemsPublished } from "./lib/social-publish";
 import {
   listCampaigns,
   createCampaign,
@@ -636,7 +637,7 @@ async function handleInternalSocialPostPublishResult(env: Env, postId: string, r
 
   await env.DB.prepare(`UPDATE social_posts SET ${updates.join(", ")} WHERE id = ?`).bind(...values, id).run();
   if (status === "posted") {
-    await env.DB.prepare("UPDATE planner_items SET status = 'published', updated_at = ? WHERE social_post_id = ?").bind(now, id).run();
+    await markLinkedPlannerItemsPublished(env, id, now);
   }
   return json({ success: true, id, status, posted_at: postedAt, external_id: payload.external_id ?? null });
 }

@@ -2,6 +2,7 @@ import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
 import { defaultPlaywrightProfileKey, playwrightUserSettingKey } from "../lib/playwright-accounts";
+import { markLinkedPlannerItemsPublished } from "../lib/social-publish";
 
 const IMAGE_URL_ALIASES = ["image_url", "imageUrl", "imageURL", "image", "photo", "picture", "media", "media_url", "mediaUrl", "media_urls", "mediaUrls", "url"] as const;
 
@@ -941,6 +942,7 @@ export async function publishTwitterPost(env: Env, postId: string, userId = DEFA
     )
       .bind(now, payload.data.id, now, ...values)
       .run();
+    await markLinkedPlannerItemsPublished(env, id, now);
 
     return jsonResponse({ success: true, external_id: payload.data.id, posted_at: now });
   } catch (error) {

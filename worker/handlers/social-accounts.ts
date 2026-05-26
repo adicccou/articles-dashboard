@@ -2,6 +2,7 @@ import type { Env } from "../lib/types";
 import { errorResponse, jsonResponse, parseJson } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
 import { defaultPlaywrightProfileKey, playwrightUserSettingKey } from "../lib/playwright-accounts";
+import { markLinkedPlannerItemsPublished } from "../lib/social-publish";
 
 type ExtraSocialPlatform = "linkedin" | "instagram" | "youtube";
 type AccountConnectionMode = "official_api" | "playwright";
@@ -713,6 +714,7 @@ export async function publishExtraSocialPost(
     )
       .bind(now, externalId, account.id, now, ...values)
       .run();
+    await markLinkedPlannerItemsPublished(env, id, now);
     return jsonResponse({ success: true, external_id: externalId, posted_at: now, account_id: account.id });
   } catch (error) {
     const now = new Date().toISOString();

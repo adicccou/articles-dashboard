@@ -156,7 +156,7 @@ async function requireMcpAuth(request: Request, env: Env): Promise<Response | nu
 }
 
 async function callDashboardInternalApi(env: Env, path: string, init?: RequestInit) {
-  const baseUrl = (env.DASHBOARD_API_URL || "https://dashboard.adilet-melisov.workers.dev").replace(/\/$/, "");
+  const baseUrl = (env.DASHBOARD_API_URL || "https://marketing-dashboard.adilet-melisov.workers.dev").replace(/\/$/, "");
   const token = await configuredMcpToken(env);
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,

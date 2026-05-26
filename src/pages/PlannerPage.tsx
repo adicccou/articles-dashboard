@@ -1068,6 +1068,10 @@ export function PlannerPage() {
       setError("Choose a subreddit before creating a Reddit post.");
       return null;
     }
+    if (targets.some((target) => target.platform === "instagram") && form.media_urls.length === 0) {
+      setError("Instagram posts need at least one image or video. Add media or remove Instagram.");
+      return null;
+    }
 
     return targets;
   }
@@ -1210,18 +1214,22 @@ export function PlannerPage() {
     }
   }
 
+  function startPublishNow() {
+    if (!form.description.trim()) {
+      setError("Add a description before publishing.");
+      return;
+    }
+    const targets = collectPlannerTargets(null);
+    if (!targets) return;
+    setPublishConfirmTargets(targets);
+    setIsPublishConfirmOpen(true);
+  }
+
   async function saveSchedule(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const scheduledFor = form.scheduled_for ? new Date(form.scheduled_for).toISOString() : null;
     if (!scheduledFor) {
-      if (!form.description.trim()) {
-        setError("Add a description before publishing.");
-        return;
-      }
-      const targets = collectPlannerTargets(null);
-      if (!targets) return;
-      setPublishConfirmTargets(targets);
-      setIsPublishConfirmOpen(true);
+      startPublishNow();
       return;
     }
     await savePlannerItem(scheduledFor);
@@ -1963,6 +1971,16 @@ export function PlannerPage() {
                 <button type="submit" disabled={saving}>
                   {saving ? "Working..." : form.scheduled_for ? "Schedule" : "Publish"}
                 </button>
+                {form.scheduled_for ? (
+                  <button
+                    className="button-secondary"
+                    type="button"
+                    disabled={saving}
+                    onClick={startPublishNow}
+                  >
+                    Publish now
+                  </button>
+                ) : null}
                 <button
                   className="button-secondary"
                   type="button"
