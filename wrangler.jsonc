@@ -28,10 +28,19 @@
   "vars": {
     "DASHBOARD_SURFACE": "marketing",
     "ADMIN_USERNAME": "admin",
+    "DASHBOARD_OWNER_EMAIL": "adiccou@gmail.com",
+    "GOOGLE_ALLOWED_EMAILS": "adiccou@gmail.com",
+    "GOOGLE_REDIRECT_URI": "https://marketing-dashboard.adilet-melisov.workers.dev/api/auth/google/callback",
+    "META_APP_ID": "26753414114307541",
+    "INSTAGRAM_APP_ID": "1707531783621555",
     "REDDIT_CLIENT_ID": "",
     "REDDIT_CLIENT_SECRET": "",
     "REDDIT_REDIRECT_URI": "https://marketing-dashboard.adilet-melisov.workers.dev/api/reddit/auth/callback",
+    "TWITTER_REDIRECT_URI": "https://marketing-dashboard.adilet-melisov.workers.dev/api/twitter/auth/callback",
     "THREADS_REDIRECT_URI": "https://marketing-dashboard.adilet-melisov.workers.dev/api/threads/auth/callback",
-    "INSTAGRAM_REDIRECT_URI": "https://marketing-dashboard.adilet-melisov.workers.dev/api/instagram/auth/callback"
+    "INSTAGRAM_REDIRECT_URI": "https://marketing-dashboard.adilet-melisov.workers.dev/api/instagram/auth/callback",
+    "LINKEDIN_REDIRECT_URI": "https://marketing-dashboard.adilet-melisov.workers.dev/api/linkedin/auth/callback",
+    "LINKEDIN_SCOPES": "openid profile w_member_social",
+    "LINKEDIN_VERSION": "202605"
   }
 }

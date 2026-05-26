@@ -2,13 +2,17 @@ import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasColumn, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
 
-interface OAuthState {
-  accountName: string;
-  timestamp: number;
-}
-
 const REDDIT_OAUTH_URL = "https://www.reddit.com/api/v1/authorize";
 const REDDIT_TOKEN_URL = "https://www.reddit.com/api/v1/access_token";
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 async function upsertSetting(env: Env, key: string, value: string, updatedAt: string, userId = DEFAULT_USER_ID): Promise<void> {
   if (await tableHasWorkspaceId(env, "app_settings")) {
@@ -48,29 +52,15 @@ export async function handleAuthorizeRequest(
   userId = DEFAULT_USER_ID,
 ): Promise<Response> {
   try {
-    const payload = await parseJson<{ account_name: string }>(request);
-
-    if (!payload.account_name || !payload.account_name.trim()) {
-      return errorResponse("Account name is required", 400);
-    }
+    const payload = await parseJson<{ account_name?: string }>(request);
 
     if (!env.REDDIT_CLIENT_ID || !env.REDDIT_CLIENT_SECRET) {
       return errorResponse("Reddit OAuth not configured", 500);
     }
 
-    // Generate random state for CSRF protection
     const state = crypto.randomUUID();
-    const stateData: OAuthState = {
-      accountName: payload.account_name,
-      timestamp: Date.now(),
-    };
+    const accountName = payload.account_name?.trim() || "Reddit";
 
-    // Store state in a temporary key (in production, use Redis or database)
-    // For now, we'll pass it as encrypted data
-    const stateJson = JSON.stringify(stateData);
-    const stateKey = `oauth_state_${state}`;
-
-    // Build Reddit OAuth URL
     const params = new URLSearchParams({
       client_id: env.REDDIT_CLIENT_ID,
       response_type: "code",
@@ -86,7 +76,7 @@ export async function handleAuthorizeRequest(
       { auth_url: authUrl },
       {
         headers: {
-          "Set-Cookie": `reddit_oauth_state=${state}.${ownerId(userId)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`,
+          "Set-Cookie": `reddit_oauth_state=${state}.${ownerId(userId)}.${encodeURIComponent(accountName)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`,
         },
       },
     );
@@ -215,19 +205,29 @@ export async function handleOAuthCallback(
       await upsertSetting(env, `reddit_account:${accountId}:connection_mode`, "official_api", now, owner);
     }
 
-    // Redirect back to app with success
+    const payload = JSON.stringify({
+      type: "reddit_connected",
+      ok: true,
+      account: {
+        id: accountId || null,
+        username: redditUsername,
+      },
+    });
+
     return new Response(
       `<html>
+        <head><title>Reddit connected</title></head>
         <body>
-          <h1>✓ Account Connected!</h1>
-          <p>Reddit account <strong>${redditUsername}</strong> connected successfully.</p>
-          <p>Closing this window...</p>
+          <h1>Reddit account connected</h1>
+          <p>Reddit account <strong>${escapeHtml(redditUsername)}</strong> connected successfully.</p>
           <script>
-            setTimeout(() => {
+            const payload = ${payload};
+            if (window.opener) {
+              window.opener.postMessage(payload, window.location.origin);
               window.close();
-              // Fallback: redirect to parent
-              window.location.href = '/';
-            }, 2000);
+            } else {
+              window.location.href = '/?view=config';
+            }
           </script>
         </body>
       </html>`,

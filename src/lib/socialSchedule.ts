@@ -4,7 +4,6 @@ export const SOCIAL_AUTOSCHEDULE_PLATFORMS = new Set([
   "reddit",
   "instagram",
   "linkedin",
-  "youtube",
 ]);
 
 const ACTIVE_PLANNER_STATUSES = new Set(["planned", "drafting", "approved", "scheduled"]);

@@ -177,7 +177,7 @@ p {
 
 .loading-screen,
 .login-screen {
-  @apply grid min-h-screen place-items-center bg-slate-50 p-5 text-slate-600;
+  @apply grid min-h-screen place-items-center bg-slate-100 p-5 text-slate-600;
 }
 
 .login-card,
@@ -187,15 +187,64 @@ p {
 }
 
 .login-card {
-  @apply w-full max-w-[440px] p-6;
+  @apply w-full max-w-[420px] p-7;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.08) !important;
+}
+
+.login-card__brand {
+  @apply mb-7 flex items-center justify-between gap-4 rounded-md border border-slate-200 bg-slate-50 px-4 py-3;
+}
+
+.login-card__brand img {
+  @apply h-9 w-auto shrink-0;
+}
+
+.login-card__brand div {
+  @apply grid min-w-0 justify-items-end gap-0.5 text-right;
+}
+
+.login-card__brand strong {
+  @apply text-sm font-extrabold text-slate-950;
+}
+
+.login-card__brand span {
+  @apply text-xs font-bold text-slate-500;
+}
+
+.login-card__header {
+  @apply mb-6;
+}
+
+.login-card__kicker {
+  @apply mb-2 text-xs font-extrabold uppercase text-slate-500;
 }
 
 .login-card h1 {
-  @apply mb-2 text-3xl font-bold;
+  @apply mb-2 text-[2rem] font-extrabold leading-tight text-slate-950;
 }
 
 .login-card p {
-  @apply mb-4 text-sm text-slate-600;
+  @apply text-sm text-slate-600;
+}
+
+.login-card__notice {
+  @apply mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 font-semibold text-amber-900;
+}
+
+.login-card__google {
+  @apply w-full justify-center border border-slate-950 bg-slate-950 py-3 text-base font-extrabold text-white shadow-none hover:border-slate-800 hover:bg-slate-800;
+}
+
+.login-card__google svg {
+  @apply h-5 w-5 rounded-full bg-white;
+}
+
+.login-card__fallback-form {
+  @apply border-t border-slate-200 pt-6;
+}
+
+.login-card__fallback-link {
+  @apply mt-4 flex min-h-[38px] items-center justify-center rounded-md border border-transparent bg-transparent px-3 py-2 text-sm font-bold text-slate-500 no-underline hover:bg-slate-50 hover:text-slate-950;
 }
 
 .login-card form,
@@ -209,6 +258,14 @@ p {
 
 .login-card__remember input {
   @apply h-4 w-4 rounded border-slate-300 p-0;
+}
+
+.login-card input {
+  @apply min-h-[42px] border-slate-200 bg-white;
+}
+
+.login-card button[type="submit"] {
+  @apply min-h-[42px] font-extrabold;
 }
 
 .panel {

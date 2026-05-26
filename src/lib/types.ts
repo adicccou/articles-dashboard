@@ -30,6 +30,7 @@ export type AuthState = {
   authenticated: boolean;
   username?: string;
   user?: DashboardUser;
+  google_auth_configured?: boolean;
 };
 
 export type Site = {

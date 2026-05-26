@@ -89,12 +89,13 @@ const THREADS_FULL_SCOPES = [
 const INSTAGRAM_SCOPES = [
   "instagram_business_basic",
   "instagram_business_content_publish",
-  "pages_read_engagement",
 ].join(",");
 
 const LINKEDIN_SCOPES = [
+  "openid",
+  "profile",
   "w_member_social",
-].join(",");
+].join(" ");
 
 const YOUTUBE_SCOPES = [
   "https://www.googleapis.com/auth/youtube.upload",
@@ -106,7 +107,6 @@ const platformOptions: Array<{ id: AccountPlatform; label: string }> = [
   { id: "reddit", label: "Reddit" },
   { id: "linkedin", label: "LinkedIn" },
   { id: "instagram", label: "Instagram" },
-  { id: "youtube", label: "YouTube" },
 ];
 
 const platformIcons: Record<AccountPlatform, IconType> = {
@@ -117,6 +117,8 @@ const platformIcons: Record<AccountPlatform, IconType> = {
   instagram: SiInstagram,
   youtube: SiYoutube,
 };
+
+const hiddenAccountPlatforms = new Set<AccountPlatform>(["youtube"]);
 
 function emptyAppForm(): AppForm {
   return {
@@ -284,6 +286,14 @@ function statusTone(status: string) {
   return "neutral";
 }
 
+function accountStatusTone(status: string) {
+  return status === "active" ? "success" : "danger";
+}
+
+function accountStatusLabel(status: string) {
+  return status === "active" ? "Connected" : "Failed to connect";
+}
+
 function isExtraPlatform(platform: AccountPlatform): platform is "linkedin" | "instagram" | "youtube" {
   return platform === "linkedin" || platform === "instagram" || platform === "youtube";
 }
@@ -393,11 +403,14 @@ const officialFieldsByPlatform: Record<Exclude<AccountPlatform, "reddit">, Offic
 };
 
 function officialApiHint(platform: AccountPlatform): string | null {
+  if (platform === "twitter") {
+    return "New Twitter/X accounts connect through the official popup. Existing accounts can still rotate saved app and user tokens here if needed.";
+  }
   if (platform === "threads") {
     return "Add access token and user ID directly, or leave them blank to connect through Threads OAuth.";
   }
   if (platform === "linkedin") {
-    return "LinkedIn posting uses OAuth app credentials plus the member or organization author URN.";
+    return "Leave fields blank to connect through LinkedIn OAuth, or add official credentials manually.";
   }
   if (platform === "instagram") {
     return "Instagram publishing needs the professional account plus its connected Facebook Page context.";
@@ -412,19 +425,21 @@ function normalizeAccounts(
   social: SocialAccount[],
   reddit: RedditAccount[],
 ): ManagedAccount[] {
-  const socialAccounts = social.map((account) => ({
-    id: account.id,
-    platform: account.platform as AccountPlatform,
-    connection_mode: "official_api" as const,
-    username: account.username,
-    profile_username: resolveProfileUsername(account) || null,
-    display_name: account.display_name?.trim() || null,
-    avatar_url: account.avatar_url?.trim() || null,
-    status: account.status,
-    credentials_ready: account.credentials_ready,
-    created_at: account.created_at,
-    updated_at: account.updated_at || account.created_at,
-  }));
+  const socialAccounts = social
+    .filter((account) => !hiddenAccountPlatforms.has(account.platform as AccountPlatform))
+    .map((account) => ({
+      id: account.id,
+      platform: account.platform as AccountPlatform,
+      connection_mode: "official_api" as const,
+      username: account.username,
+      profile_username: resolveProfileUsername(account) || null,
+      display_name: account.display_name?.trim() || null,
+      avatar_url: account.avatar_url?.trim() || null,
+      status: account.status,
+      credentials_ready: account.credentials_ready,
+      created_at: account.created_at,
+      updated_at: account.updated_at || account.created_at,
+    }));
   const redditAccounts = reddit.map((account) => ({
     id: account.id,
     platform: "reddit" as const,
@@ -461,7 +476,23 @@ function deriveAccountStatus(form: AccountForm): AccountStatus {
 
 function usesHostedOAuth(form: AccountForm) {
   return !form.id
-    && (form.platform === "threads" || form.platform === "instagram");
+    && (form.platform === "twitter" || form.platform === "threads" || form.platform === "instagram" || form.platform === "linkedin" || form.platform === "reddit");
+}
+
+async function startHostedOAuth(platform: AccountPlatform, username: string) {
+  if (platform === "threads") return api.startThreadsOAuth({});
+  if (platform === "twitter") return api.startTwitterOAuth({});
+  if (platform === "linkedin") return api.startLinkedInOAuth();
+  if (platform === "reddit") return api.startRedditOAuth(username || "Reddit");
+  return api.startInstagramOAuth();
+}
+
+function hostedOAuthMessageType(platform: AccountPlatform) {
+  if (platform === "threads") return "threads_connected";
+  if (platform === "twitter") return "twitter_connected";
+  if (platform === "linkedin") return "linkedin_connected";
+  if (platform === "reddit") return "reddit_connected";
+  return "instagram_connected";
 }
 
 function normalizeComparable(value: string | null | undefined) {
@@ -750,16 +781,14 @@ export function ConfigPage() {
       if (hostedOAuth) {
         const popup = window.open("about:blank", `${accountForm.platform}-connect`, "width=540,height=760");
         try {
-          const { auth_url } = accountForm.platform === "threads"
-            ? await api.startThreadsOAuth({})
-            : await api.startInstagramOAuth();
+          const { auth_url } = await startHostedOAuth(accountForm.platform, username);
           if (!popup) {
             window.location.href = auth_url;
             return;
           }
 
           await new Promise<void>((resolve, reject) => {
-            const expectedType = accountForm.platform === "threads" ? "threads_connected" : "instagram_connected";
+            const expectedType = hostedOAuthMessageType(accountForm.platform);
             const timeout = window.setTimeout(() => {
               window.removeEventListener("message", handleMessage);
               reject(new Error(`${platformLabel(accountForm.platform)} authorization timed out.`));
@@ -788,7 +817,7 @@ export function ConfigPage() {
           throw hostedOAuthError;
         }
 
-        setFeedback(`${platformLabel(accountForm.platform)} account connected.`);
+        setFeedback("Connected");
         setAccountForm(emptyAccountForm(accountForm.platform));
         setActiveModal(null);
         await load({ silent: true });
@@ -923,7 +952,7 @@ export function ConfigPage() {
       });
       window.location.href = result.auth_url;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save account");
+      setError(hostedOAuth ? "Failed to connect" : err instanceof Error ? err.message : "Failed to save account");
     } finally {
       setSaving(false);
     }
@@ -974,8 +1003,10 @@ export function ConfigPage() {
     if (saving) return "Saving...";
     if (accountForm.id) return "Save account";
     if (accountForm.platform === "reddit") return "Connect Reddit account";
+    if (accountForm.platform === "twitter") return "Connect Twitter/X account";
     if (accountForm.platform === "threads") return "Connect Threads account";
     if (accountForm.platform === "instagram") return "Connect Instagram account";
+    if (accountForm.platform === "linkedin") return "Connect LinkedIn account";
     return "Add account";
   }
 
@@ -1151,7 +1182,9 @@ export function ConfigPage() {
                         </div>
                       </div>
                     </div>
-                    <span className={`config-pill config-pill--${statusTone(account.status)}`}>{account.status}</span>
+                    <span className={`config-pill config-pill--${accountStatusTone(account.status)}`}>
+                      {accountStatusLabel(account.status)}
+                    </span>
                     <span className="config-muted">{formatDisplayDate(account.created_at)}</span>
                     <div className="config-row-actions">
                       <button
@@ -1311,20 +1344,31 @@ export function ConfigPage() {
                 ))}
               </select>
             </label>
-            <p className="config-hint">Publishing uses official platform auth and API credentials.</p>
             {hostedOAuthAccount ? (
-              <p className="config-hint">
-                This opens the official {platformLabel(accountForm.platform)} authorization popup. The connected account name and IDs are saved automatically after approval.
-              </p>
+              <div className="config-oauth-card">
+                <div className="config-oauth-card__copy">
+                  <p className="config-oauth-card__eyebrow">Official connection</p>
+                  <p>Publishing uses official platform authorization and API credentials.</p>
+                  <p>The connected account name and profile details are saved automatically after approval.</p>
+                </div>
+                <div className="config-modal__actions config-modal__actions--center">
+                  <button className="config-modal__primary-action" type="submit" disabled={saving}>
+                    {accountSubmitLabel()}
+                  </button>
+                </div>
+              </div>
             ) : (
-              <label>
-                {accountForm.platform === "reddit"
-                  ? "Account name"
-                  : accountForm.platform === "youtube"
-                  ? "Channel handle / label"
-                  : "Username"}
-                <input value={accountForm.username} onChange={(event) => setAccountForm((current) => ({ ...current, username: event.target.value }))} required />
-              </label>
+              <>
+                <p className="config-hint">Publishing uses official platform auth and API credentials.</p>
+                <label>
+                  {accountForm.platform === "reddit"
+                    ? "Account name"
+                    : accountForm.platform === "youtube"
+                    ? "Channel handle / label"
+                    : "Username"}
+                  <input value={accountForm.username} onChange={(event) => setAccountForm((current) => ({ ...current, username: event.target.value }))} required />
+                </label>
+              </>
             )}
             {accountForm.platform !== "reddit" && !hostedOAuthAccount ? (
               <>
@@ -1364,21 +1408,20 @@ export function ConfigPage() {
             ) : null}
 
             {accountForm.platform === "reddit" && !accountForm.id ? (
-              <p className="config-hint">This will open Reddit OAuth to connect the account.</p>
+              <p className="config-hint">Reddit will return the connected username automatically after approval.</p>
             ) : null}
 
             {accountForm.id ? (
               <p className="config-hint">Leave credential fields blank to keep the saved values.</p>
             ) : null}
 
-            <div className="config-modal__actions">
-              <button className="button-secondary" type="button" onClick={() => setActiveModal(null)}>
-                Cancel
-              </button>
-              <button type="submit" disabled={saving}>
-                {accountSubmitLabel()}
-              </button>
-            </div>
+            {!hostedOAuthAccount ? (
+              <div className="config-modal__actions config-modal__actions--center">
+                <button className="config-modal__primary-action" type="submit" disabled={saving}>
+                  {accountSubmitLabel()}
+                </button>
+              </div>
+            ) : null}
           </form>
         </div>
       ) : null}

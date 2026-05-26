@@ -1,5 +1,5 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { ExclamationTriangleIcon, PencilSquareIcon, TrashIcon } from "@heroicons/react/24/solid";
+import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { Bars3Icon, ExclamationTriangleIcon, PencilSquareIcon, TrashIcon } from "@heroicons/react/24/solid";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
 import { ModalCloseButton } from "../components/ModalCloseButton";
@@ -12,7 +12,7 @@ import "../styles/planner-page.css";
 
 type SchedulerView = "list" | "calendar" | "week";
 
-const schedulerPlatformOrder: Array<SocialAccount["platform"]> = ["twitter", "threads", "instagram", "reddit", "linkedin", "youtube"];
+const schedulerPlatformOrder: Array<SocialAccount["platform"]> = ["twitter", "threads", "instagram", "reddit", "linkedin"];
 const PLANNER_VIEW_STORAGE_KEY = "dashboard:planner:view";
 const LEGACY_PLANNER_VIEW_STORAGE_KEY = "blogposter:planner:view";
 const DEFAULT_SCHEDULE_HOUR = 10;
@@ -281,7 +281,9 @@ function derivePlannerAccounts(
     ...threadsAccounts.map((account) => normalizeSchedulerSocialAccount(account, "threads")),
     ...extraAccounts.map((account) => normalizeSchedulerSocialAccount(account)),
     ...redditAccounts.map(normalizeRedditAccount),
-  ].filter((account): account is SchedulerAccount => Boolean(account && account.status === "active"));
+  ].filter((account): account is SchedulerAccount =>
+    Boolean(account && account.status === "active" && schedulerPlatformOrder.includes(account.platform))
+  );
   const seen = new Set<string>();
   return accounts.filter((account) => {
     const key = `${account.platform}:${account.id}`;
@@ -414,6 +416,8 @@ export function PlannerPage() {
   const [form, setForm] = useState<ScheduleFormState>(createEmptyScheduleForm());
   const [draggingPlannerItemId, setDraggingPlannerItemId] = useState<number | null>(null);
   const [dragOverWeekSlot, setDragOverWeekSlot] = useState<string | null>(null);
+  const [draggingMediaIndex, setDraggingMediaIndex] = useState<number | null>(null);
+  const [dragOverMediaIndex, setDragOverMediaIndex] = useState<number | null>(null);
   const lastAutosavedDescriptionRef = useRef<{ id?: number; description: string; title: string }>({
     description: "",
     title: "",
@@ -595,6 +599,7 @@ export function PlannerPage() {
   const modalStatus = normalizePlannerStatus(form.status);
   const isPublishedSchedule = modalStatus === "published";
   const canDeleteModalSchedule = Boolean(form.id && !isPublishedSchedule);
+  const canReorderPlannerMedia = !isPublishedSchedule && form.media_urls.length > 1;
   const isRedditModal = selectedModalPlatforms.includes("reddit");
   const selectedRedditAccountIds = selectedAccountIdsByPlatform.reddit ?? [];
   const selectedRedditAccounts = useMemo(() => {
@@ -1056,6 +1061,117 @@ export function PlannerPage() {
       ...current,
       media_urls: current.media_urls.filter((_, currentIndex) => currentIndex !== index),
     }));
+  }
+
+  function movePlannerMedia(fromIndex: number, toIndex: number) {
+    if (fromIndex === toIndex) return;
+    setForm((current) => {
+      if (
+        fromIndex < 0 ||
+        toIndex < 0 ||
+        fromIndex >= current.media_urls.length ||
+        toIndex >= current.media_urls.length
+      ) {
+        return current;
+      }
+      const mediaUrls = [...current.media_urls];
+      const [moved] = mediaUrls.splice(fromIndex, 1);
+      mediaUrls.splice(toIndex, 0, moved);
+      return {
+        ...current,
+        media_urls: mediaUrls,
+      };
+    });
+  }
+
+  function startPlannerMediaDrag(event: DragEvent<HTMLDivElement>, index: number) {
+    if (!canReorderPlannerMedia) {
+      event.preventDefault();
+      return;
+    }
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-oilor-media-index", String(index));
+    event.dataTransfer.setData("text/plain", String(index));
+    setDraggingMediaIndex(index);
+    setDragOverMediaIndex(index);
+  }
+
+  function handlePlannerMediaDragOver(event: DragEvent<HTMLDivElement>, index: number) {
+    if (!canReorderPlannerMedia || draggingMediaIndex === null) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDragOverMediaIndex((current) => (current === index ? current : index));
+  }
+
+  function dropPlannerMedia(event: DragEvent<HTMLDivElement>, index: number) {
+    if (!canReorderPlannerMedia) return;
+    event.preventDefault();
+    const rawIndex = event.dataTransfer.getData("application/x-oilor-media-index") || event.dataTransfer.getData("text/plain");
+    const fromIndex = Number(rawIndex);
+    if (Number.isInteger(fromIndex)) {
+      movePlannerMedia(fromIndex, index);
+    }
+    setDraggingMediaIndex(null);
+    setDragOverMediaIndex(null);
+  }
+
+  function endPlannerMediaDrag() {
+    setDraggingMediaIndex(null);
+    setDragOverMediaIndex(null);
+  }
+
+  function plannerMediaCardClass(index: number, thumbnail = false) {
+    return [
+      "scheduler-media-card",
+      thumbnail ? "scheduler-media-card--thumb" : "",
+      canReorderPlannerMedia ? "scheduler-media-card--draggable" : "",
+      draggingMediaIndex === index ? "is-dragging" : "",
+      dragOverMediaIndex === index && draggingMediaIndex !== null && draggingMediaIndex !== index ? "is-drop-target" : "",
+    ].filter(Boolean).join(" ");
+  }
+
+  function renderPlannerMediaCard(url: string, index: number, options: { thumbnail?: boolean } = {}) {
+    const order = index + 1;
+    const thumbnail = options.thumbnail ?? false;
+    return (
+      <div
+        className={plannerMediaCardClass(index, thumbnail)}
+        draggable={canReorderPlannerMedia}
+        key={`${url}-${index}`}
+        onDragEnd={endPlannerMediaDrag}
+        onDragOver={(event) => handlePlannerMediaDragOver(event, index)}
+        onDragStart={(event) => startPlannerMediaDrag(event, index)}
+        onDrop={(event) => dropPlannerMedia(event, index)}
+      >
+        <span className="scheduler-media-card__order" aria-label={`Media order ${order}`}>
+          {order}
+        </span>
+        <button
+          className="scheduler-media-card__remove"
+          aria-label={`Remove media ${order}`}
+          title="Remove media"
+          onClick={() => removePlannerMedia(index)}
+          type="button"
+        >
+          <TrashIcon aria-hidden="true" />
+        </button>
+        {isVideoMediaUrl(url) ? (
+          <video className="scheduler-media-card__asset" src={normalizeDashboardMediaUrl(url)} controls playsInline />
+        ) : (
+          <img
+            className="scheduler-media-card__asset"
+            src={normalizeDashboardMediaUrl(url)}
+            alt={`Uploaded post media ${order}`}
+            draggable={false}
+          />
+        )}
+        {canReorderPlannerMedia ? (
+          <span className="scheduler-media-card__drag-handle" aria-hidden="true" title="Drag to reorder">
+            <Bars3Icon />
+          </span>
+        ) : null}
+      </div>
+    );
   }
 
   function collectPlannerTargets(defaultScheduledFor: string | null, scheduledForByTarget?: Map<string, string>): PlannerPostTarget[] | null {
@@ -1930,62 +2046,15 @@ export function PlannerPage() {
                     hasMixedPlannerMedia ? (
                       <div className="scheduler-media-mixed">
                         <div className="scheduler-media-grid">
-                          {plannerVideoMedia.map(({ url, index }) => {
-                            return (
-                              <div className="scheduler-media-card" key={`${url}-${index}`}>
-                                <button
-                                  className="scheduler-media-card__remove"
-                                  aria-label={`Remove media ${index + 1}`}
-                                  title="Remove media"
-                                  onClick={() => removePlannerMedia(index)}
-                                  type="button"
-                                >
-                                  <TrashIcon aria-hidden="true" />
-                                </button>
-                                <video className="scheduler-media-card__asset" src={normalizeDashboardMediaUrl(url)} controls playsInline />
-                              </div>
-                            );
-                          })}
+                          {plannerVideoMedia.map(({ url, index }) => renderPlannerMediaCard(url, index))}
                         </div>
                         <div className="scheduler-media-thumbnails">
-                          {plannerImageMedia.map(({ url, index }) => {
-                            return (
-                              <div className="scheduler-media-card scheduler-media-card--thumb" key={`${url}-${index}`}>
-                                <button
-                                  className="scheduler-media-card__remove"
-                                  aria-label={`Remove media ${index + 1}`}
-                                  title="Remove media"
-                                  onClick={() => removePlannerMedia(index)}
-                                  type="button"
-                                >
-                                  <TrashIcon aria-hidden="true" />
-                                </button>
-                                <img className="scheduler-media-card__asset" src={normalizeDashboardMediaUrl(url)} alt={`Uploaded post media ${index + 1}`} />
-                              </div>
-                            );
-                          })}
+                          {plannerImageMedia.map(({ url, index }) => renderPlannerMediaCard(url, index, { thumbnail: true }))}
                         </div>
                       </div>
                     ) : (
                       <div className="scheduler-media-grid">
-                        {form.media_urls.map((url, index) => (
-                          <div className="scheduler-media-card" key={`${url}-${index}`}>
-                            <button
-                              className="scheduler-media-card__remove"
-                              aria-label={`Remove media ${index + 1}`}
-                              title="Remove media"
-                              onClick={() => removePlannerMedia(index)}
-                              type="button"
-                            >
-                              <TrashIcon aria-hidden="true" />
-                            </button>
-                            {isVideoMediaUrl(url) ? (
-                              <video className="scheduler-media-card__asset" src={normalizeDashboardMediaUrl(url)} controls playsInline />
-                            ) : (
-                              <img className="scheduler-media-card__asset" src={normalizeDashboardMediaUrl(url)} alt={`Uploaded post media ${index + 1}`} />
-                            )}
-                          </div>
-                        ))}
+                        {form.media_urls.map((url, index) => renderPlannerMediaCard(url, index))}
                       </div>
                     )
                   ) : null}

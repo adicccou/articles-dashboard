@@ -4,6 +4,9 @@ import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tabl
 import { markLinkedPlannerItemsPublished } from "../lib/social-publish";
 
 const IMAGE_URL_ALIASES = ["image_url", "imageUrl", "imageURL", "image", "photo", "picture", "media", "media_url", "mediaUrl", "media_urls", "mediaUrls", "url"] as const;
+const TWITTER_OAUTH_REQUEST_TOKEN_URL = "https://api.x.com/oauth/request_token";
+const TWITTER_OAUTH_AUTHORIZE_URL = "https://api.x.com/oauth/authorize";
+const TWITTER_OAUTH_ACCESS_TOKEN_URL = "https://api.x.com/oauth/access_token";
 
 type TwitterAccountPayload = {
   username: string;
@@ -19,11 +22,24 @@ type TwitterAccountUpdatePayload = Partial<TwitterAccountPayload> & {
   status?: "active" | "inactive";
 };
 
+type PendingTwitterOAuth = {
+  api_key?: string;
+  api_secret?: string;
+  redirect_uri?: string;
+};
+
 type TwitterCredentials = {
   apiKey: string;
   apiSecret: string;
   accessToken: string;
   accessSecret: string;
+};
+
+type TwitterPresentationProfile = {
+  user_id: string;
+  username: string;
+  display_name: string | null;
+  avatar_url: string | null;
 };
 
 type SocialPostRow = {
@@ -166,6 +182,93 @@ async function readAccountPresentationSettings(
   };
 }
 
+async function syncTwitterAccountPresentation(
+  env: Env,
+  accountId: number,
+  profile: TwitterPresentationProfile,
+  scopeId = DEFAULT_USER_ID,
+): Promise<{ display_name: string | null; avatar_url: string | null }> {
+  const now = new Date().toISOString();
+  await Promise.all([
+    ...(profile.display_name?.trim()
+      ? [upsertSetting(env, `social_account:${accountId}:display_name`, profile.display_name.trim(), now, scopeId)]
+      : []),
+    ...(profile.avatar_url?.trim()
+      ? [upsertSetting(env, `social_account:${accountId}:avatar_url`, profile.avatar_url.trim(), now, scopeId)]
+      : []),
+  ]);
+  return {
+    display_name: profile.display_name?.trim() || null,
+    avatar_url: profile.avatar_url?.trim() || null,
+  };
+}
+
+function parseTwitterOAuthResponse(body: string): URLSearchParams {
+  return new URLSearchParams(body);
+}
+
+function stripXmlError(body: string): string {
+  return body
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function formatTwitterOAuthStartError(body: string, redirectUri: string): string {
+  const message = stripXmlError(body);
+  if (/Callback URL not approved/i.test(message)) {
+    return `Twitter/X rejected the callback URL. Add this exact callback URL in the X Developer app under User authentication settings > Callback URI / Redirect URL, then try again: ${redirectUri}`;
+  }
+  return message || "Failed to start Twitter/X authorization.";
+}
+
+async function readStoredTwitterOAuthConfig(
+  env: Env,
+  userId = DEFAULT_USER_ID,
+): Promise<{ api_key: string; api_secret: string; redirect_uri: string } | null> {
+  const filters = ["platform = 'twitter'", "status = 'active'"];
+  const values: unknown[] = [];
+  await appendScopedFilter(env, "social_accounts", filters, values, userId);
+  const account = await env.DB.prepare(
+    `SELECT id FROM social_accounts WHERE ${filters.join(" AND ")} ORDER BY updated_at DESC, id DESC LIMIT 1`,
+  )
+    .bind(...values)
+    .first<{ id: number }>();
+  if (!account?.id) return null;
+
+  const [apiKey, apiSecret, redirectUri] = await Promise.all([
+    readSetting(env, `social_account:${account.id}:twitter_api_key`, userId),
+    readSetting(env, `social_account:${account.id}:twitter_api_secret`, userId),
+    readSetting(env, `social_account:${account.id}:twitter_redirect_uri`, userId),
+  ]);
+  if (!apiKey || !apiSecret) return null;
+  return {
+    api_key: apiKey,
+    api_secret: apiSecret,
+    redirect_uri: redirectUri?.trim() || "",
+  };
+}
+
+async function twitterOAuthConfig(
+  env: Env,
+  requestUrl: string,
+  payload: PendingTwitterOAuth,
+  userId = DEFAULT_USER_ID,
+): Promise<{ api_key: string; api_secret: string; redirect_uri: string }> {
+  const requestOrigin = new URL(requestUrl).origin;
+  const stored = await readStoredTwitterOAuthConfig(env, userId);
+  const [globalApiKey, globalApiSecret, globalRedirectUri] = await Promise.all([
+    readSetting(env, "twitter_api_key", userId),
+    readSetting(env, "twitter_api_secret", userId),
+    readSetting(env, "twitter_redirect_uri", userId),
+  ]);
+  return {
+    api_key: payload.api_key?.trim() || env.TWITTER_API_KEY?.trim() || globalApiKey || stored?.api_key || "",
+    api_secret: payload.api_secret?.trim() || env.TWITTER_API_SECRET?.trim() || globalApiSecret || stored?.api_secret || "",
+    redirect_uri: payload.redirect_uri?.trim() || globalRedirectUri?.trim() || stored?.redirect_uri || env.TWITTER_REDIRECT_URI?.trim() || `${requestOrigin}/api/twitter/auth/callback`,
+  };
+}
+
 export async function getSocialPostSchemaCapabilities(env: Env): Promise<SocialPostSchemaCapabilities> {
   const columns = await env.DB.prepare("PRAGMA table_info(social_posts)").all<{ name: string }>();
   const names = new Set((columns.results ?? []).map((column) => String(column.name || "").trim().toLowerCase()));
@@ -201,24 +304,31 @@ async function hmacSha1Base64(key: string, value: string): Promise<string> {
   return btoa(String.fromCharCode(...new Uint8Array(signature)));
 }
 
-async function buildTwitterOAuthHeader(
+async function buildTwitterOAuthAuthorizationHeader(
   method: string,
   endpoint: string,
-  credentials: TwitterCredentials,
-  queryParams?: Record<string, string>,
+  options: {
+    apiKey: string;
+    apiSecret: string;
+    accessToken?: string;
+    accessSecret?: string;
+    queryParams?: Record<string, string>;
+    oauthParams?: Record<string, string>;
+  },
 ): Promise<string> {
   const oauthParams: Record<string, string> = {
-    oauth_consumer_key: credentials.apiKey,
+    oauth_consumer_key: options.apiKey,
     oauth_nonce: randomNonce(),
     oauth_signature_method: "HMAC-SHA1",
     oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
-    oauth_token: credentials.accessToken,
     oauth_version: "1.0",
+    ...(options.oauthParams ?? {}),
   };
+  if (options.accessToken) oauthParams.oauth_token = options.accessToken;
 
   const signatureParams = {
     ...oauthParams,
-    ...(queryParams ?? {}),
+    ...(options.queryParams ?? {}),
   };
 
   const parameterString = Object.entries(signatureParams)
@@ -230,13 +340,28 @@ async function buildTwitterOAuthHeader(
     oauthEncode(endpoint),
     oauthEncode(parameterString),
   ].join("&");
-  const signingKey = `${oauthEncode(credentials.apiSecret)}&${oauthEncode(credentials.accessSecret)}`;
+  const signingKey = `${oauthEncode(options.apiSecret)}&${oauthEncode(options.accessSecret ?? "")}`;
   oauthParams.oauth_signature = await hmacSha1Base64(signingKey, signatureBase);
 
   return `OAuth ${Object.entries(oauthParams)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => `${oauthEncode(key)}="${oauthEncode(value)}"`)
     .join(", ")}`;
+}
+
+async function buildTwitterOAuthHeader(
+  method: string,
+  endpoint: string,
+  credentials: TwitterCredentials,
+  queryParams?: Record<string, string>,
+): Promise<string> {
+  return buildTwitterOAuthAuthorizationHeader(method, endpoint, {
+    apiKey: credentials.apiKey,
+    apiSecret: credentials.apiSecret,
+    accessToken: credentials.accessToken,
+    accessSecret: credentials.accessSecret,
+    queryParams,
+  });
 }
 
 async function getTwitterCredentials(
@@ -575,6 +700,7 @@ type TwitterMeResponse = {
     id?: string;
     username?: string;
     name?: string;
+    profile_image_url?: string;
   };
 };
 
@@ -611,15 +737,12 @@ type TwitterConversationSearchResponse = {
   data?: TwitterConversationReply[];
 };
 
-async function fetchTwitterMe(env: Env): Promise<{ id: string; username: string; name?: string }> {
-  const credentials = await getTwitterCredentials(env);
-  if (!credentials) throw new Error("No active Twitter/X account with API credentials was found.");
-
-  const endpoint = "https://api.twitter.com/2/users/me?user.fields=username,name";
-  const meQueryParams = { "user.fields": "username,name" };
+async function fetchTwitterProfile(credentials: TwitterCredentials): Promise<TwitterPresentationProfile> {
+  const endpoint = "https://api.x.com/2/users/me?user.fields=username,name,profile_image_url";
+  const meQueryParams = { "user.fields": "username,name,profile_image_url" };
   const response = await fetch(endpoint, {
     headers: {
-      Authorization: await buildTwitterOAuthHeader("GET", "https://api.twitter.com/2/users/me", credentials, meQueryParams),
+      Authorization: await buildTwitterOAuthHeader("GET", "https://api.x.com/2/users/me", credentials, meQueryParams),
     },
   });
   const payload = await response.json() as TwitterMeResponse & { detail?: string; title?: string; errors?: Array<{ message?: string }> };
@@ -627,9 +750,21 @@ async function fetchTwitterMe(env: Env): Promise<{ id: string; username: string;
     throw new Error(extractTwitterErrorMessage(payload, "Failed to load the connected Twitter/X account."));
   }
   return {
-    id: payload.data.id,
+    user_id: payload.data.id,
     username: payload.data.username,
-    name: payload.data.name,
+    display_name: payload.data.name?.trim() || null,
+    avatar_url: payload.data.profile_image_url?.trim() || null,
+  };
+}
+
+async function fetchTwitterMe(env: Env): Promise<{ id: string; username: string; name?: string }> {
+  const credentials = await getTwitterCredentials(env);
+  if (!credentials) throw new Error("No active Twitter/X account with API credentials was found.");
+  const profile = await fetchTwitterProfile(credentials);
+  return {
+    id: profile.user_id,
+    username: profile.username,
+    name: profile.display_name || undefined,
   };
 }
 
@@ -946,6 +1081,84 @@ export async function publishTwitterPost(env: Env, postId: string, userId = DEFA
 
 // ------------------------------------------------------------------ twitter accounts
 
+async function upsertTwitterAccount(
+  env: Env,
+  payload: TwitterAccountPayload & { display_name?: string; avatar_url?: string },
+  scopeId = DEFAULT_USER_ID,
+): Promise<{
+  id: number;
+  platform: "twitter";
+  username: string;
+  status: "active" | "inactive";
+  connection_mode: "official_api";
+  created_at: string;
+  updated_at: string;
+}> {
+  const username = payload.username.trim().replace(/^@+/, "");
+  if (!username) throw new Error("username is required");
+
+  const connectionMode = "official_api";
+  const status = payload.status === "inactive" ? "inactive" : "active";
+  const now = new Date().toISOString();
+  const existingFilters = ["platform = 'twitter'", "username = ?"];
+  const existingValues: unknown[] = [username];
+  await appendScopedFilter(env, "social_accounts", existingFilters, existingValues, scopeId);
+  const existing = await env.DB.prepare(
+    `SELECT id, created_at FROM social_accounts WHERE ${existingFilters.join(" AND ")} ORDER BY id DESC LIMIT 1`,
+  )
+    .bind(...existingValues)
+    .first<{ id: number; created_at: string }>();
+  let accountId = existing?.id;
+  let createdAt = existing?.created_at ?? now;
+
+  if (accountId) {
+    const filters = ["id = ?"];
+    const values: unknown[] = [accountId];
+    await appendScopedFilter(env, "social_accounts", filters, values, scopeId);
+    await env.DB.prepare(`UPDATE social_accounts SET status = ?, updated_at = ? WHERE ${filters.join(" AND ")}`)
+      .bind(status, now, ...values)
+      .run();
+  } else {
+    const scoped = await scopedInsertColumns(env, "social_accounts", scopeId);
+    const result = await env.DB.prepare(
+      `INSERT INTO social_accounts (${[...scoped.columns, "platform", "username", "status", "created_at", "updated_at"].join(", ")})
+       VALUES (${[...scoped.columns.map(() => "?"), "?", "?", "?", "?", "?"].join(", ")})`,
+    )
+      .bind(...scoped.values, "twitter", username, status, now, now)
+      .run() as { meta: { last_row_id: number } };
+    accountId = result.meta.last_row_id;
+    createdAt = now;
+  }
+
+  await Promise.all([
+    upsertSetting(env, `social_account:${accountId}:connection_mode`, connectionMode, now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:twitter_api_key`, payload.api_key.trim(), now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:twitter_api_secret`, payload.api_secret.trim(), now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:twitter_access_token`, payload.access_token.trim(), now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:twitter_access_secret`, payload.access_secret.trim(), now, scopeId),
+    upsertSetting(env, "twitter_api_key", payload.api_key.trim(), now, scopeId),
+    upsertSetting(env, "twitter_api_secret", payload.api_secret.trim(), now, scopeId),
+    upsertSetting(env, "twitter_access_token", payload.access_token.trim(), now, scopeId),
+    upsertSetting(env, "twitter_access_secret", payload.access_secret.trim(), now, scopeId),
+    ...(payload.display_name?.trim()
+      ? [upsertSetting(env, `social_account:${accountId}:display_name`, payload.display_name.trim(), now, scopeId)]
+      : []),
+    ...(payload.avatar_url?.trim()
+      ? [upsertSetting(env, `social_account:${accountId}:avatar_url`, payload.avatar_url.trim(), now, scopeId)]
+      : []),
+  ]);
+
+  return {
+    id: accountId,
+    platform: "twitter",
+    username,
+    status,
+    connection_mode: connectionMode,
+    created_at: createdAt,
+    updated_at: now,
+  };
+}
+
 export async function listTwitterAccounts(
   env: Env,
   scopeId = DEFAULT_USER_ID,
@@ -1012,7 +1225,18 @@ export async function listTwitterAccounts(
         updated_at: string;
         api_credentials_ready: number;
       };
-      const presentation = await readAccountPresentationSettings(env, account.id, scopeId);
+      let presentation = await readAccountPresentationSettings(env, account.id, scopeId);
+      if (!presentation.display_name || !presentation.avatar_url) {
+        const credentials = await getTwitterCredentials(env, account.id, scopeId);
+        if (credentials) {
+          try {
+            const profile = await fetchTwitterProfile(credentials);
+            presentation = await syncTwitterAccountPresentation(env, account.id, profile, scopeId);
+          } catch {
+            // Keep the saved presentation if live Twitter enrichment fails.
+          }
+        }
+      }
       return {
         id: account.id,
         platform: account.platform,
@@ -1033,6 +1257,62 @@ export async function listTwitterAccounts(
   }
 }
 
+export async function authorizeTwitterAccount(
+  env: Env,
+  request: Request,
+  userId = DEFAULT_USER_ID,
+): Promise<Response> {
+  try {
+    const payload = await parseJson<PendingTwitterOAuth>(request);
+    const config = await twitterOAuthConfig(env, request.url, payload, userId);
+    if (!config.api_key || !config.api_secret) {
+      return errorResponse(
+        "Twitter/X OAuth is not configured. Missing Twitter API key and API secret in Worker config or saved app settings.",
+        500,
+      );
+    }
+
+    const authorization = await buildTwitterOAuthAuthorizationHeader("POST", TWITTER_OAUTH_REQUEST_TOKEN_URL, {
+      apiKey: config.api_key,
+      apiSecret: config.api_secret,
+      oauthParams: {
+        oauth_callback: config.redirect_uri,
+      },
+    });
+    const response = await fetch(TWITTER_OAUTH_REQUEST_TOKEN_URL, {
+      method: "POST",
+      headers: {
+        Authorization: authorization,
+      },
+    });
+    const body = await response.text();
+    const params = parseTwitterOAuthResponse(body);
+    const oauthToken = params.get("oauth_token")?.trim() || "";
+    const oauthTokenSecret = params.get("oauth_token_secret")?.trim() || "";
+    const callbackConfirmed = params.get("oauth_callback_confirmed")?.trim() || "";
+
+    if (!response.ok || !oauthToken || !oauthTokenSecret || callbackConfirmed !== "true") {
+      return errorResponse(formatTwitterOAuthStartError(body, config.redirect_uri), response.ok ? 502 : response.status);
+    }
+
+    const now = new Date().toISOString();
+    await upsertSetting(env, `twitter_oauth_token:${oauthToken}`, JSON.stringify({
+      api_key: config.api_key,
+      api_secret: config.api_secret,
+      redirect_uri: config.redirect_uri,
+      request_token_secret: oauthTokenSecret,
+      user_id: ownerId(userId),
+      created_at: now,
+    }), now, userId);
+
+    const authUrl = new URL(TWITTER_OAUTH_AUTHORIZE_URL);
+    authUrl.searchParams.set("oauth_token", oauthToken);
+    return jsonResponse({ auth_url: authUrl.toString() });
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Failed to start Twitter/X authorization", 500);
+  }
+}
+
 export async function addTwitterAccount(
   env: Env,
   request: Request,
@@ -1041,51 +1321,139 @@ export async function addTwitterAccount(
 ): Promise<Response> {
   try {
     const payload = await parseJson<TwitterAccountPayload>(request);
-    const username = payload.username?.trim().replace(/^@+/, "");
-    if (!username) return errorResponse("username is required", 400);
-    const connectionMode = "official_api";
-    const status = payload.status === "inactive" ? "inactive" : "active";
+    if (!payload.username?.trim()) return errorResponse("username is required", 400);
     if (!payload.api_key?.trim()) return errorResponse("API key is required", 400);
     if (!payload.api_secret?.trim()) return errorResponse("API secret is required", 400);
     if (!payload.access_token?.trim()) return errorResponse("Access token is required", 400);
     if (!payload.access_secret?.trim()) return errorResponse("Access secret is required", 400);
+    return jsonResponse(await upsertTwitterAccount(env, payload, scopeId), { status: 201 });
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Failed to add account", 500);
+  }
+}
 
-    const now = new Date().toISOString();
-    const scoped = await scopedInsertColumns(env, "social_accounts", scopeId);
-    const result = await env.DB.prepare(
-      `INSERT INTO social_accounts (${[...scoped.columns, "platform", "username", "status", "created_at", "updated_at"].join(", ")})
-       VALUES (${[...scoped.columns.map(() => "?"), "?", "?", "?", "?", "?"].join(", ")})`,
-    )
-      .bind(...scoped.values, "twitter", username, status, now, now)
-      .run() as { meta: { last_row_id: number } };
+export async function handleTwitterOAuthCallback(env: Env, url: URL): Promise<Response> {
+  try {
+    const denied = url.searchParams.get("denied");
+    if (denied) {
+      return new Response(`<html><body><h1>Twitter/X authorization cancelled</h1><p>${denied}</p></body></html>`, {
+        status: 400,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
 
-    const accountId = result.meta.last_row_id;
-    await Promise.all([
-      upsertSetting(env, `social_account:${accountId}:connection_mode`, connectionMode, now, scopeId),
-      upsertSetting(env, `social_account:${accountId}:twitter_api_key`, payload.api_key.trim(), now, scopeId),
-      upsertSetting(env, `social_account:${accountId}:twitter_api_secret`, payload.api_secret.trim(), now, scopeId),
-      upsertSetting(env, `social_account:${accountId}:twitter_access_token`, payload.access_token.trim(), now, scopeId),
-      upsertSetting(env, `social_account:${accountId}:twitter_access_secret`, payload.access_secret.trim(), now, scopeId),
-      upsertSetting(env, "twitter_api_key", payload.api_key.trim(), now, scopeId),
-      upsertSetting(env, "twitter_api_secret", payload.api_secret.trim(), now, scopeId),
-      upsertSetting(env, "twitter_access_token", payload.access_token.trim(), now, scopeId),
-      upsertSetting(env, "twitter_access_secret", payload.access_secret.trim(), now, scopeId),
-    ]);
+    const oauthToken = url.searchParams.get("oauth_token");
+    const oauthVerifier = url.searchParams.get("oauth_verifier");
+    if (!oauthToken || !oauthVerifier) {
+      return new Response("<html><body><h1>Invalid Twitter/X OAuth callback</h1></body></html>", {
+        status: 400,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
 
-    return jsonResponse(
-      {
-        id: accountId,
-        platform: "twitter",
-        username,
-        status,
-        connection_mode: connectionMode,
-        created_at: now,
-        updated_at: now,
+    const stateKey = `twitter_oauth_token:${oauthToken}`;
+    const row = await env.DB.prepare("SELECT value FROM app_settings WHERE key = ?").bind(stateKey).first<{ value: string }>();
+    if (!row?.value) {
+      return new Response("<html><body><h1>Twitter/X OAuth state expired</h1></body></html>", {
+        status: 400,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
+    const pending = JSON.parse(row.value) as {
+      api_key: string;
+      api_secret: string;
+      redirect_uri: string;
+      request_token_secret: string;
+      user_id?: number;
+      created_at?: string;
+    };
+    const pendingUserId = ownerId(pending.user_id);
+
+    const authorization = await buildTwitterOAuthAuthorizationHeader("POST", TWITTER_OAUTH_ACCESS_TOKEN_URL, {
+      apiKey: pending.api_key,
+      apiSecret: pending.api_secret,
+      accessToken: oauthToken,
+      accessSecret: pending.request_token_secret,
+      oauthParams: {
+        oauth_verifier: oauthVerifier,
       },
-      { status: 201 },
+    });
+    const response = await fetch(TWITTER_OAUTH_ACCESS_TOKEN_URL, {
+      method: "POST",
+      headers: {
+        Authorization: authorization,
+      },
+    });
+    const body = await response.text();
+    const params = parseTwitterOAuthResponse(body);
+    const accessToken = params.get("oauth_token")?.trim() || "";
+    const accessSecret = params.get("oauth_token_secret")?.trim() || "";
+    const screenName = params.get("screen_name")?.trim() || "";
+    const userId = params.get("user_id")?.trim() || "";
+
+    if (!response.ok || !accessToken || !accessSecret) {
+      return new Response(`<html><body><h1>Twitter/X token exchange failed</h1><p>${body || "Unknown error"}</p></body></html>`, {
+        status: 500,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
+    const credentials: TwitterCredentials = {
+      apiKey: pending.api_key,
+      apiSecret: pending.api_secret,
+      accessToken,
+      accessSecret,
+    };
+
+    let profile: TwitterPresentationProfile = {
+      user_id: userId,
+      username: screenName || userId,
+      display_name: null,
+      avatar_url: null,
+    };
+    try {
+      profile = await fetchTwitterProfile(credentials);
+    } catch {
+      // Keep the token exchange result even if profile enrichment fails.
+    }
+
+    await upsertTwitterAccount(env, {
+      username: profile.username || screenName || userId,
+      api_key: pending.api_key,
+      api_secret: pending.api_secret,
+      access_token: accessToken,
+      access_secret: accessSecret,
+      status: "active",
+      display_name: profile.display_name || undefined,
+      avatar_url: profile.avatar_url || undefined,
+    }, pendingUserId);
+    await env.DB.prepare("DELETE FROM app_settings WHERE key = ?").bind(stateKey).run();
+
+    return new Response(
+      `<html>
+        <head><title>Twitter/X connected</title></head>
+        <body>
+          <h1>Twitter/X account connected</h1>
+          <p>You can return to the dashboard now.</p>
+          <script>
+            const payload = { type: "twitter_connected", ok: true };
+            if (window.opener) {
+              window.opener.postMessage(payload, window.location.origin);
+              window.close();
+            } else {
+              window.location.href = "/";
+            }
+          </script>
+        </body>
+      </html>`,
+      { status: 200, headers: { "Content-Type": "text/html" } },
     );
   } catch {
-    return errorResponse("Failed to add account", 500);
+    return new Response("<html><body><h1>Error processing Twitter/X OAuth callback</h1></body></html>", {
+      status: 500,
+      headers: { "Content-Type": "text/html" },
+    });
   }
 }
 

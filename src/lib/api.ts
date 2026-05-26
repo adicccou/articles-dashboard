@@ -10,6 +10,26 @@ type SocialReplyPublishResponse = {
   reply_audience?: string | null;
 };
 
+function stripXmlError(raw: string): string {
+  return raw
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeApiError(raw: string, status: number): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return `Request failed with ${status}`;
+  if (/^<\?xml|^<errors?\b/i.test(trimmed)) {
+    const message = stripXmlError(trimmed);
+    if (/Callback URL not approved/i.test(message)) {
+      return "Twitter/X rejected the callback URL. Add the callback URL shown by the dashboard to the X Developer app, then try again.";
+    }
+    return message || `Request failed with ${status}`;
+  }
+  return trimmed;
+}
+
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
     credentials: "include",
@@ -28,7 +48,7 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
         const parsed = JSON.parse(raw) as { error?: string; message?: string };
         parsedMessage = parsed.error || parsed.message || null;
       } catch {}
-      throw new Error(parsedMessage || raw || `Request failed with ${response.status}`);
+      throw new Error(parsedMessage || normalizeApiError(raw, response.status));
     }
     throw new Error(`Request failed with ${response.status}`);
   }
@@ -444,6 +464,16 @@ export const api = {
     request<{ auth_url: string }>("/api/instagram/auth/authorize", {
       method: "POST",
       body: JSON.stringify({}),
+    }),
+  startLinkedInOAuth: () =>
+    request<{ auth_url: string }>("/api/linkedin/auth/authorize", {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  startTwitterOAuth: (payload: SocialAccountInput = {}) =>
+    request<{ auth_url: string }>("/api/twitter/auth/authorize", {
+      method: "POST",
+      body: JSON.stringify(payload),
     }),
   listTwitterAccounts: () => request<SocialAccount[]>("/api/social/twitter/accounts"),
   addTwitterAccount: (payload: SocialAccountInput) =>

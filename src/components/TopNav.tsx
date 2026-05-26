@@ -56,7 +56,7 @@ export const TopNav: React.FC<TopNavProps> = ({
     <nav className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/95 backdrop-blur" aria-label="Dashboard navigation">
       <div className="mx-auto flex min-h-16 w-full max-w-[1440px] items-center gap-4 px-5 sm:px-6">
         <div className="flex h-10 shrink-0 items-center justify-center" aria-label="Oilor Studio logo">
-          <img src={logoMark} alt="Oilor Studio" className="h-8 w-auto object-contain" />
+          <img src={logoMark} alt="Oilor Studio" className="h-6 w-auto object-contain" />
         </div>
 
         <div className="dashboard-nav-menu flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">

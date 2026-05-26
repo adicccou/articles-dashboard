@@ -1,6 +1,6 @@
 import type { Env } from "./types";
 import type { DashboardUser } from "./ownership";
-import { DEFAULT_USER_ID, attachPrimaryWorkspace, ensureDefaultWorkspace } from "./ownership";
+import { DEFAULT_USER_ID, attachPrimaryWorkspace, ensureDefaultWorkspace, tableHasColumn } from "./ownership";
 
 const PASSWORD_HASH_PREFIX = "pbkdf2-sha256";
 const PASSWORD_ITERATIONS = 120000;
@@ -36,6 +36,10 @@ function timingSafeEqual(left: string, right: string): boolean {
 
 export function normalizeUsername(value: unknown): string {
   return String(value ?? "").trim().toLowerCase();
+}
+
+export function configuredDashboardOwnerEmail(env: Env): string {
+  return normalizeUsername(env.DASHBOARD_OWNER_EMAIL || "adiccou@gmail.com");
 }
 
 export function publicUser(row: DashboardUser): DashboardUser {
@@ -79,12 +83,21 @@ export async function getUserByUsername(env: Env, username: string): Promise<Das
   const row = await env.DB.prepare("SELECT * FROM dashboard_users WHERE LOWER(username) = LOWER(?)")
     .bind(username)
     .first<DashboardUser>();
+    return row ? publicUser(row) : null;
+}
+
+export async function getUserByEmail(env: Env, email: string): Promise<DashboardUser | null> {
+  if (!(await usersTableExists(env))) return null;
+  const row = await env.DB.prepare("SELECT * FROM dashboard_users WHERE LOWER(email) = LOWER(?)")
+    .bind(normalizeUsername(email))
+    .first<DashboardUser>();
   return row ? publicUser(row) : null;
 }
 
 export async function ensureDefaultUser(env: Env): Promise<DashboardUser> {
   const now = new Date().toISOString();
-  const username = normalizeUsername(env.ADMIN_USERNAME || "admin") || "admin";
+  const ownerEmail = configuredDashboardOwnerEmail(env);
+  const username = ownerEmail || normalizeUsername(env.ADMIN_USERNAME || "admin") || "admin";
   if (!(await usersTableExists(env))) {
     return {
       id: DEFAULT_USER_ID,
@@ -115,8 +128,107 @@ export async function ensureDefaultUser(env: Env): Promise<DashboardUser> {
     .bind(DEFAULT_USER_ID, username, username, now, now)
     .run();
 
+  if (ownerEmail) {
+    try {
+      await env.DB.prepare(
+        "UPDATE dashboard_users SET email = ?, updated_at = ? WHERE id = ? AND (email IS NULL OR LOWER(email) != LOWER(?))",
+      )
+        .bind(ownerEmail, now, DEFAULT_USER_ID, ownerEmail)
+        .run();
+    } catch {
+      // Keep auth usable even if an older schema or duplicate email blocks the owner-email sync.
+    }
+  }
+
   const user = await getUserById(env, DEFAULT_USER_ID);
   if (!user) throw new Error("Default dashboard user could not be created");
+  await ensureDefaultWorkspace(env);
+  return attachPrimaryWorkspace(env, user);
+}
+
+export type GoogleDashboardProfile = {
+  sub: string;
+  email: string;
+  email_verified: boolean;
+  name?: string | null;
+  picture?: string | null;
+};
+
+export async function upsertGoogleDashboardUser(env: Env, profile: GoogleDashboardProfile): Promise<DashboardUser> {
+  if (!profile.sub?.trim()) throw new Error("Google account did not return a stable subject id.");
+  const email = normalizeUsername(profile.email);
+  if (!email) throw new Error("Google account did not return an email address.");
+
+  await ensureDefaultUser(env);
+
+  const now = new Date().toISOString();
+  const ownerEmail = configuredDashboardOwnerEmail(env);
+  const displayName = String(profile.name ?? "").trim() || email;
+  const avatarUrl = String(profile.picture ?? "").trim() || null;
+  const hasGoogleSub = await tableHasColumn(env, "dashboard_users", "google_sub");
+  const hasGoogleEmailVerified = await tableHasColumn(env, "dashboard_users", "google_email_verified");
+  const hasAuthProvider = await tableHasColumn(env, "dashboard_users", "auth_provider");
+
+  let target = hasGoogleSub
+    ? await env.DB.prepare("SELECT * FROM dashboard_users WHERE google_sub = ?")
+      .bind(profile.sub)
+      .first<DashboardUser>()
+    : null;
+  if (!target) {
+    target = await env.DB.prepare("SELECT * FROM dashboard_users WHERE LOWER(email) = LOWER(?)")
+      .bind(email)
+      .first<DashboardUser>();
+  }
+  if (!target && email === ownerEmail) {
+    target = await env.DB.prepare("SELECT * FROM dashboard_users WHERE id = ?")
+      .bind(DEFAULT_USER_ID)
+      .first<DashboardUser>();
+  }
+
+  if (target) {
+    const updates = [
+      "username = ?",
+      "email = ?",
+      "display_name = ?",
+      "avatar_url = COALESCE(?, avatar_url)",
+      "status = 'active'",
+      "updated_at = ?",
+    ];
+    const values: unknown[] = [email, email, displayName, avatarUrl, now];
+    if (email === ownerEmail) updates.push("role = 'owner'");
+    if (hasGoogleSub) updates.push("google_sub = ?"), values.push(profile.sub);
+    if (hasGoogleEmailVerified) updates.push("google_email_verified = ?"), values.push(profile.email_verified ? 1 : 0);
+    if (hasAuthProvider) updates.push("auth_provider = ?"), values.push("google");
+    values.push(target.id);
+    await env.DB.prepare(`UPDATE dashboard_users SET ${updates.join(", ")} WHERE id = ?`)
+      .bind(...values)
+      .run();
+  } else {
+    const columns = ["username", "email", "display_name", "avatar_url", "role", "status", "timezone", "created_at", "updated_at"];
+    const placeholders = ["?", "?", "?", "?", "?", "'active'", "?", "?", "?"];
+    const values: unknown[] = [
+      email,
+      email,
+      displayName,
+      avatarUrl,
+      email === ownerEmail ? "owner" : "member",
+      "Asia/Kuala_Lumpur",
+      now,
+      now,
+    ];
+    if (hasGoogleSub) columns.push("google_sub"), placeholders.push("?"), values.push(profile.sub);
+    if (hasGoogleEmailVerified) columns.push("google_email_verified"), placeholders.push("?"), values.push(profile.email_verified ? 1 : 0);
+    if (hasAuthProvider) columns.push("auth_provider"), placeholders.push("?"), values.push("google");
+
+    await env.DB.prepare(
+      `INSERT INTO dashboard_users (${columns.join(", ")}) VALUES (${placeholders.join(", ")})`,
+    )
+      .bind(...values)
+      .run();
+  }
+
+  const user = await getUserByEmail(env, email);
+  if (!user) throw new Error("Google dashboard user could not be loaded after sign-in.");
   await ensureDefaultWorkspace(env);
   return attachPrimaryWorkspace(env, user);
 }

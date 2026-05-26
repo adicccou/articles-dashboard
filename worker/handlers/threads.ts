@@ -17,6 +17,8 @@ type ThreadsAccountPayload = {
   scopes: string;
   access_token: string;
   user_id: string;
+  display_name?: string;
+  avatar_url?: string;
   connection_mode?: "official_api";
   status?: "active" | "inactive";
 };
@@ -72,6 +74,13 @@ type ThreadsGraphError = {
     error_subcode?: number;
     fbtrace_id?: string;
   };
+};
+
+type ThreadsProfileResponse = ThreadsGraphError & {
+  id: string;
+  username?: string;
+  name?: string;
+  threads_profile_picture_url?: string;
 };
 
 export function selectThreadsImageUrls(raw: unknown): string[] {
@@ -254,6 +263,69 @@ async function getThreadsCredentials(
   return { accountId: account.id, accessToken, userId: threadsUserId };
 }
 
+async function fetchThreadsProfilePresentation(credentials: ThreadsCredentials): Promise<{
+  username: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  user_id: string;
+}> {
+  const profileUrl = new URL(`${THREADS_GRAPH_BASE}/me`);
+  profileUrl.searchParams.set("fields", "id,username,name,threads_profile_picture_url");
+  profileUrl.searchParams.set("access_token", credentials.accessToken);
+  const profileResponse = await fetch(profileUrl.toString());
+  const profile = await profileResponse.json() as ThreadsProfileResponse;
+  if (!profileResponse.ok || profile.error) {
+    throw new Error(getGraphErrorMessage(profile, "Threads profile lookup failed."));
+  }
+
+  return {
+    username: String(profile.username ?? "").trim() || credentials.userId,
+    display_name: String(profile.name ?? "").trim() || null,
+    avatar_url: String(profile.threads_profile_picture_url ?? "").trim() || null,
+    user_id: String(profile.id ?? "").trim() || credentials.userId,
+  };
+}
+
+async function fetchThreadsBasicProfile(credentials: ThreadsCredentials): Promise<{
+  username: string;
+  user_id: string;
+}> {
+  const profileUrl = new URL(`${THREADS_GRAPH_BASE}/me`);
+  profileUrl.searchParams.set("fields", "id,username");
+  profileUrl.searchParams.set("access_token", credentials.accessToken);
+  const profileResponse = await fetch(profileUrl.toString());
+  const profile = await profileResponse.json() as ThreadsProfileResponse;
+  if (!profileResponse.ok || profile.error) {
+    throw new Error(getGraphErrorMessage(profile, "Threads profile lookup failed."));
+  }
+
+  return {
+    username: String(profile.username ?? "").trim() || credentials.userId,
+    user_id: String(profile.id ?? "").trim() || credentials.userId,
+  };
+}
+
+async function syncThreadsAccountPresentation(
+  env: Env,
+  accountId: number,
+  presentation: { display_name: string | null; avatar_url: string | null },
+  scopeId = DEFAULT_USER_ID,
+): Promise<{ display_name: string | null; avatar_url: string | null }> {
+  const now = new Date().toISOString();
+  const updates: Promise<void>[] = [];
+  if (presentation.display_name?.trim()) {
+    updates.push(upsertSetting(env, `social_account:${accountId}:display_name`, presentation.display_name.trim(), now, scopeId));
+  }
+  if (presentation.avatar_url?.trim()) {
+    updates.push(upsertSetting(env, `social_account:${accountId}:avatar_url`, presentation.avatar_url.trim(), now, scopeId));
+  }
+  if (updates.length) await Promise.all(updates);
+  return {
+    display_name: presentation.display_name?.trim() || null,
+    avatar_url: presentation.avatar_url?.trim() || null,
+  };
+}
+
 async function postThreadsContainer(
   env: Env,
   payload: { text: string; imageUrl?: string; imageUrls?: string[]; replyToId?: string; accountId?: number; userId?: number },
@@ -386,6 +458,12 @@ async function createThreadsAccount(
     upsertSetting(env, `social_account:${accountId}:threads_user_id`, payload.user_id.trim(), now, scopeId),
     upsertSetting(env, "threads_access_token", payload.access_token.trim(), now, scopeId),
     upsertSetting(env, "threads_user_id", payload.user_id.trim(), now, scopeId),
+    ...(payload.display_name?.trim()
+      ? [upsertSetting(env, `social_account:${accountId}:display_name`, payload.display_name.trim(), now, scopeId)]
+      : []),
+    ...(payload.avatar_url?.trim()
+      ? [upsertSetting(env, `social_account:${accountId}:avatar_url`, payload.avatar_url.trim(), now, scopeId)]
+      : []),
   ]);
 
   return {
@@ -460,9 +538,18 @@ export async function listThreadsAccounts(
     ).bind(...values).all();
     const results = await Promise.all((rows.results ?? []).map(async (row) => {
       const accountId = Number((row as { id: number }).id);
-      const [presentation] = await Promise.all([
-        readAccountPresentationSettings(env, accountId, scopeId),
-      ]);
+      let presentation = await readAccountPresentationSettings(env, accountId, scopeId);
+      if (!presentation.display_name || !presentation.avatar_url) {
+        const credentials = await getThreadsCredentials(env, accountId, scopeId);
+        if (credentials) {
+          try {
+            const profile = await fetchThreadsProfilePresentation(credentials);
+            presentation = await syncThreadsAccountPresentation(env, accountId, profile, scopeId);
+          } catch {
+            // Leave the row as-is if Threads profile enrichment fails.
+          }
+        }
+      }
       return {
         ...row,
         ...presentation,
@@ -848,27 +935,48 @@ export async function handleThreadsOAuthCallback(env: Env, url: URL): Promise<Re
     }
 
     const longToken = await longTokenResponse.json() as { access_token: string };
-    const profileUrl = new URL(`${THREADS_GRAPH_BASE}/me`);
-    profileUrl.searchParams.set("fields", "id,username");
-    profileUrl.searchParams.set("access_token", longToken.access_token);
-    const profileResponse = await fetch(profileUrl.toString());
-
-    if (!profileResponse.ok) {
-      return new Response(`<html><body><h1>Threads profile lookup failed</h1><p>${await profileResponse.text()}</p></body></html>`, {
-        status: 500,
-        headers: { "Content-Type": "text/html" },
-      });
+    const callbackCredentials = {
+      accountId: 0,
+      accessToken: longToken.access_token,
+      userId: "",
+    };
+    let profile: {
+      username: string;
+      display_name: string | null;
+      avatar_url: string | null;
+      user_id: string;
+    };
+    try {
+      profile = await fetchThreadsProfilePresentation(callbackCredentials);
+    } catch {
+      try {
+        const basicProfile = await fetchThreadsBasicProfile(callbackCredentials);
+        profile = {
+          ...basicProfile,
+          display_name: null,
+          avatar_url: null,
+        };
+      } catch (error) {
+        return new Response(
+          `<html><body><h1>Threads profile lookup failed</h1><p>${error instanceof Error ? error.message : "Unknown error"}</p></body></html>`,
+          {
+            status: 500,
+            headers: { "Content-Type": "text/html" },
+          },
+        );
+      }
     }
 
-    const profile = await profileResponse.json() as { id: string; username?: string };
     await createThreadsAccount(env, {
-      username: profile.username || pending.username || profile.id,
+      username: profile.username || pending.username || profile.user_id,
       client_id: pending.client_id,
       client_secret: pending.client_secret,
       redirect_uri: pending.redirect_uri,
       scopes: pending.scopes,
       access_token: longToken.access_token,
-      user_id: profile.id,
+      user_id: profile.user_id,
+      display_name: profile.display_name || undefined,
+      avatar_url: profile.avatar_url || undefined,
     }, pendingUserId);
     await env.DB.prepare("DELETE FROM app_settings WHERE key = ?").bind(stateKey).run();
 

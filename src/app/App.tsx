@@ -16,6 +16,16 @@ import {
 import "../styles/app.css";
 
 const DASHBOARD_VIEW_STORAGE_KEY_PREFIX = "dashboard:last-view";
+const FALLBACK_SIGN_PATH = "/fallbacksign";
+
+function readAuthNotice(): string | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("auth_error") === "google_not_configured") {
+    return "Google sign-in needs OAuth credentials before it can be used. Use the password fallback for now.";
+  }
+  return null;
+}
 
 function readStoredView(surface: DashboardSurface): NavView {
   if (typeof window === "undefined") return getDefaultView(surface);
@@ -51,6 +61,11 @@ function syncViewUrl(surface: DashboardSurface, view: NavView) {
 
 export function App() {
   const [surface] = useState<DashboardSurface>(() => getDashboardSurface());
+  const loginMode: "google" | "fallback" =
+    typeof window !== "undefined" && window.location.pathname === FALLBACK_SIGN_PATH
+      ? "fallback"
+      : "google";
+  const [authNotice] = useState<string | null>(() => readAuthNotice());
   const [auth, setAuth] = useState<AuthState>({ authenticated: false });
   const [sites, setSites] = useState<Site[]>([]);
   const [articles, setArticles] = useState<ArticleRecord[]>([]);
@@ -143,16 +158,24 @@ export function App() {
     return <div className="loading-screen">Loading dashboard...</div>;
   }
 
-  if (!auth.authenticated) {
+  async function handlePasswordLogin(username: string, password: string, remember: boolean) {
+    const nextAuth = await api.login(username, password, remember);
+    if (loginMode === "fallback" && typeof window !== "undefined") {
+      window.history.replaceState(window.history.state, "", "/");
+    }
+    setAuth(nextAuth);
+    await load();
+  }
+
+  if (loginMode === "fallback" || !auth.authenticated) {
     return (
       <div className="login-screen">
         <LoginCard
           surface={surface}
-          onSubmit={async (username, password, remember) => {
-            const nextAuth = await api.login(username, password, remember);
-            setAuth(nextAuth);
-            await load();
-          }}
+          mode={loginMode}
+          googleAuthConfigured={auth.google_auth_configured !== false}
+          notice={authNotice}
+          onSubmit={handlePasswordLogin}
         />
       </div>
     );

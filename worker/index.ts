@@ -26,12 +26,17 @@ import { suggestSocialReply } from "./handlers/social-replies";
 import {
   addExtraSocialAccount,
   authorizeInstagramAccount,
+  authorizeLinkedInAccount,
   deleteExtraSocialAccount,
+  handleMetaDataDeletionRequest,
+  handleMetaDeauthorizeCallback,
   handleInstagramOAuthCallback,
+  handleLinkedInOAuthCallback,
   listExtraSocialAccounts,
   listInternalExtraSocialAccounts,
   publishExtraSocialPost,
   updateExtraSocialAccount,
+  updatePublishedLinkedInPost,
 } from "./handlers/social-accounts";
 import { completeCtraderConnectionFromAgent, getAppSettings, getCustomLeanDiagnostics, getCustomLeanSettings, getCustomLeanWorkers, getInternalAgentSettings, getLeanStatus, getLearningReport, getMlTradingAssets, getMlTradingDiagnostics, getMlTradingSettings, syncAgentFromSettings, updateAppSettings, updateCustomLeanSettings, updateMlTradingSettings } from "./handlers/settings";
 import {
@@ -57,6 +62,8 @@ import {
   addTwitterAccount,
   updateTwitterAccount,
   deleteTwitterAccount,
+  authorizeTwitterAccount,
+  handleTwitterOAuthCallback,
   getSocialPostSchemaCapabilities,
   listTwitterComments,
   searchTwitterPosts,
@@ -108,6 +115,7 @@ import {
 } from "./handlers/studio";
 import { handleMcpRequest } from "./handlers/mcp";
 import { createUser, getProfile, listUsers, updateProfile } from "./handlers/users";
+import { authorizeGoogleDashboardLogin, handleGoogleDashboardCallback, isGoogleAuthConfigured } from "./handlers/google-auth";
 
 function withCors(response: Response): Response {
   const headers = new Headers(response.headers);
@@ -774,10 +782,11 @@ async function handleInternalArticlePatch(request: Request, env: Env, id: number
 async function handleBootstrap(request: Request, env: Env) {
   const user = await getSessionUser(request, env);
   const authenticated = Boolean(user);
+  const googleAuthConfigured = isGoogleAuthConfigured(env);
   return json({
     auth: authenticated
-      ? { authenticated: true, username: user?.username, user }
-      : { authenticated: false },
+      ? { authenticated: true, username: user?.username, user, google_auth_configured: googleAuthConfigured }
+      : { authenticated: false, google_auth_configured: googleAuthConfigured },
     sites: authenticated ? await listSites(env) : [],
     articles: authenticated ? await listArticles(env) : [],
   });
@@ -791,7 +800,7 @@ async function handleLogin(request: Request, env: Env) {
   }
 
   return json(
-    { authenticated: true, username: user.username, user },
+    { authenticated: true, username: user.username, user, google_auth_configured: isGoogleAuthConfigured(env) },
     {
       headers: {
         "Set-Cookie": await createSessionCookie(user, env, body.remember !== false),
@@ -868,7 +877,10 @@ function isMarketingApiPath(pathname: string): boolean {
     "/api/categories",
     "/api/reddit",
     "/api/instagram",
+    "/api/linkedin",
+    "/api/meta",
     "/api/social",
+    "/api/twitter",
     "/api/threads",
     "/api/studio",
     "/api/planner",
@@ -934,6 +946,14 @@ export default {
 
     if (url.pathname === "/api/auth/login" && request.method === "POST") {
       return handleLogin(request, env);
+    }
+
+    if (url.pathname === "/api/auth/google/authorize" && request.method === "GET") {
+      return authorizeGoogleDashboardLogin(request, env);
+    }
+
+    if (url.pathname === "/api/auth/google/callback" && request.method === "GET") {
+      return handleGoogleDashboardCallback(request, env);
     }
 
     if (url.pathname === "/api/auth/logout" && request.method === "POST") {
@@ -1899,7 +1919,11 @@ export default {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
-      return await updateSocialPost(env, id, request, activeScopeId(user));
+      const updateRequest = request.clone();
+      const payload = await parseJson<Record<string, unknown>>(request.clone());
+      const linkedInEditError = await updatePublishedLinkedInPost(env, id, payload, activeScopeId(user));
+      if (linkedInEditError) return linkedInEditError;
+      return await updateSocialPost(env, id, updateRequest, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/social/posts/") && request.method === "DELETE") {
@@ -1985,6 +2009,24 @@ export default {
       return await handleInstagramOAuthCallback(env, url);
     }
 
+    if (url.pathname === "/api/meta/deauthorize" && request.method === "POST") {
+      return await handleMetaDeauthorizeCallback(env, request);
+    }
+
+    if (url.pathname === "/api/meta/data-deletion" && request.method === "POST") {
+      return await handleMetaDataDeletionRequest(env, request);
+    }
+
+    if (url.pathname === "/api/linkedin/auth/authorize" && request.method === "POST") {
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      return await authorizeLinkedInAccount(env, request, activeScopeId(user));
+    }
+
+    if (url.pathname === "/api/linkedin/auth/callback" && request.method === "GET") {
+      return await handleLinkedInOAuthCallback(env, url);
+    }
+
     if (url.pathname === "/api/social/accounts" && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
@@ -2006,6 +2048,16 @@ export default {
     }
 
     // Twitter accounts
+    if (url.pathname === "/api/twitter/auth/authorize" && request.method === "POST") {
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      return await authorizeTwitterAccount(env, request, activeScopeId(user));
+    }
+
+    if (url.pathname === "/api/twitter/auth/callback" && request.method === "GET") {
+      return await handleTwitterOAuthCallback(env, url);
+    }
+
     if (url.pathname === "/api/social/twitter/accounts" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
