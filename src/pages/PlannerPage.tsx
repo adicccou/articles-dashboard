@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { PencilSquareIcon, TrashIcon } from "@heroicons/react/24/solid";
+import { ExclamationTriangleIcon, PencilSquareIcon, TrashIcon } from "@heroicons/react/24/solid";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
 import { ModalCloseButton } from "../components/ModalCloseButton";
@@ -227,6 +227,10 @@ function plannerAccountLabel(account: SchedulerAccount): string {
   return `@${account.username} (${mode})`;
 }
 
+function plannerAccountModeLabel(account: SchedulerAccount): string {
+  return account.connection_mode === "playwright" ? "Browser profile" : "Official API";
+}
+
 function normalizeSubredditInput(value: string): string {
   return value.trim().replace(/^\/?r\//i, "").replace(/[^A-Za-z0-9_]/g, "");
 }
@@ -407,6 +411,8 @@ export function PlannerPage() {
   const [search, setSearch] = useState("");
   const [calendarDate, setCalendarDate] = useState(() => new Date());
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isPublishConfirmOpen, setIsPublishConfirmOpen] = useState(false);
+  const [publishConfirmTargets, setPublishConfirmTargets] = useState<PlannerPostTarget[]>([]);
   const [form, setForm] = useState<ScheduleFormState>(createEmptyScheduleForm());
   const [draggingPlannerItemId, setDraggingPlannerItemId] = useState<number | null>(null);
   const [dragOverWeekSlot, setDragOverWeekSlot] = useState<string | null>(null);
@@ -908,6 +914,8 @@ export function PlannerPage() {
     };
     setForm(nextForm);
     setNotice(null);
+    setIsPublishConfirmOpen(false);
+    setPublishConfirmTargets([]);
     setIsModalOpen(true);
   }
 
@@ -918,6 +926,8 @@ export function PlannerPage() {
       title: "",
     };
     setForm(createEmptyScheduleForm(availablePlatforms[0] ?? ""));
+    setIsPublishConfirmOpen(false);
+    setPublishConfirmTargets([]);
     setIsModalOpen(false);
   }
 
@@ -1082,6 +1092,10 @@ export function PlannerPage() {
   ) {
     clearDescriptionAutosave();
     setNotice(null);
+    if (options.publishNow && !form.description.trim()) {
+      setError("Add a description before publishing.");
+      return;
+    }
     const subreddit = normalizeSubredditInput(form.subreddit);
     const targets = collectPlannerTargets(scheduledFor, options.scheduledForByTarget);
     if (!targets) return;
@@ -1197,7 +1211,23 @@ export function PlannerPage() {
   async function saveSchedule(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const scheduledFor = form.scheduled_for ? new Date(form.scheduled_for).toISOString() : null;
-    await savePlannerItem(scheduledFor, { publishNow: !scheduledFor });
+    if (!scheduledFor) {
+      if (!form.description.trim()) {
+        setError("Add a description before publishing.");
+        return;
+      }
+      const targets = collectPlannerTargets(null);
+      if (!targets) return;
+      setPublishConfirmTargets(targets);
+      setIsPublishConfirmOpen(true);
+      return;
+    }
+    await savePlannerItem(scheduledFor);
+  }
+
+  async function confirmPublishNow() {
+    setIsPublishConfirmOpen(false);
+    await savePlannerItem(null, { publishNow: true });
   }
 
   async function autoSchedulePlannerItem() {
@@ -1664,14 +1694,22 @@ export function PlannerPage() {
                                 const accountId = String(account.id);
                                 const checked = selectedIds.includes(accountId);
                                 return (
-                                  <label className="scheduler-account-option" key={`${account.platform}-${account.id}`}>
+                                  <label
+                                    className="scheduler-account-option"
+                                    key={`${account.platform}-${account.id}`}
+                                    title={plannerAccountLabel(account)}
+                                  >
                                     <input
                                       type="checkbox"
                                       checked={checked}
                                       disabled={!canSelectModalPlatform}
                                       onChange={(event) => setPlatformAccountSelection(platform, accountId, event.target.checked)}
                                     />
-                                    <span>{plannerAccountLabel(account)}</span>
+                                    <span className="scheduler-account-option__check" aria-hidden="true" />
+                                    <span className="scheduler-account-option__content">
+                                      <strong>@{account.username}</strong>
+                                      <small>{plannerAccountModeLabel(account)}</small>
+                                    </span>
                                   </label>
                                 );
                               })}
@@ -1866,7 +1904,7 @@ export function PlannerPage() {
               </label>
               <div className="scheduler-submit-actions">
                 <button type="submit" disabled={saving}>
-                  {saving ? "Publishing..." : "Publish"}
+                  {saving ? "Working..." : form.scheduled_for ? "Schedule" : "Publish"}
                 </button>
                 <button
                   className="button-secondary"
@@ -1878,6 +1916,51 @@ export function PlannerPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      ) : null}
+      {isPublishConfirmOpen ? (
+        <div className="scheduler-confirm-backdrop">
+          <div
+            className="scheduler-confirm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="scheduler-publish-confirm-title"
+          >
+            <div className="scheduler-confirm-modal__icon" aria-hidden="true">
+              <ExclamationTriangleIcon />
+            </div>
+            <div className="scheduler-confirm-modal__body">
+              <div className="panel__title-row">
+                <div>
+                  <h2 id="scheduler-publish-confirm-title">Publish now?</h2>
+                  <p>This will send the post to the selected targets now.</p>
+                </div>
+                <ModalCloseButton onClick={() => setIsPublishConfirmOpen(false)} />
+              </div>
+              <div className="scheduler-confirm-targets" aria-label="Publishing targets">
+                {publishConfirmTargets.map((target) => (
+                  <div className="scheduler-confirm-target" key={plannerTargetKey(target.platform, target.account.id)}>
+                    <strong>{plannerPlatformLabel(target.platform)}</strong>
+                    <span>@{target.account.username}</span>
+                    <small>{plannerAccountModeLabel(target.account)}</small>
+                  </div>
+                ))}
+              </div>
+              <div className="scheduler-confirm-actions">
+                <button
+                  className="button-secondary"
+                  type="button"
+                  disabled={saving}
+                  onClick={() => setIsPublishConfirmOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button type="button" disabled={saving} onClick={() => void confirmPublishNow()}>
+                  {saving ? "Publishing..." : "Publish now"}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       ) : null}
