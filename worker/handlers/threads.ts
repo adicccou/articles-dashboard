@@ -351,7 +351,7 @@ export async function listThreadsAccounts(
     const values: unknown[] = [];
     await appendScopedFilter(env, "social_accounts", filters, values, scopeId);
     const rows = await env.DB.prepare(
-      `SELECT id, username, status, created_at, updated_at FROM social_accounts WHERE ${filters.join(" AND ")} ORDER BY created_at DESC`,
+      `SELECT id, 'threads' AS platform, username, status, created_at, updated_at FROM social_accounts WHERE ${filters.join(" AND ")} ORDER BY created_at DESC`,
     ).bind(...values).all();
     const results = await Promise.all((rows.results ?? []).map(async (row) => {
       const accountId = Number((row as { id: number }).id);

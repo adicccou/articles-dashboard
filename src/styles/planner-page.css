@@ -290,9 +290,11 @@
   border-right: 1px solid #e5e7eb;
   padding: 8px 10px 10px;
   background: #ffffff;
+  cursor: pointer;
   display: grid;
   gap: 8px;
   align-content: start;
+  transition: background 0.16s ease, box-shadow 0.16s ease;
 }
 
 .scheduler-calendar__day:nth-child(7n + 1) {
@@ -306,6 +308,16 @@
 
 .scheduler-calendar__day--today {
   background: #fcfdff;
+}
+
+.scheduler-calendar__day:hover {
+  background: #f8fafc;
+  box-shadow: inset 0 0 0 1px #dbeafe;
+}
+
+.scheduler-calendar__day:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: -2px;
 }
 
 .scheduler-calendar__day-top {
@@ -474,15 +486,32 @@
   background: #ffffff;
   border-bottom: 1px solid #e5e7eb;
   border-right: 1px solid #e5e7eb;
+  cursor: pointer;
   display: grid;
   gap: 4px;
   align-content: start;
   min-height: 48px;
   padding: 3px 4px;
+  transition: background 0.16s ease, box-shadow 0.16s ease;
 }
 
 .scheduler-week__cell--today {
   background: #fcfdff;
+}
+
+.scheduler-week__cell:hover {
+  background: #f8fafc;
+  box-shadow: inset 0 0 0 1px #dbeafe;
+}
+
+.scheduler-week__cell:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: -2px;
+}
+
+.scheduler-week__cell--drag-over {
+  background: #f1f5f9;
+  box-shadow: inset 0 0 0 2px #93c5fd;
 }
 
 .scheduler-week__slot-item {
@@ -496,6 +525,15 @@
   overflow: hidden;
   padding: 3px 6px;
   text-align: left;
+}
+
+.scheduler-week__slot-item--draggable {
+  cursor: grab;
+}
+
+.scheduler-week__slot-item--dragging {
+  cursor: grabbing;
+  opacity: 0.55;
 }
 
 .scheduler-week__slot-item:hover,
@@ -562,6 +600,13 @@
   gap: 10px;
 }
 
+.scheduler-modal-meta-row {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 24px;
+}
+
 .scheduler-account-field {
   display: grid;
   gap: 8px;
@@ -572,6 +617,13 @@
   display: grid;
   gap: 10px;
   justify-items: start;
+}
+
+.scheduler-modal-meta-row .scheduler-status-chip,
+.scheduler-modal-meta-row .scheduler-platform-chip {
+  font-size: 0.82rem;
+  min-height: 36px;
+  padding: 0 14px;
 }
 
 .scheduler-platform-chips {

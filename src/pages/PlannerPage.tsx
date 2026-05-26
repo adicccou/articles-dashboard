@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { PencilSquareIcon, TrashIcon } from "@heroicons/react/24/solid";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
@@ -168,8 +168,8 @@ function plannerPlatformLabel(platform: string): string {
   return clean ? `${clean.charAt(0).toUpperCase()}${clean.slice(1)}` : "Platform";
 }
 
-function normalizePlannerAccountPlatform(platform: string): SocialAccount["platform"] | null {
-  const normalized = platform.trim().toLowerCase();
+function normalizePlannerAccountPlatform(platform?: string | null): SocialAccount["platform"] | null {
+  const normalized = String(platform ?? "").trim().toLowerCase();
   if (["x", "twitter", "twitter/x"].includes(normalized)) return "twitter";
   if (["thread", "threads"].includes(normalized)) return "threads";
   if (normalized === "reddit") return "reddit";
@@ -204,23 +204,54 @@ function normalizeRedditAccount(account: RedditAccount): SchedulerAccount {
   };
 }
 
+type SchedulerSocialAccountSource = Pick<SocialAccount, "id" | "username" | "status"> &
+  Partial<Pick<SocialAccount, "platform" | "connection_mode" | "credentials_ready" | "playwright_ready">>;
+
+function normalizeSchedulerSocialAccount(
+  account: SchedulerSocialAccountSource,
+  fallbackPlatform?: string | null,
+): SchedulerAccount | null {
+  const platform = normalizePlannerAccountPlatform(account.platform ?? fallbackPlatform);
+  if (!platform) return null;
+
+  return {
+    id: account.id,
+    platform,
+    username: account.username,
+    status: account.status,
+    connection_mode: account.connection_mode,
+    credentials_ready: account.credentials_ready,
+    playwright_ready: account.playwright_ready,
+  };
+}
+
 function derivePlannerAccounts(
   twitterAccounts: SocialAccount[],
   threadsAccounts: SocialAccount[],
   redditAccounts: RedditAccount[],
   extraAccounts: SocialAccount[],
 ): SchedulerAccount[] {
-  return [
-    ...twitterAccounts,
-    ...threadsAccounts,
-    ...extraAccounts,
+  const accounts = [
+    ...twitterAccounts.map((account) => normalizeSchedulerSocialAccount(account, "twitter")),
+    ...threadsAccounts.map((account) => normalizeSchedulerSocialAccount(account, "threads")),
+    ...extraAccounts.map((account) => normalizeSchedulerSocialAccount(account)),
     ...redditAccounts.map(normalizeRedditAccount),
-  ].filter((account) => account.status === "active");
+  ].filter((account): account is SchedulerAccount => Boolean(account && account.status === "active"));
+  const seen = new Set<string>();
+  return accounts.filter((account) => {
+    const key = `${account.platform}:${account.id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function derivePlannerPlatforms(accounts: SchedulerAccount[]): Array<SocialAccount["platform"]> {
   const available = new Set<SocialAccount["platform"]>();
-  accounts.forEach((account) => available.add(account.platform));
+  accounts.forEach((account) => {
+    const platform = normalizePlannerAccountPlatform(account.platform);
+    if (platform) available.add(platform);
+  });
   return schedulerPlatformOrder.filter((platform) => available.has(platform));
 }
 
@@ -333,6 +364,15 @@ export function PlannerPage() {
   const [calendarDate, setCalendarDate] = useState(() => new Date());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [form, setForm] = useState<ScheduleFormState>(createEmptyScheduleForm());
+  const [draggingPlannerItemId, setDraggingPlannerItemId] = useState<number | null>(null);
+  const [dragOverWeekSlot, setDragOverWeekSlot] = useState<string | null>(null);
+  const lastAutosavedDescriptionRef = useRef<{ id?: number; description: string; title: string }>({
+    description: "",
+    title: "",
+  });
+  const autosaveDescriptionTokenRef = useRef(0);
+  const descriptionAutosaveTimeoutRef = useRef<number | null>(null);
+  const pendingDescriptionAutosaveRef = useRef<ScheduleFormState | null>(null);
 
   function selectView(nextView: SchedulerView) {
     setView(nextView);
@@ -458,7 +498,7 @@ export function PlannerPage() {
   }, [availablePlatforms, form.platform]);
   const normalizedModalPlatform = normalizePlannerAccountPlatform(form.platform);
   const modalAccounts = useMemo(
-    () => schedulerAccounts.filter((account) => account.platform === normalizedModalPlatform),
+    () => schedulerAccounts.filter((account) => normalizePlannerAccountPlatform(account.platform) === normalizedModalPlatform),
     [normalizedModalPlatform, schedulerAccounts],
   );
   const selectedModalAccount = useMemo(() => {
@@ -556,22 +596,129 @@ export function PlannerPage() {
     };
   }, [isModalOpen, isRedditModal, selectedRedditAccount]);
 
-  function openCreateModal() {
+  function clearDescriptionAutosaveTimer() {
+    if (descriptionAutosaveTimeoutRef.current === null) return;
+    window.clearTimeout(descriptionAutosaveTimeoutRef.current);
+    descriptionAutosaveTimeoutRef.current = null;
+  }
+
+  async function autosavePlannerDescription(snapshot: ScheduleFormState) {
+    if (!snapshot.id || normalizePlannerStatus(snapshot.status) !== "planned") return;
+
+    const title = buildPlannerTitle(snapshot);
+    const lastAutosaved = lastAutosavedDescriptionRef.current;
+    if (
+      lastAutosaved.id === snapshot.id &&
+      lastAutosaved.description === snapshot.description &&
+      lastAutosaved.title === title
+    ) {
+      return;
+    }
+
+    const token = autosaveDescriptionTokenRef.current + 1;
+    autosaveDescriptionTokenRef.current = token;
+    const storedDescription = snapshot.description.trim();
+
+    try {
+      if (snapshot.social_post_id) {
+        await api.updateSocialPost(snapshot.social_post_id, {
+          title,
+          content: storedDescription,
+        });
+      }
+      const result = await api.updatePlannerItem(snapshot.id, {
+        title,
+        description: storedDescription || null,
+      });
+
+      if (autosaveDescriptionTokenRef.current !== token) return;
+      lastAutosavedDescriptionRef.current = {
+        id: snapshot.id,
+        description: snapshot.description,
+        title,
+      };
+      setItems((current) =>
+        current.map((item) =>
+          item.id === snapshot.id
+            ? {
+                ...item,
+                title,
+                description: storedDescription || null,
+                updated_at: result.updated_at,
+              }
+            : item,
+        ),
+      );
+      setError(null);
+    } catch (err) {
+      if (autosaveDescriptionTokenRef.current !== token) return;
+      setError(err instanceof Error ? err.message : "Failed to autosave description");
+    }
+  }
+
+  function queueDescriptionAutosave(snapshot: ScheduleFormState, delay = 450) {
+    if (!snapshot.id || normalizePlannerStatus(snapshot.status) !== "planned") return;
+    pendingDescriptionAutosaveRef.current = snapshot;
+    clearDescriptionAutosaveTimer();
+    descriptionAutosaveTimeoutRef.current = window.setTimeout(() => {
+      descriptionAutosaveTimeoutRef.current = null;
+      const pending = pendingDescriptionAutosaveRef.current;
+      pendingDescriptionAutosaveRef.current = null;
+      if (pending) void autosavePlannerDescription(pending);
+    }, delay);
+  }
+
+  function flushDescriptionAutosave() {
+    clearDescriptionAutosaveTimer();
+    const pending = pendingDescriptionAutosaveRef.current;
+    pendingDescriptionAutosaveRef.current = null;
+    if (pending) void autosavePlannerDescription(pending);
+  }
+
+  function clearDescriptionAutosave() {
+    clearDescriptionAutosaveTimer();
+    pendingDescriptionAutosaveRef.current = null;
+    autosaveDescriptionTokenRef.current += 1;
+  }
+
+  function slotDateTime(day: Date, hour = AUTO_SCHEDULE_HOURS[0]) {
+    const scheduledAt = new Date(day);
+    scheduledAt.setHours(hour, 0, 0, 0);
+    return scheduledAt;
+  }
+
+  function openCreateModal(scheduledAt?: Date) {
     const platform = availablePlatforms[0] ?? "";
-    const account = schedulerAccounts.find((item) => item.platform === platform);
+    const account = schedulerAccounts.find((item) => normalizePlannerAccountPlatform(item.platform) === platform);
+    clearDescriptionAutosave();
+    lastAutosavedDescriptionRef.current = {
+      description: "",
+      title: "",
+    };
+    setError(null);
     setForm({
       ...createEmptyScheduleForm(platform),
       account_id: account ? String(account.id) : "",
+      scheduled_for: scheduledAt ? toDateTimeLocalValue(scheduledAt) : "",
     });
     setIsModalOpen(true);
   }
 
+  function openCreateModalForDay(day: Date) {
+    openCreateModal(slotDateTime(day));
+  }
+
+  function openCreateModalForWeekSlot(day: Date, hour: number) {
+    openCreateModal(slotDateTime(day, hour));
+  }
+
   function openEditModal(item: PlannerItem) {
-    setForm({
+    const description = item.description ?? "";
+    const nextForm = {
       id: item.id,
       social_post_id: item.social_post_id ?? null,
       title: item.title,
-      description: item.description ?? "",
+      description,
       media_urls: getPostImageUrls(item.image_url),
       item_type: item.item_type,
       platform: item.platform,
@@ -580,11 +727,23 @@ export function PlannerPage() {
       account_id: item.account_id ? String(item.account_id) : "",
       subreddit: item.subreddit ?? extractPlannerSubreddit(item.instruction),
       related_strategy_id: item.related_strategy_id ? String(item.related_strategy_id) : "",
-    });
+    };
+    clearDescriptionAutosave();
+    lastAutosavedDescriptionRef.current = {
+      id: item.id,
+      description,
+      title: buildPlannerTitle(nextForm),
+    };
+    setForm(nextForm);
     setIsModalOpen(true);
   }
 
   function closeModal() {
+    flushDescriptionAutosave();
+    lastAutosavedDescriptionRef.current = {
+      description: "",
+      title: "",
+    };
     setForm(createEmptyScheduleForm(availablePlatforms[0] ?? ""));
     setIsModalOpen(false);
   }
@@ -670,6 +829,7 @@ export function PlannerPage() {
   }
 
   async function savePlannerItem(scheduledFor: string | null) {
+    clearDescriptionAutosave();
     const normalizedPlatform = normalizePlannerAccountPlatform(form.platform);
     if (!normalizedPlatform) {
       setError("Platform is required.");
@@ -775,7 +935,9 @@ export function PlannerPage() {
       setImprovingDescription(true);
       setError(null);
       const result = await api.improvePlannerDescription({ description, platform: form.platform });
-      setForm((current) => ({ ...current, description: result.value }));
+      const nextForm = { ...form, description: result.value };
+      setForm(nextForm);
+      queueDescriptionAutosave(nextForm, 0);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to improve description");
     } finally {
@@ -789,6 +951,56 @@ export function PlannerPage() {
       await load({ silent: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete schedule");
+    }
+  }
+
+  async function movePlannerItemToWeekSlot(item: PlannerItem, day: Date, hour: number) {
+    if (normalizePlannerStatus(item.status) !== "planned") return;
+
+    const nextDate = new Date(day);
+    nextDate.setHours(hour, 0, 0, 0);
+    const scheduledFor = nextDate.toISOString();
+    const previousItems = items;
+
+    setItems((current) =>
+      current.map((currentItem) =>
+        currentItem.id === item.id
+          ? {
+              ...currentItem,
+              scheduled_for: scheduledFor,
+              status: "planned",
+            }
+          : currentItem,
+      ),
+    );
+
+    try {
+      if (item.social_post_id) {
+        await api.updateSocialPost(item.social_post_id, {
+          scheduled_at: scheduledFor,
+          status: "scheduled",
+        });
+      }
+      const result = await api.updatePlannerItem(item.id, {
+        scheduled_for: scheduledFor,
+        status: "planned",
+      });
+      setItems((current) =>
+        current.map((currentItem) =>
+          currentItem.id === item.id
+            ? {
+                ...currentItem,
+                scheduled_for: scheduledFor,
+                status: "planned",
+                updated_at: result.updated_at,
+              }
+            : currentItem,
+        ),
+      );
+      setError(null);
+    } catch (err) {
+      setItems(previousItems);
+      setError(err instanceof Error ? err.message : "Failed to move schedule");
     }
   }
 
@@ -836,7 +1048,7 @@ export function PlannerPage() {
             </div>
           </div>
           <div className="scheduler-hero__actions">
-            <button onClick={openCreateModal}>New</button>
+            <button onClick={() => openCreateModal()}>New</button>
           </div>
         </div>
 
@@ -938,6 +1150,15 @@ export function PlannerPage() {
                 className={`scheduler-calendar__day${
                   day.getMonth() !== calendarDate.getMonth() ? " scheduler-calendar__day--muted" : ""
                 }${sameDay(day, today) ? " scheduler-calendar__day--today" : ""}`}
+                onClick={() => openCreateModalForDay(day)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  openCreateModalForDay(day);
+                }}
+                role="button"
+                tabIndex={0}
+                aria-label={`Create post on ${formatMonthDay(day)}`}
               >
                 <div className="scheduler-calendar__day-top">
                   <div className="scheduler-calendar__day-number">{day.getDate()}</div>
@@ -947,7 +1168,10 @@ export function PlannerPage() {
                     <button
                       key={item.id}
                       className={`scheduler-calendar__event scheduler-calendar__event--${item.item_type}`}
-                      onClick={() => openEditModal(item)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openEditModal(item);
+                      }}
                     >
                       <span className="scheduler-calendar__event-time">
                         {item.scheduled_for ? formatDisplayTime(item.scheduled_for) : "Any time"}
@@ -1006,33 +1230,89 @@ export function PlannerPage() {
             {WEEK_HOUR_SLOTS.map((slot) => (
               <Fragment key={`week-slot-${slot.hour}`}>
                 <div className="scheduler-week__time-label">{slot.label}</div>
-                {weekItemsByDay.map(({ day, itemsByHour }) => (
-                  <div
-                    key={`${day.toISOString()}-${slot.hour}`}
-                    className={`scheduler-week__cell${sameDay(day, today) ? " scheduler-week__cell--today" : ""}`}
-                  >
-                    {itemsByHour[slot.hour]?.map((item) => {
-                      const status = normalizePlannerStatus(item.status);
-                      return (
-                        <button
-                          key={item.id}
-                          className={`scheduler-week__slot-item scheduler-week__slot-item--${item.item_type}`}
-                          onClick={() => openEditModal(item)}
-                        >
-                          <span className="scheduler-week__slot-meta">
-                            <span className="scheduler-week__slot-time">
-                              {item.scheduled_for ? formatDisplayTime(item.scheduled_for) : slot.label}
+                {weekItemsByDay.map(({ day, itemsByHour }) => {
+                  const slotKey = `${day.toISOString()}-${slot.hour}`;
+                  return (
+                    <div
+                      key={slotKey}
+                      className={`scheduler-week__cell${sameDay(day, today) ? " scheduler-week__cell--today" : ""}${
+                        dragOverWeekSlot === slotKey ? " scheduler-week__cell--drag-over" : ""
+                      }`}
+                      onDragOver={(event) => {
+                        if (!draggingPlannerItemId) return;
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = "move";
+                        setDragOverWeekSlot(slotKey);
+                      }}
+                      onDragLeave={(event) => {
+                        const nextTarget = event.relatedTarget;
+                        if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+                        setDragOverWeekSlot((current) => (current === slotKey ? null : current));
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        const droppedItemId = Number(event.dataTransfer.getData("text/plain") || draggingPlannerItemId);
+                        const droppedItem = items.find((plannerItem) => plannerItem.id === droppedItemId);
+                        setDraggingPlannerItemId(null);
+                        setDragOverWeekSlot(null);
+                        if (droppedItem) void movePlannerItemToWeekSlot(droppedItem, day, slot.hour);
+                      }}
+                      onClick={(event) => {
+                        if (event.target !== event.currentTarget || draggingPlannerItemId) return;
+                        openCreateModalForWeekSlot(day, slot.hour);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        openCreateModalForWeekSlot(day, slot.hour);
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Create post on ${formatMonthDay(day)} at ${slot.label}`}
+                    >
+                      {itemsByHour[slot.hour]?.map((item) => {
+                        const status = normalizePlannerStatus(item.status);
+                        const canDragSchedule = status === "planned";
+                        return (
+                          <button
+                            key={item.id}
+                            className={`scheduler-week__slot-item scheduler-week__slot-item--${item.item_type}${
+                              canDragSchedule ? " scheduler-week__slot-item--draggable" : ""
+                            }${draggingPlannerItemId === item.id ? " scheduler-week__slot-item--dragging" : ""}`}
+                            draggable={canDragSchedule}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openEditModal(item);
+                            }}
+                            onDragEnd={() => {
+                              setDraggingPlannerItemId(null);
+                              setDragOverWeekSlot(null);
+                            }}
+                            onDragStart={(event) => {
+                              if (!canDragSchedule) {
+                                event.preventDefault();
+                                return;
+                              }
+                              event.dataTransfer.effectAllowed = "move";
+                              event.dataTransfer.setData("text/plain", String(item.id));
+                              setDraggingPlannerItemId(item.id);
+                            }}
+                          >
+                            <span className="scheduler-week__slot-meta">
+                              <span className="scheduler-week__slot-time">
+                                {item.scheduled_for ? formatDisplayTime(item.scheduled_for) : slot.label}
+                              </span>
+                              <span className={`scheduler-status-chip scheduler-status-chip--micro scheduler-status-chip--${status}`}>
+                                {plannerStatusLabel(status)}
+                              </span>
                             </span>
-                            <span className={`scheduler-status-chip scheduler-status-chip--micro scheduler-status-chip--${status}`}>
-                              {plannerStatusLabel(status)}
-                            </span>
-                          </span>
-                          <span className="scheduler-week__slot-title">{displayPlannerTitle(item)}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ))}
+                            <span className="scheduler-week__slot-title">{displayPlannerTitle(item)}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
               </Fragment>
             ))}
           </div>
@@ -1048,34 +1328,46 @@ export function PlannerPage() {
                 <h2>{form.id ? "Edit Schedule" : "New post"}</h2>
                 <ModalCloseButton onClick={closeModal} />
               </div>
-              <div className="scheduler-platform-field">
-                <p className="scheduler-media-field__label">Platform</p>
-                {canSelectModalPlatform ? (
-                  <div className="scheduler-platform-chips" role="radiogroup" aria-label="Platform">
-                    {modalPlatforms.map((platform) => (
-                      <button
-                        key={platform}
-                        type="button"
-                        className={`scheduler-platform-chip${normalizePlannerAccountPlatform(form.platform) === platform ? " scheduler-platform-chip--active" : ""}`}
-                        onClick={() =>
-                          setForm((current) => ({
-                            ...current,
-                            platform,
-                            account_id: String(schedulerAccounts.find((account) => account.platform === platform)?.id ?? ""),
-                            subreddit: platform === "reddit" ? current.subreddit : "",
-                          }))
-                        }
-                        aria-pressed={normalizePlannerAccountPlatform(form.platform) === platform}
-                      >
-                        {plannerPlatformLabel(platform)}
-                      </button>
-                    ))}
+              <div className="scheduler-modal-meta-row">
+                <div className="scheduler-platform-field">
+                  <p className="scheduler-media-field__label">Platform</p>
+                  {canSelectModalPlatform ? (
+                    <div className="scheduler-platform-chips" role="radiogroup" aria-label="Platform">
+                      {modalPlatforms.map((platform) => (
+                        <button
+                          key={platform}
+                          type="button"
+                          className={`scheduler-platform-chip${normalizePlannerAccountPlatform(form.platform) === platform ? " scheduler-platform-chip--active" : ""}`}
+                          onClick={() =>
+                            setForm((current) => ({
+                              ...current,
+                              platform,
+                              account_id: String(
+                                schedulerAccounts.find((account) => normalizePlannerAccountPlatform(account.platform) === platform)?.id ?? "",
+                              ),
+                              subreddit: platform === "reddit" ? current.subreddit : "",
+                            }))
+                          }
+                          aria-pressed={normalizePlannerAccountPlatform(form.platform) === platform}
+                        >
+                          {plannerPlatformLabel(platform)}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="scheduler-platform-chips scheduler-platform-chips--static" aria-label="Platform">
+                      <span className="scheduler-platform-chip scheduler-platform-chip--active">{modalPlatformLabel}</span>
+                    </div>
+                  )}
+                </div>
+                {form.id ? (
+                  <div className="scheduler-modal-status-field">
+                    <p className="scheduler-media-field__label">Status</p>
+                    <span className={`scheduler-status-chip scheduler-status-chip--${modalStatus}`}>
+                      {plannerStatusLabel(modalStatus)}
+                    </span>
                   </div>
-                ) : (
-                  <div className="scheduler-platform-chips scheduler-platform-chips--static" aria-label="Platform">
-                    <span className="scheduler-platform-chip scheduler-platform-chip--active">{modalPlatformLabel}</span>
-                  </div>
-                )}
+                ) : null}
               </div>
               {modalAccounts.length > 0 ? (
                 <label className="scheduler-account-field">
@@ -1164,14 +1456,6 @@ export function PlannerPage() {
                   )}
                 </div>
               ) : null}
-              {form.id ? (
-                <div className="scheduler-modal-status-field">
-                  <p className="scheduler-media-field__label">Status</p>
-                  <span className={`scheduler-status-chip scheduler-status-chip--${modalStatus}`}>
-                    {plannerStatusLabel(modalStatus)}
-                  </span>
-                </div>
-              ) : null}
               <label className="scheduler-description-field">
                 <span className="scheduler-field-label-row">
                   <span>Description</span>
@@ -1189,7 +1473,12 @@ export function PlannerPage() {
                 <textarea
                   rows={4}
                   value={form.description}
-                  onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+                  onBlur={flushDescriptionAutosave}
+                  onChange={(event) => {
+                    const nextForm = { ...form, description: event.target.value };
+                    setForm(nextForm);
+                    queueDescriptionAutosave(nextForm);
+                  }}
                   placeholder={form.item_type === "campaign" ? "Campaign brief, audience, CTA" : "Post angle, CTA, or draft outline"}
                   disabled={isPublishedSchedule}
                 />

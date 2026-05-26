@@ -978,6 +978,7 @@ export async function listTwitterAccounts(
     const rows = await env.DB.prepare(
       `SELECT
          account.id,
+         'twitter' AS platform,
          account.username,
          account.status,
          account.created_at,
@@ -1006,6 +1007,7 @@ export async function listTwitterAccounts(
     const results = await Promise.all((rows.results ?? []).map(async (row) => {
       const account = row as {
         id: number;
+        platform: "twitter";
         username: string;
         status: "active" | "inactive";
         created_at: string;
@@ -1019,6 +1021,7 @@ export async function listTwitterAccounts(
       const playwrightReady = Boolean(playwright.login && playwright.password);
       return {
         id: account.id,
+        platform: account.platform,
         username: account.username,
         status: connectionMode === "playwright"
           ? account.status
