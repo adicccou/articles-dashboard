@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { selectThreadsImageUrl } from "./threads";
+import { selectThreadsImageUrl, selectThreadsImageUrls } from "./threads";
 
 describe("Threads media publishing", () => {
-  it("uses the first URL from stored multi-image arrays", () => {
+  it("keeps every URL from stored multi-image arrays for carousel publishing", () => {
+    expect(selectThreadsImageUrls(JSON.stringify([
+      "https://example.com/first.jpg",
+      "https://example.com/second.jpg",
+    ]))).toEqual([
+      "https://example.com/first.jpg",
+      "https://example.com/second.jpg",
+    ]);
     expect(selectThreadsImageUrl(JSON.stringify([
       "https://example.com/first.jpg",
       "https://example.com/second.jpg",
@@ -10,6 +17,6 @@ describe("Threads media publishing", () => {
   });
 
   it("ignores empty stored media arrays", () => {
-    expect(selectThreadsImageUrl("[]")).toBeUndefined();
+    expect(selectThreadsImageUrls("[]")).toEqual([]);
   });
 });

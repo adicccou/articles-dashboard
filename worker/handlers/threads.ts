@@ -70,24 +70,89 @@ type ThreadsGraphError = {
   };
 };
 
-export function selectThreadsImageUrl(raw: string | null | undefined): string | undefined {
-  const value = String(raw ?? "").trim();
-  if (!value) return undefined;
-
-  if (value.startsWith("[")) {
-    try {
-      const parsed = JSON.parse(value);
-      if (Array.isArray(parsed)) {
-        return parsed
-          .map((item) => String(item ?? "").trim())
-          .find(Boolean);
+export function selectThreadsImageUrls(raw: unknown): string[] {
+  if (raw === null || raw === undefined) return [];
+  if (typeof raw === "string") {
+    const value = raw.trim();
+    if (!value) return [];
+    if (value.startsWith("[")) {
+      try {
+        return selectThreadsImageUrls(JSON.parse(value));
+      } catch {
+        return [value];
       }
-    } catch {
-      return value;
     }
+    return value
+      .split(/[\n,]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  if (Array.isArray(raw)) {
+    return Array.from(new Set(raw.flatMap((item) => selectThreadsImageUrls(item))));
+  }
+  if (typeof raw === "object") {
+    const record = raw as Record<string, unknown>;
+    return Array.from(new Set([
+      ...selectThreadsImageUrls(record.image_url),
+      ...selectThreadsImageUrls(record.imageUrl),
+      ...selectThreadsImageUrls(record.media_url),
+      ...selectThreadsImageUrls(record.mediaUrl),
+      ...selectThreadsImageUrls(record.media_urls),
+      ...selectThreadsImageUrls(record.mediaUrls),
+      ...selectThreadsImageUrls(record.url),
+    ]));
+  }
+  return [];
+}
+
+export function selectThreadsImageUrl(raw: unknown): string | undefined {
+  return selectThreadsImageUrls(raw)[0];
+}
+
+function assertThreadsImageLimit(imageUrls: string[]): void {
+  if (imageUrls.length > 20) {
+    throw new Error("Threads carousel publishing supports up to 20 media items.");
+  }
+}
+
+async function createThreadsMediaContainer(
+  credentials: ThreadsCredentials,
+  body: URLSearchParams,
+): Promise<string> {
+  body.set("access_token", credentials.accessToken);
+  const containerResponse = await fetch(`${THREADS_GRAPH_BASE}/me/threads`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+  const containerPayload = await containerResponse.json() as { id?: string } & ThreadsGraphError;
+  if (!containerResponse.ok || !containerPayload.id) {
+    throw new Error(getGraphErrorMessage(containerPayload, "Threads media container creation failed."));
+  }
+  return containerPayload.id;
+}
+
+async function postThreadsCarouselContainer(
+  credentials: ThreadsCredentials,
+  payload: { text: string; imageUrls: string[]; replyToId?: string },
+): Promise<string> {
+  assertThreadsImageLimit(payload.imageUrls);
+  const childIds: string[] = [];
+  for (const imageUrl of payload.imageUrls) {
+    childIds.push(await createThreadsMediaContainer(credentials, new URLSearchParams({
+      media_type: "IMAGE",
+      image_url: imageUrl,
+      is_carousel_item: "true",
+    })));
   }
 
-  return value;
+  const carouselBody = new URLSearchParams({
+    media_type: "CAROUSEL",
+    children: childIds.join(","),
+  });
+  if (payload.text) carouselBody.set("text", payload.text);
+  if (payload.replyToId) carouselBody.set("reply_to_id", payload.replyToId);
+  return createThreadsMediaContainer(credentials, carouselBody);
 }
 
 async function upsertSetting(env: Env, key: string, value: string, updatedAt: string, userId = DEFAULT_USER_ID): Promise<void> {
@@ -186,34 +251,32 @@ async function getThreadsCredentials(
 
 async function postThreadsContainer(
   env: Env,
-  payload: { text: string; imageUrl?: string; replyToId?: string; accountId?: number; userId?: number },
+  payload: { text: string; imageUrl?: string; imageUrls?: string[]; replyToId?: string; accountId?: number; userId?: number },
 ): Promise<{ containerId: string; credentials: ThreadsCredentials }> {
   const credentials = await getThreadsCredentials(env, payload.accountId, payload.userId);
   if (!credentials) throw new Error("No active Threads account with access token was found.");
+  const imageUrls = payload.imageUrls?.length ? payload.imageUrls : payload.imageUrl ? [payload.imageUrl] : [];
+  if (imageUrls.length > 1) {
+    const containerId = await postThreadsCarouselContainer(credentials, {
+      text: payload.text,
+      imageUrls,
+      replyToId: payload.replyToId,
+    });
+    return { containerId, credentials };
+  }
 
   const containerBody = new URLSearchParams({
-    media_type: payload.imageUrl ? "IMAGE" : "TEXT",
-    access_token: credentials.accessToken,
+    media_type: imageUrls[0] ? "IMAGE" : "TEXT",
   });
-  if (payload.imageUrl) {
-    containerBody.set("image_url", payload.imageUrl);
+  if (imageUrls[0]) {
+    containerBody.set("image_url", imageUrls[0]);
     if (payload.text) containerBody.set("text", payload.text);
   } else {
     containerBody.set("text", payload.text);
   }
   if (payload.replyToId) containerBody.set("reply_to_id", payload.replyToId);
 
-  const containerResponse = await fetch(`${THREADS_GRAPH_BASE}/me/threads`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: containerBody.toString(),
-  });
-  const containerPayload = await containerResponse.json() as { id?: string } & ThreadsGraphError;
-  if (!containerResponse.ok || !containerPayload.id) {
-    throw new Error(getGraphErrorMessage(containerPayload, "Threads media container creation failed."));
-  }
-
-  return { containerId: containerPayload.id, credentials };
+  return { containerId: await createThreadsMediaContainer(credentials, containerBody), credentials };
 }
 
 async function publishThreadsContainer(credentials: ThreadsCredentials, containerId: string): Promise<string> {
@@ -238,7 +301,7 @@ async function publishThreadsContainer(credentials: ThreadsCredentials, containe
 
 async function publishThreadsText(
   env: Env,
-  payload: { text: string; imageUrl?: string; replyToId?: string; accountId?: number; userId?: number },
+  payload: { text: string; imageUrl?: string; imageUrls?: string[]; replyToId?: string; accountId?: number; userId?: number },
 ): Promise<{ externalId: string; accountId: number; credentials: ThreadsCredentials }> {
   const { containerId, credentials } = await postThreadsContainer(env, payload);
   const externalId = await publishThreadsContainer(credentials, containerId);
@@ -487,7 +550,7 @@ export async function publishThreadsPost(env: Env, postId: string, userId = DEFA
     const now = new Date().toISOString();
     const published = await publishThreadsText(env, {
       text: post.content.trim(),
-      imageUrl: selectThreadsImageUrl(post.image_url),
+      imageUrls: selectThreadsImageUrls(post.image_url),
       replyToId: post.reply_to_id?.trim() || undefined,
       accountId: post.account_id ?? undefined,
       userId,
