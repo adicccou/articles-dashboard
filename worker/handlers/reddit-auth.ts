@@ -1,7 +1,6 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasColumn, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
-import { defaultPlaywrightProfileKey, playwrightUserSettingKey } from "../lib/playwright-accounts";
 
 interface OAuthState {
   accountName: string;
@@ -41,33 +40,6 @@ async function upsertSetting(env: Env, key: string, value: string, updatedAt: st
   )
     .bind(key, value, updatedAt)
     .run();
-}
-
-async function readSetting(env: Env, key: string, userId = DEFAULT_USER_ID): Promise<string | null> {
-  const hasWorkspaceId = await tableHasWorkspaceId(env, "app_settings");
-  const hasUserId = await tableHasUserId(env, "app_settings");
-  const row = await env.DB.prepare(hasWorkspaceId
-    ? "SELECT value FROM app_settings WHERE workspace_id = ? AND key = ?"
-    : hasUserId
-    ? "SELECT value FROM app_settings WHERE user_id = ? AND key = ?"
-    : "SELECT value FROM app_settings WHERE key = ?")
-    .bind(...(hasWorkspaceId ? [workspaceId(userId), key] : hasUserId ? [ownerId(userId), key] : [key]))
-    .first<{ value: string }>();
-  return row?.value?.trim() || null;
-}
-
-async function readPlaywrightSettings(
-  env: Env,
-  accountId: number,
-  scopeId = DEFAULT_USER_ID,
-  dashboardUserId = DEFAULT_USER_ID,
-): Promise<{ login: string | null; password: string | null; profileKey: string | null }> {
-  const [login, password, profileKey] = await Promise.all([
-    readSetting(env, playwrightUserSettingKey("reddit_account", accountId, dashboardUserId, "login"), scopeId),
-    readSetting(env, playwrightUserSettingKey("reddit_account", accountId, dashboardUserId, "password"), scopeId),
-    readSetting(env, playwrightUserSettingKey("reddit_account", accountId, dashboardUserId, "profile_key"), scopeId),
-  ]);
-  return { login, password, profileKey };
 }
 
 export async function handleAuthorizeRequest(
@@ -293,53 +265,14 @@ export async function listRedditAccounts(
       `SELECT id, name, status, created_at, updated_at FROM reddit_accounts ${filters.length ? `WHERE ${filters.join(" AND ")}` : ""} ORDER BY created_at DESC`,
     ).bind(...values).all();
 
-    const results = await Promise.all((accounts.results || []).map(async (account) => {
-      const accountId = Number((account as { id: number }).id);
-      const [connectionMode, playwright] = await Promise.all([
-        readSetting(env, `reddit_account:${accountId}:connection_mode`, scopeId),
-        readPlaywrightSettings(env, accountId, scopeId, dashboardUserId),
-      ]);
-      return {
-        ...account,
-        connection_mode: connectionMode === "playwright" ? "playwright" : "official_api",
-        playwright_login: playwright.login || undefined,
-        playwright_profile_key: playwright.profileKey || defaultPlaywrightProfileKey("reddit", accountId, dashboardUserId),
-        playwright_ready: Boolean(playwright.login && playwright.password),
-      };
+    const results = (accounts.results || []).map((account) => ({
+      ...account,
+      connection_mode: "official_api",
     }));
     return jsonResponse(results);
   } catch (error) {
     return errorResponse("Failed to fetch Reddit accounts", 500);
   }
-}
-
-async function readAllRedditPlaywrightUserSettings(
-  env: Env,
-  accountId: number,
-): Promise<Array<{ dashboard_user_id: number; login: string; password: string; profile_key: string }>> {
-  const rows = await env.DB.prepare("SELECT key, value FROM app_settings WHERE key LIKE ?")
-    .bind(`reddit_account:${accountId}:playwright_user:%`)
-    .all<{ key: string; value: string }>();
-  const grouped = new Map<number, { dashboard_user_id: number; login: string; password: string; profile_key: string }>();
-  const pattern = new RegExp(`^reddit_account:${accountId}:playwright_user:(\\d+):(login|password|profile_key)$`);
-
-  for (const row of rows.results ?? []) {
-    const match = String(row.key ?? "").match(pattern);
-    if (!match) continue;
-    const dashboardUserId = Number(match[1]);
-    const field = match[2] as "login" | "password" | "profile_key";
-    if (!dashboardUserId) continue;
-    const entry = grouped.get(dashboardUserId) ?? {
-      dashboard_user_id: dashboardUserId,
-      login: "",
-      password: "",
-      profile_key: defaultPlaywrightProfileKey("reddit", accountId, dashboardUserId),
-    };
-    entry[field] = String(row.value ?? "").trim();
-    grouped.set(dashboardUserId, entry);
-  }
-
-  return Array.from(grouped.values()).filter((entry) => entry.login || entry.password || entry.profile_key);
 }
 
 export async function listInternalRedditAccounts(env: Env) {
@@ -357,25 +290,15 @@ export async function listInternalRedditAccounts(env: Env) {
   }>();
 
   return Promise.all((rows.results ?? []).map(async (row) => {
-    const [connectionMode, playwrightUsers] = await Promise.all([
-      readSetting(env, `reddit_account:${row.id}:connection_mode`),
-      readAllRedditPlaywrightUserSettings(env, row.id),
-    ]);
-    const usesPlaywright = connectionMode === "playwright";
-    const readyPlaywrightUser = playwrightUsers.find((entry) => entry.login && entry.password) ?? playwrightUsers[0] ?? null;
+    const credentialsReady = Boolean(row.access_token?.trim());
     return {
       id: row.id,
       platform: "reddit",
       username: row.username,
       name: row.username,
-      status: row.status,
-      connection_mode: usesPlaywright ? "playwright" : "official_api",
-      credentials_ready: usesPlaywright ? Boolean(readyPlaywrightUser?.login && readyPlaywrightUser.password) : Boolean(row.access_token?.trim()),
-      playwright_login: readyPlaywrightUser?.login || undefined,
-      playwright_password: readyPlaywrightUser?.password || undefined,
-      playwright_profile_key: readyPlaywrightUser?.profile_key || undefined,
-      playwright_ready: Boolean(readyPlaywrightUser?.login && readyPlaywrightUser.password),
-      playwright_users: playwrightUsers,
+      status: row.status === "active" && credentialsReady ? "active" : "inactive",
+      connection_mode: "official_api",
+      credentials_ready: credentialsReady,
       created_at: row.created_at,
       updated_at: row.updated_at,
     };
@@ -392,18 +315,12 @@ export async function addRedditAccount(
     const payload = await parseJson<{
       name?: string;
       status?: "active" | "inactive";
-      connection_mode?: "official_api" | "playwright";
-      playwright_login?: string;
-      playwright_password?: string;
+      connection_mode?: "official_api";
     }>(request);
     const name = payload.name?.trim();
     if (!name) return errorResponse("Account name is required", 400);
     const status = payload.status === "inactive" ? "inactive" : "active";
-    const connectionMode = payload.connection_mode === "playwright" ? "playwright" : "official_api";
-    const playwrightLogin = payload.playwright_login?.trim() ?? "";
-    const playwrightPassword = payload.playwright_password?.trim() ?? "";
-    if (connectionMode === "playwright" && !playwrightLogin) return errorResponse("Playwright login is required", 400);
-    if (connectionMode === "playwright" && !playwrightPassword) return errorResponse("Playwright password is required", 400);
+    const connectionMode = "official_api";
     const now = new Date().toISOString();
     const scoped = await scopedInsertColumns(env, "reddit_accounts", scopeId);
     const result = await env.DB.prepare(
@@ -415,28 +332,12 @@ export async function addRedditAccount(
     const accountId = result.meta.last_row_id;
     await Promise.all([
       upsertSetting(env, `reddit_account:${accountId}:connection_mode`, connectionMode, now, scopeId),
-      ...(connectionMode === "playwright"
-        ? [
-            upsertSetting(env, playwrightUserSettingKey("reddit_account", accountId, dashboardUserId, "login"), playwrightLogin, now, scopeId),
-            upsertSetting(env, playwrightUserSettingKey("reddit_account", accountId, dashboardUserId, "password"), playwrightPassword, now, scopeId),
-            upsertSetting(
-              env,
-              playwrightUserSettingKey("reddit_account", accountId, dashboardUserId, "profile_key"),
-              defaultPlaywrightProfileKey("reddit", accountId, dashboardUserId),
-              now,
-              scopeId,
-            ),
-          ]
-        : []),
     ]);
     return jsonResponse({
       id: accountId,
       name,
       status,
       connection_mode: connectionMode,
-      playwright_login: connectionMode === "playwright" ? playwrightLogin : undefined,
-      playwright_profile_key: connectionMode === "playwright" ? defaultPlaywrightProfileKey("reddit", accountId, dashboardUserId) : undefined,
-      playwright_ready: connectionMode === "playwright",
       created_at: now,
       updated_at: now,
     }, { status: 201 });
@@ -469,9 +370,7 @@ export async function updateRedditAccount(
     const payload = await parseJson<{
       name?: string;
       status?: "active" | "inactive";
-      connection_mode?: "official_api" | "playwright";
-      playwright_login?: string;
-      playwright_password?: string;
+      connection_mode?: "official_api";
     }>(request);
     const updates: string[] = [];
     const values: unknown[] = [];
@@ -490,10 +389,7 @@ export async function updateRedditAccount(
       values.push(payload.status);
     }
 
-    const playwrightLogin = payload.playwright_login?.trim() ?? "";
-    const playwrightPassword = payload.playwright_password?.trim() ?? "";
-
-    if (updates.length === 0 && !payload.connection_mode && !playwrightLogin && !playwrightPassword) {
+    if (updates.length === 0 && !payload.connection_mode) {
       return errorResponse("No account fields to update", 400);
     }
 
@@ -503,31 +399,9 @@ export async function updateRedditAccount(
     await env.DB.prepare(`UPDATE reddit_accounts SET ${updates.join(", ")} WHERE ${filters.join(" AND ")}`)
       .bind(...values, ...filterValues)
       .run();
-    if (payload.connection_mode === "playwright" && !playwrightLogin) {
-      const currentPlaywright = await readPlaywrightSettings(env, id, scopeId, dashboardUserId);
-      if (!currentPlaywright.login) return errorResponse("Playwright login is required", 400);
-    }
-
     await Promise.all([
-      ...(payload.connection_mode === "official_api" || payload.connection_mode === "playwright"
-        ? [upsertSetting(env, `reddit_account:${id}:connection_mode`, payload.connection_mode, now, scopeId)]
-        : []),
-      ...(playwrightLogin
-        ? [upsertSetting(env, playwrightUserSettingKey("reddit_account", id, dashboardUserId, "login"), playwrightLogin, now, scopeId)]
-        : []),
-      ...(playwrightPassword
-        ? [upsertSetting(env, playwrightUserSettingKey("reddit_account", id, dashboardUserId, "password"), playwrightPassword, now, scopeId)]
-        : []),
-      ...(payload.connection_mode === "playwright" || playwrightLogin || playwrightPassword
-        ? [
-            upsertSetting(
-              env,
-              playwrightUserSettingKey("reddit_account", id, dashboardUserId, "profile_key"),
-              defaultPlaywrightProfileKey("reddit", id, dashboardUserId),
-              now,
-              scopeId,
-            ),
-          ]
+      ...(payload.connection_mode
+        ? [upsertSetting(env, `reddit_account:${id}:connection_mode`, "official_api", now, scopeId)]
         : []),
     ]);
 

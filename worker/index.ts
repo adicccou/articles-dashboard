@@ -23,7 +23,16 @@ import { getKnowledgeBase, saveKnowledgeBase, getVersions, getVersion } from "./
 import { listStrategies, getStrategy, createStrategy, updateStrategy, activateStrategy, deactivateStrategy, deleteStrategy, getStrategyStats, getStrategyExecutions, getActiveStrategyInternal } from "./handlers/trading";
 import { generateArticleCover, styleArticleContent, suggestArticleField } from "./handlers/article-ai";
 import { suggestSocialReply } from "./handlers/social-replies";
-import { addExtraSocialAccount, deleteExtraSocialAccount, listExtraSocialAccounts, listInternalExtraSocialAccounts, publishExtraSocialPost, updateExtraSocialAccount } from "./handlers/social-accounts";
+import {
+  addExtraSocialAccount,
+  authorizeInstagramAccount,
+  deleteExtraSocialAccount,
+  handleInstagramOAuthCallback,
+  listExtraSocialAccounts,
+  listInternalExtraSocialAccounts,
+  publishExtraSocialPost,
+  updateExtraSocialAccount,
+} from "./handlers/social-accounts";
 import { completeCtraderConnectionFromAgent, getAppSettings, getCustomLeanDiagnostics, getCustomLeanSettings, getCustomLeanWorkers, getInternalAgentSettings, getLeanStatus, getLearningReport, getMlTradingAssets, getMlTradingDiagnostics, getMlTradingSettings, syncAgentFromSettings, updateAppSettings, updateCustomLeanSettings, updateMlTradingSettings } from "./handlers/settings";
 import {
   listPlannerItems,
@@ -118,7 +127,7 @@ function renderLegalPage(title: string, description: string, body: string): Resp
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${title} | Blogposter</title>
+    <title>${title} | Oilor Studio</title>
     <meta name="description" content="${description}" />
     <style>
       :root {
@@ -192,7 +201,7 @@ function renderLegalPage(title: string, description: string, body: string): Resp
   <body>
     <main>
       <section class="card">
-        <span class="eyebrow">Blogposter Legal</span>
+        <span class="eyebrow">Oilor Studio Legal</span>
         <h1>${title}</h1>
         <p>${description}</p>
         ${body}
@@ -216,10 +225,10 @@ function handleLegalPage(pathname: string): Response | null {
   if (pathname === "/legal/privacy") {
     return renderLegalPage(
       "Privacy Policy",
-      "How Blogposter handles account credentials, publishing metadata, and support requests for its dashboard and connected social integrations.",
+      "How Oilor Studio handles account credentials, publishing metadata, and support requests for its dashboard and connected social integrations.",
       `
         <h2>Information we collect</h2>
-        <p>Blogposter stores only the information needed to run the dashboard and publish social content on your behalf. This can include account usernames, connected platform tokens, scheduled post content, publishing history, and support contact details you provide.</p>
+        <p>Oilor Studio stores only the information needed to run the dashboard and publish social content on your behalf. This can include account usernames, connected platform tokens, scheduled post content, publishing history, and support contact details you provide.</p>
         <h2>How we use information</h2>
         <ul>
           <li>To authenticate you into the dashboard and keep your workspace settings available.</li>
@@ -239,12 +248,12 @@ function handleLegalPage(pathname: string): Response | null {
   if (pathname === "/legal/terms") {
     return renderLegalPage(
       "Terms of Service",
-      "The core terms governing use of the Blogposter dashboard and its connected publishing tools.",
+      "The core terms governing use of the Oilor Studio dashboard and its connected publishing tools.",
       `
         <h2>Use of the service</h2>
-        <p>Blogposter may be used only for lawful publishing, scheduling, research, and account-management workflows. You are responsible for content sent through any connected platform account.</p>
+        <p>Oilor Studio may be used only for lawful publishing, scheduling, research, and account-management workflows. You are responsible for content sent through any connected platform account.</p>
         <h2>Connected platform accounts</h2>
-        <p>By connecting a third-party platform account, you confirm that you have permission to use that account and authorize Blogposter to publish or retrieve information needed to perform the actions you request.</p>
+        <p>By connecting a third-party platform account, you confirm that you have permission to use that account and authorize Oilor Studio to publish or retrieve information needed to perform the actions you request.</p>
         <h2>Acceptable use</h2>
         <ul>
           <li>No unlawful, fraudulent, abusive, or infringing use of the platform.</li>
@@ -262,10 +271,10 @@ function handleLegalPage(pathname: string): Response | null {
   if (pathname === "/legal/data-deletion") {
     return renderLegalPage(
       "Data Deletion Instructions",
-      "How to request removal of Blogposter account data and connected platform credentials.",
+      "How to request removal of Oilor Studio account data and connected platform credentials.",
       `
         <h2>Delete data from the dashboard</h2>
-        <p>To remove connected platform credentials, sign in to the Blogposter dashboard and disconnect the relevant account from the Social Agents section. This removes the stored access credentials used for publishing.</p>
+        <p>To remove connected platform credentials, sign in to the Oilor Studio dashboard and disconnect the relevant account from the Social Agents section. This removes the stored access credentials used for publishing.</p>
         <h2>Request full data deletion</h2>
         <p>If you want your workspace data removed entirely, email <a href="mailto:adilet.melisov@gmail.com">adilet.melisov@gmail.com</a> with the subject line <code>Data Deletion Request</code> and include the account email or platform username associated with your workspace.</p>
         <h2>What will be deleted</h2>
@@ -637,7 +646,7 @@ async function handleInternalSocialPostPublishResult(env: Env, postId: string, r
 
   await env.DB.prepare(`UPDATE social_posts SET ${updates.join(", ")} WHERE id = ?`).bind(...values, id).run();
   if (status === "posted") {
-    await markLinkedPlannerItemsPublished(env, id, now);
+    await markLinkedPlannerItemsPublished(env, id, postedAt || now);
   }
   return json({ success: true, id, status, posted_at: postedAt, external_id: payload.external_id ?? null });
 }
@@ -858,6 +867,7 @@ function isMarketingApiPath(pathname: string): boolean {
     "/api/articles",
     "/api/categories",
     "/api/reddit",
+    "/api/instagram",
     "/api/social",
     "/api/threads",
     "/api/studio",
@@ -1963,6 +1973,16 @@ export default {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       return await listExtraSocialAccounts(env, activeScopeId(user), user.id);
+    }
+
+    if (url.pathname === "/api/instagram/auth/authorize" && request.method === "POST") {
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      return await authorizeInstagramAccount(env, request, activeScopeId(user));
+    }
+
+    if (url.pathname === "/api/instagram/auth/callback" && request.method === "GET") {
+      return await handleInstagramOAuthCallback(env, url);
     }
 
     if (url.pathname === "/api/social/accounts" && request.method === "POST") {

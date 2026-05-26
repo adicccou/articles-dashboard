@@ -1,8 +1,10 @@
 import type { Env } from "./types";
 
-export async function markLinkedPlannerItemsPublished(env: Env, socialPostId: number, updatedAt: string): Promise<void> {
-  await env.DB.prepare("UPDATE planner_items SET status = 'published', updated_at = ? WHERE social_post_id = ?")
-    .bind(updatedAt, socialPostId)
+export async function markLinkedPlannerItemsPublished(env: Env, socialPostId: number, publishedAt: string): Promise<void> {
+  await env.DB.prepare(
+    "UPDATE planner_items SET status = 'published', scheduled_for = COALESCE(scheduled_for, ?), updated_at = ? WHERE social_post_id = ?",
+  )
+    .bind(publishedAt, publishedAt, socialPostId)
     .run();
 }
 

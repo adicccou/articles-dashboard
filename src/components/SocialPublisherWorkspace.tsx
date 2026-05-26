@@ -597,7 +597,7 @@ export const SocialPublisherWorkspace = forwardRef<SocialAgentToolbarHandle, Soc
                 <div className="panel__title-row">
                   <h2>{shortLabel} Connected Accounts</h2>
                 </div>
-                {onAddAccount ? (
+                {onAddAccount || onConnectAccount ? (
                   <div className="social-account-adder">
                     <div className="social-account-adder__intro">
                       <strong>Add another account</strong>
@@ -639,8 +639,10 @@ export const SocialPublisherWorkspace = forwardRef<SocialAgentToolbarHandle, Soc
                                 }),
                               );
                               await onConnectAccount(values);
+                              setAccountInput({});
                             } catch (error) {
                               setAccountError(error instanceof Error ? error.message : "Failed to connect account");
+                            } finally {
                               setAddingAccount(false);
                             }
                           }}

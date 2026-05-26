@@ -227,6 +227,83 @@
   gap: 4px;
 }
 
+.config-account-cell {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+  width: 100%;
+}
+
+.config-account-platform,
+.config-account-avatar {
+  flex: 0 0 auto;
+}
+
+.config-account-platform {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  color: #0f172a;
+  display: inline-flex;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+
+.config-account-platform svg {
+  height: 16px;
+  width: 16px;
+}
+
+.config-account-avatar {
+  align-items: center;
+  background: linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%);
+  border: 1px solid #dbe4ee;
+  border-radius: 999px;
+  color: #0f172a;
+  display: inline-flex;
+  height: 44px;
+  justify-content: center;
+  overflow: hidden;
+  width: 44px;
+}
+
+.config-account-avatar img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.config-account-avatar__fallback {
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.config-account-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.config-account-copy__title,
+.config-account-copy__subtitle {
+  overflow-wrap: anywhere;
+}
+
+.config-account-copy__title {
+  color: #0f172a;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.config-account-copy__subtitle {
+  color: #64748b;
+  font-size: 0.88rem;
+}
+
 .config-main-cell strong {
   color: #0f172a;
   font-size: 1rem;

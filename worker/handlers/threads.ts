@@ -1,7 +1,6 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
-import { defaultPlaywrightProfileKey, playwrightUserSettingKey } from "../lib/playwright-accounts";
 import { markLinkedPlannerItemsPublished, markSocialPostFailed } from "../lib/social-publish";
 import { listSocialPosts, createSocialPost, updateSocialPost, deleteSocialPost, getSocialPostSchemaCapabilities } from "./twitter";
 
@@ -18,22 +17,27 @@ type ThreadsAccountPayload = {
   scopes: string;
   access_token: string;
   user_id: string;
-  connection_mode?: "official_api" | "playwright";
+  connection_mode?: "official_api";
   status?: "active" | "inactive";
-  playwright_login?: string;
-  playwright_password?: string;
 };
 
 type ThreadsAccountUpdatePayload = Partial<ThreadsAccountPayload> & {
   status?: "active" | "inactive";
 };
 
-type PendingThreadsOAuth = Omit<ThreadsAccountPayload, "access_token" | "user_id">;
+type PendingThreadsOAuth = Partial<Omit<ThreadsAccountPayload, "access_token" | "user_id">>;
 
 const THREADS_AUTHORIZE_URL = "https://threads.net/oauth/authorize";
 const THREADS_TOKEN_URL = "https://graph.threads.net/oauth/access_token";
 const THREADS_LONG_LIVED_TOKEN_URL = "https://graph.threads.net/access_token";
 const THREADS_GRAPH_BASE = "https://graph.threads.net/v1.0";
+const DEFAULT_THREADS_SCOPES = [
+  "threads_basic",
+  "threads_content_publish",
+  "threads_read_replies",
+  "threads_manage_replies",
+  "threads_keyword_search",
+].join(",");
 const THREADS_MEDIA_FIELDS = [
   "id",
   "media_product_type",
@@ -205,18 +209,19 @@ async function readSetting(env: Env, key: string, userId = DEFAULT_USER_ID): Pro
   return row?.value ?? "";
 }
 
-async function readPlaywrightSettings(
+async function readAccountPresentationSettings(
   env: Env,
   accountId: number,
   scopeId = DEFAULT_USER_ID,
-  dashboardUserId = DEFAULT_USER_ID,
-): Promise<{ login: string; password: string; profileKey: string }> {
-  const [login, password, profileKey] = await Promise.all([
-    readSetting(env, playwrightUserSettingKey("social_account", accountId, dashboardUserId, "login"), scopeId),
-    readSetting(env, playwrightUserSettingKey("social_account", accountId, dashboardUserId, "password"), scopeId),
-    readSetting(env, playwrightUserSettingKey("social_account", accountId, dashboardUserId, "profile_key"), scopeId),
+): Promise<{ display_name: string | null; avatar_url: string | null }> {
+  const [displayName, avatarUrl] = await Promise.all([
+    readSetting(env, `social_account:${accountId}:display_name`, scopeId),
+    readSetting(env, `social_account:${accountId}:avatar_url`, scopeId),
   ]);
-  return { login, password, profileKey };
+  return {
+    display_name: displayName || null,
+    avatar_url: avatarUrl || null,
+  };
 }
 
 async function getThreadsCredentials(
@@ -335,18 +340,13 @@ async function createThreadsAccount(
   platform: "threads";
   username: string;
   status: "active" | "inactive";
-  connection_mode: "official_api" | "playwright";
-  playwright_login?: string;
-  playwright_profile_key?: string;
-  playwright_ready?: boolean;
+  connection_mode: "official_api";
   created_at: string;
   updated_at: string;
 }> {
   const username = payload.username.trim().replace(/^@+/, "");
-  const connectionMode = payload.connection_mode === "playwright" ? "playwright" : "official_api";
+  const connectionMode = "official_api";
   const status = payload.status === "inactive" ? "inactive" : "active";
-  const playwrightLogin = payload.playwright_login?.trim() ?? "";
-  const playwrightPassword = payload.playwright_password?.trim() ?? "";
   const now = new Date().toISOString();
   const existingFilters = ["platform = 'threads'", "username = ?"];
   const existingValues: unknown[] = [username];
@@ -378,28 +378,14 @@ async function createThreadsAccount(
 
   await Promise.all([
     upsertSetting(env, `social_account:${accountId}:connection_mode`, connectionMode, now, scopeId),
-    ...(connectionMode === "official_api"
-      ? [
-          upsertSetting(env, `social_account:${accountId}:threads_client_id`, payload.client_id.trim(), now, scopeId),
-          upsertSetting(env, `social_account:${accountId}:threads_client_secret`, payload.client_secret.trim(), now, scopeId),
-          upsertSetting(env, `social_account:${accountId}:threads_redirect_uri`, payload.redirect_uri.trim(), now, scopeId),
-          upsertSetting(env, `social_account:${accountId}:threads_scopes`, payload.scopes.trim(), now, scopeId),
-          upsertSetting(env, `social_account:${accountId}:threads_access_token`, payload.access_token.trim(), now, scopeId),
-          upsertSetting(env, `social_account:${accountId}:threads_user_id`, payload.user_id.trim(), now, scopeId),
-          upsertSetting(env, "threads_access_token", payload.access_token.trim(), now, scopeId),
-          upsertSetting(env, "threads_user_id", payload.user_id.trim(), now, scopeId),
-        ]
-      : [
-          upsertSetting(env, playwrightUserSettingKey("social_account", accountId, dashboardUserId, "login"), playwrightLogin, now, scopeId),
-          upsertSetting(env, playwrightUserSettingKey("social_account", accountId, dashboardUserId, "password"), playwrightPassword, now, scopeId),
-          upsertSetting(
-            env,
-            playwrightUserSettingKey("social_account", accountId, dashboardUserId, "profile_key"),
-            defaultPlaywrightProfileKey("threads", accountId, dashboardUserId),
-            now,
-            scopeId,
-          ),
-        ]),
+    upsertSetting(env, `social_account:${accountId}:threads_client_id`, payload.client_id.trim(), now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:threads_client_secret`, payload.client_secret.trim(), now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:threads_redirect_uri`, payload.redirect_uri.trim(), now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:threads_scopes`, payload.scopes.trim(), now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:threads_access_token`, payload.access_token.trim(), now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:threads_user_id`, payload.user_id.trim(), now, scopeId),
+    upsertSetting(env, "threads_access_token", payload.access_token.trim(), now, scopeId),
+    upsertSetting(env, "threads_user_id", payload.user_id.trim(), now, scopeId),
   ]);
 
   return {
@@ -408,9 +394,6 @@ async function createThreadsAccount(
     username,
     status,
     connection_mode: connectionMode,
-    playwright_login: connectionMode === "playwright" ? playwrightLogin : undefined,
-    playwright_profile_key: connectionMode === "playwright" ? defaultPlaywrightProfileKey("threads", accountId, dashboardUserId) : undefined,
-    playwright_ready: connectionMode === "playwright",
     created_at: createdAt,
     updated_at: now,
   };
@@ -423,6 +406,44 @@ function validateThreadsAppPayload(payload: PendingThreadsOAuth): string | null 
   if (!payload.redirect_uri?.trim()) return "Redirect URI is required";
   if (!payload.scopes?.trim()) return "Scopes are required";
   return null;
+}
+
+async function readStoredThreadsOAuthConfig(env: Env, userId = DEFAULT_USER_ID) {
+  const filters = ["platform = 'threads'", "status = 'active'"];
+  const values: unknown[] = [];
+  await appendScopedFilter(env, "social_accounts", filters, values, userId);
+  const account = await env.DB.prepare(
+    `SELECT id FROM social_accounts WHERE ${filters.join(" AND ")} ORDER BY updated_at DESC, id DESC LIMIT 1`,
+  )
+    .bind(...values)
+    .first<{ id: number }>();
+  if (!account?.id) return null;
+
+  const [clientId, clientSecret, redirectUri, scopes] = await Promise.all([
+    readSetting(env, `social_account:${account.id}:threads_client_id`, userId),
+    readSetting(env, `social_account:${account.id}:threads_client_secret`, userId),
+    readSetting(env, `social_account:${account.id}:threads_redirect_uri`, userId),
+    readSetting(env, `social_account:${account.id}:threads_scopes`, userId),
+  ]);
+  if (!clientId || !clientSecret) return null;
+  return {
+    client_id: clientId,
+    client_secret: clientSecret,
+    redirect_uri: redirectUri,
+    scopes,
+  };
+}
+
+async function threadsOAuthConfig(env: Env, requestUrl: string, payload: PendingThreadsOAuth, userId = DEFAULT_USER_ID) {
+  const requestOrigin = new URL(requestUrl).origin;
+  const stored = await readStoredThreadsOAuthConfig(env, userId);
+  return {
+    username: payload.username?.trim().replace(/^@+/, "") || "",
+    client_id: payload.client_id?.trim() || env.THREADS_CLIENT_ID?.trim() || stored?.client_id || "",
+    client_secret: payload.client_secret?.trim() || env.THREADS_CLIENT_SECRET?.trim() || stored?.client_secret || "",
+    redirect_uri: payload.redirect_uri?.trim() || env.THREADS_REDIRECT_URI?.trim() || stored?.redirect_uri || `${requestOrigin}/api/threads/auth/callback`,
+    scopes: payload.scopes?.trim() || env.THREADS_SCOPES?.trim() || stored?.scopes || DEFAULT_THREADS_SCOPES,
+  };
 }
 
 export async function listThreadsAccounts(
@@ -439,16 +460,13 @@ export async function listThreadsAccounts(
     ).bind(...values).all();
     const results = await Promise.all((rows.results ?? []).map(async (row) => {
       const accountId = Number((row as { id: number }).id);
-      const [connectionMode, playwright] = await Promise.all([
-        readSetting(env, `social_account:${accountId}:connection_mode`, scopeId),
-        readPlaywrightSettings(env, accountId, scopeId, dashboardUserId),
+      const [presentation] = await Promise.all([
+        readAccountPresentationSettings(env, accountId, scopeId),
       ]);
       return {
         ...row,
-        connection_mode: connectionMode === "playwright" ? "playwright" : "official_api",
-        playwright_login: playwright.login || undefined,
-        playwright_profile_key: playwright.profileKey || defaultPlaywrightProfileKey("threads", accountId, dashboardUserId),
-        playwright_ready: Boolean(playwright.login && playwright.password),
+        ...presentation,
+        connection_mode: "official_api",
       };
     }));
     return jsonResponse(results);
@@ -465,19 +483,10 @@ export async function addThreadsAccount(
 ): Promise<Response> {
   try {
     const payload = await parseJson<ThreadsAccountPayload>(request);
-    const connectionMode = payload.connection_mode === "playwright" ? "playwright" : "official_api";
-    if (connectionMode === "official_api") {
-      const appError = validateThreadsAppPayload(payload);
-      if (appError) return errorResponse(appError, 400);
-      if (!payload.access_token?.trim()) return errorResponse("Access token is required", 400);
-      if (!payload.user_id?.trim()) return errorResponse("User ID is required", 400);
-    } else if (!payload.username?.trim()) {
-      return errorResponse("username is required", 400);
-    } else if (!payload.playwright_login?.trim()) {
-      return errorResponse("Playwright login is required", 400);
-    } else if (!payload.playwright_password?.trim()) {
-      return errorResponse("Playwright password is required", 400);
-    }
+    const appError = validateThreadsAppPayload(payload);
+    if (appError) return errorResponse(appError, 400);
+    if (!payload.access_token?.trim()) return errorResponse("Access token is required", 400);
+    if (!payload.user_id?.trim()) return errorResponse("User ID is required", 400);
 
     return jsonResponse(await createThreadsAccount(env, payload, scopeId, dashboardUserId), { status: 201 });
   } catch {
@@ -488,25 +497,29 @@ export async function addThreadsAccount(
 export async function authorizeThreadsAccount(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const payload = await parseJson<PendingThreadsOAuth>(request);
-    const appError = validateThreadsAppPayload(payload);
-    if (appError) return errorResponse(appError, 400);
+    const config = await threadsOAuthConfig(env, request.url, payload, userId);
+    if (!config.client_id || !config.client_secret) {
+      return errorResponse("Threads OAuth is not configured. Set THREADS_CLIENT_ID and THREADS_CLIENT_SECRET on the Worker.", 500);
+    }
+    if (!config.redirect_uri) return errorResponse("Threads redirect URI is required", 500);
+    if (!config.scopes) return errorResponse("Threads scopes are required", 500);
 
     const state = crypto.randomUUID();
     const now = new Date().toISOString();
     await upsertSetting(env, `threads_oauth_state:${state}`, JSON.stringify({
-      username: payload.username.trim().replace(/^@+/, ""),
-      client_id: payload.client_id.trim(),
-      client_secret: payload.client_secret.trim(),
-      redirect_uri: payload.redirect_uri.trim(),
-      scopes: payload.scopes.trim(),
+      username: config.username,
+      client_id: config.client_id,
+      client_secret: config.client_secret,
+      redirect_uri: config.redirect_uri,
+      scopes: config.scopes,
       user_id: ownerId(userId),
       created_at: now,
     }), now, userId);
 
     const authUrl = new URL(THREADS_AUTHORIZE_URL);
-    authUrl.searchParams.set("client_id", payload.client_id.trim());
-    authUrl.searchParams.set("redirect_uri", payload.redirect_uri.trim());
-    authUrl.searchParams.set("scope", payload.scopes.trim());
+    authUrl.searchParams.set("client_id", config.client_id);
+    authUrl.searchParams.set("redirect_uri", config.redirect_uri);
+    authUrl.searchParams.set("scope", config.scopes);
     authUrl.searchParams.set("response_type", "code");
     authUrl.searchParams.set("state", state);
 
@@ -535,18 +548,6 @@ export async function publishThreadsPost(env: Env, postId: string, userId = DEFA
     if (!post) return errorResponse("Threads post not found", 404);
     if (!post.content?.trim() && !post.image_url?.trim()) return errorResponse("Post content is empty", 400);
     if (post.status === "posted") return errorResponse("Post is already published", 400);
-    if (post.account_id) {
-      const connectionMode = await readSetting(env, `social_account:${post.account_id}:connection_mode`, userId);
-      if (connectionMode === "playwright") {
-        const playwright = await readPlaywrightSettings(env, post.account_id, userId);
-        const profileKey = playwright.profileKey || defaultPlaywrightProfileKey("threads", post.account_id, userId);
-        return errorResponse(
-          `This Threads account is set to Playwright. Browser publishing must run through profile ${profileKey}; the Worker will not use official API credentials for it.`,
-          501,
-        );
-      }
-    }
-
     const now = new Date().toISOString();
     const published = await publishThreadsText(env, {
       text: post.content.trim(),
@@ -810,7 +811,7 @@ export async function handleThreadsOAuthCallback(env: Env, url: URL): Promise<Re
       });
     }
 
-    const pending = JSON.parse(row.value) as PendingThreadsOAuth & { created_at?: string; user_id?: number };
+    const pending = JSON.parse(row.value) as Required<PendingThreadsOAuth> & { created_at?: string; user_id?: number };
     const pendingUserId = ownerId(pending.user_id);
 
     const shortTokenResponse = await fetch(THREADS_TOKEN_URL, {
@@ -861,7 +862,7 @@ export async function handleThreadsOAuthCallback(env: Env, url: URL): Promise<Re
 
     const profile = await profileResponse.json() as { id: string; username?: string };
     await createThreadsAccount(env, {
-      username: profile.username || pending.username,
+      username: profile.username || pending.username || profile.id,
       client_id: pending.client_id,
       client_secret: pending.client_secret,
       redirect_uri: pending.redirect_uri,
@@ -873,10 +874,19 @@ export async function handleThreadsOAuthCallback(env: Env, url: URL): Promise<Re
 
     return new Response(
       `<html>
+        <head><title>Threads connected</title></head>
         <body>
           <h1>Threads account connected</h1>
           <p>You can return to the dashboard now.</p>
-          <script>window.location.href = "/";</script>
+          <script>
+            const payload = { type: "threads_connected", ok: true };
+            if (window.opener) {
+              window.opener.postMessage(payload, window.location.origin);
+              window.close();
+            } else {
+              window.location.href = "/";
+            }
+          </script>
         </body>
       </html>`,
       { status: 200, headers: { "Content-Type": "text/html" } },
@@ -934,15 +944,9 @@ export async function updateThreadsAccount(
     if (payload.scopes?.trim()) settingUpdates.push(["threads_scopes", payload.scopes.trim()]);
     if (payload.access_token?.trim()) settingUpdates.push(["threads_access_token", payload.access_token.trim()]);
     if (payload.user_id?.trim()) settingUpdates.push(["threads_user_id", payload.user_id.trim()]);
-    const playwrightLogin = payload.playwright_login?.trim() ?? "";
-    const playwrightPassword = payload.playwright_password?.trim() ?? "";
-    const connectionMode = payload.connection_mode === "playwright"
-      ? "playwright"
-      : payload.connection_mode === "official_api"
-      ? "official_api"
-      : null;
+    const connectionMode = payload.connection_mode ? "official_api" : null;
 
-    if (accountUpdates.length === 0 && settingUpdates.length === 0 && !connectionMode && !playwrightLogin && !playwrightPassword) {
+    if (accountUpdates.length === 0 && settingUpdates.length === 0 && !connectionMode) {
       return errorResponse("No account fields to update", 400);
     }
 
@@ -958,41 +962,13 @@ export async function updateThreadsAccount(
         .run();
     }
 
-    if (connectionMode === "playwright" && !playwrightLogin) {
-      const currentPlaywright = await readPlaywrightSettings(env, id, scopeId, dashboardUserId);
-      if (!currentPlaywright.login) return errorResponse("Playwright login is required", 400);
-    }
-
     await Promise.all(settingUpdates.flatMap(([key, value]) => {
       const updates = [upsertSetting(env, `social_account:${id}:${key}`, value, now, scopeId)];
       if (key === "threads_access_token" || key === "threads_user_id") {
         updates.push(upsertSetting(env, key, value, now, scopeId));
       }
       return updates;
-    }).concat(connectionMode ? [upsertSetting(env, `social_account:${id}:connection_mode`, connectionMode, now, scopeId)] : [])
-      .concat(
-        playwrightLogin
-          ? [upsertSetting(env, playwrightUserSettingKey("social_account", id, dashboardUserId, "login"), playwrightLogin, now, scopeId)]
-          : [],
-      )
-      .concat(
-        playwrightPassword
-          ? [upsertSetting(env, playwrightUserSettingKey("social_account", id, dashboardUserId, "password"), playwrightPassword, now, scopeId)]
-          : [],
-      )
-      .concat(
-        connectionMode === "playwright" || playwrightLogin || playwrightPassword
-          ? [
-              upsertSetting(
-                env,
-                playwrightUserSettingKey("social_account", id, dashboardUserId, "profile_key"),
-                defaultPlaywrightProfileKey("threads", id, dashboardUserId),
-                now,
-                scopeId,
-              ),
-            ]
-          : [],
-      ));
+    }).concat(connectionMode ? [upsertSetting(env, `social_account:${id}:connection_mode`, connectionMode, now, scopeId)] : []));
 
     return jsonResponse({ success: true, updated_at: now });
   } catch {

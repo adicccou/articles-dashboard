@@ -71,6 +71,7 @@ export async function listPlannerItems(env: Env, userId = DEFAULT_USER_ID): Prom
           CASE WHEN pi.status = 'published' THEN 'published' ELSE 'planned' END AS status,
           pi.scheduled_for,
           ${hasSocialPostLinks ? "pi.social_post_id" : "NULL AS social_post_id"},
+          ${hasSocialPostLinks ? "sp.status" : "NULL"} AS social_post_status,
           pi.account_id,
           pi.instruction,
           pi.interval_minutes,
@@ -83,6 +84,7 @@ export async function listPlannerItems(env: Env, userId = DEFAULT_USER_ID): Prom
           pi.updated_at
         FROM planner_items pi
         LEFT JOIN trading_strategies ts ON ts.id = pi.related_strategy_id
+        ${hasSocialPostLinks ? "LEFT JOIN social_posts sp ON sp.id = pi.social_post_id" : ""}
         ${whereClause}
         ORDER BY
           CASE WHEN pi.scheduled_for IS NULL THEN 1 ELSE 0 END,

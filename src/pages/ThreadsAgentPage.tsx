@@ -7,14 +7,6 @@ import { SocialPublisherWorkspace, type SocialAgentToolbarHandle, type SocialWor
 import { KnowledgeBaseEditor } from "../components/KnowledgeBaseEditor";
 
 const THREADS_KB_ID = 2;
-const THREADS_FULL_SCOPES = [
-  "threads_basic",
-  "threads_content_publish",
-  "threads_read_replies",
-  "threads_manage_replies",
-  "threads_keyword_search",
-].join(",");
-
 export const ThreadsAgentPage = forwardRef<SocialAgentToolbarHandle>(function ThreadsAgentPage(_props, ref) {
   const [posts, setPosts] = useState<SocialPost[]>([]);
   const [scheduledSocialPosts, setScheduledSocialPosts] = useState<SocialPost[]>([]);
@@ -160,15 +152,46 @@ export const ThreadsAgentPage = forwardRef<SocialAgentToolbarHandle>(function Th
           await api.publishThreadsPost(id);
           await load();
         }}
-        onAddAccount={async (values) => {
+        onConnectAccount={async () => {
           setFeedback(null);
-          await api.addThreadsAccount(values);
+          const popup = window.open("about:blank", "threads-connect", "width=540,height=760");
+          try {
+            const { auth_url } = await api.startThreadsOAuth({});
+            if (!popup) {
+              window.location.href = auth_url;
+              return;
+            }
+
+            await new Promise<void>((resolve, reject) => {
+              const timeout = window.setTimeout(() => {
+                window.removeEventListener("message", handleMessage);
+                reject(new Error("Threads authorization timed out."));
+              }, 5 * 60 * 1000);
+              const closeTimer = window.setInterval(() => {
+                if (popup.closed) {
+                  window.clearInterval(closeTimer);
+                  window.clearTimeout(timeout);
+                  window.removeEventListener("message", handleMessage);
+                  reject(new Error("Threads authorization window was closed."));
+                }
+              }, 800);
+              function handleMessage(event: MessageEvent) {
+                if (event.origin !== window.location.origin) return;
+                if (event.data?.type !== "threads_connected" || event.data?.ok !== true) return;
+                window.clearInterval(closeTimer);
+                window.clearTimeout(timeout);
+                window.removeEventListener("message", handleMessage);
+                resolve();
+              }
+              window.addEventListener("message", handleMessage);
+              popup.location.href = auth_url;
+            });
+          } catch (connectError) {
+            if (popup && !popup.closed) popup.close();
+            throw connectError;
+          }
+          setFeedback({ tone: "success", title: "Threads account connected." });
           await load();
-        }}
-        onConnectAccount={async (values) => {
-          setFeedback(null);
-          const { auth_url } = await api.startThreadsOAuth(values);
-          window.location.href = auth_url;
         }}
         onDeleteAccount={async (id) => {
           setFeedback(null);
@@ -176,51 +199,10 @@ export const ThreadsAgentPage = forwardRef<SocialAgentToolbarHandle>(function Th
           await load();
         }}
         knowledgeBaseContent={<KnowledgeBaseEditor type="social_platform" entityId={THREADS_KB_ID} />}
-        accountInputHint="Enter the app details from Meta, then connect with Threads. Use the full scopes to enable publishing, search, and reply tools."
+        accountInputHint="Connect through the official Threads authorization popup."
         connectAccountLabel="Connect with Threads"
-        connectAccountRequiredFieldKeys={["username", "client_id", "client_secret", "redirect_uri", "scopes"]}
-        addAccountLabel="Save manual token"
-        addAccountRequiredFieldKeys={["username", "client_id", "client_secret", "redirect_uri", "scopes", "access_token", "user_id"]}
-        accountFields={[
-          {
-            key: "username",
-            label: "Threads username",
-            placeholder: "username",
-          },
-          {
-            key: "client_id",
-            label: "Threads App ID / Client ID",
-            placeholder: "Meta app ID",
-          },
-          {
-            key: "client_secret",
-            label: "Threads App Secret",
-            type: "password",
-          },
-          {
-            key: "redirect_uri",
-            label: "Redirect URI",
-            placeholder: "https://marketing-dashboard.adilet-melisov.workers.dev/api/threads/auth/callback",
-            defaultValue: "https://marketing-dashboard.adilet-melisov.workers.dev/api/threads/auth/callback",
-          },
-          {
-            key: "scopes",
-            label: "Scopes",
-            placeholder: "threads_basic,threads_content_publish",
-            defaultValue: THREADS_FULL_SCOPES,
-          },
-          {
-            key: "access_token",
-            label: "Long-Lived Access Token",
-            type: "password",
-            required: false,
-          },
-          {
-            key: "user_id",
-            label: "Threads User ID",
-            required: false,
-          },
-        ]}
+        connectAccountRequiredFieldKeys={[]}
+        accountFields={[]}
       />
     </>
   );

@@ -388,7 +388,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
     "get_marketing_studio_summary",
     {
       title: "Get marketing studio summary",
-      description: "Read the full Blogposter Marketing Studio state: connected accounts, apps, campaigns, crawler runs, signals, and strategist posts.",
+      description: "Read the full Oilor Studio state: connected accounts, apps, campaigns, crawler runs, signals, and strategist posts.",
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
       inputSchema: {},
     },
@@ -727,7 +727,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
     "list_social_posts",
     {
       title: "List social posts",
-      description: "List Blogposter social posts for one platform or all platforms.",
+      description: "List Oilor Studio social posts for one platform or all platforms.",
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
       inputSchema: {
         platform: z.enum(["threads", "twitter", "reddit", "instagram", "all"]).default("all"),
@@ -770,7 +770,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
     "create_social_post",
     {
       title: "Create social post",
-      description: "Create a queued Blogposter social post. If autoschedule is true, the server selects the next free cross-platform slot. This only saves or schedules inside the dashboard; it does not publish externally.",
+      description: "Create a queued Oilor Studio social post. If autoschedule is true, the server selects the next free cross-platform slot. This only saves or schedules inside the dashboard; it does not publish externally.",
       annotations: PLANNING_TOOL_ANNOTATIONS,
       inputSchema: {
         platform: z.enum(SOCIAL_PLATFORMS),
@@ -867,7 +867,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
     "delete_social_post",
     {
       title: "Delete social post",
-      description: "Delete a Blogposter social post and its linked planner item.",
+      description: "Delete an Oilor Studio social post and its linked planner item.",
       annotations: DESTRUCTIVE_TOOL_ANNOTATIONS,
       inputSchema: {
         post_id: z.number().int().positive(),
@@ -882,7 +882,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
     "publish_social_post",
     {
       title: "Publish social post",
-      description: "Publish a queued Blogposter social post immediately through its platform publisher.",
+      description: "Publish a queued Oilor Studio social post immediately through its platform publisher.",
       annotations: DESTRUCTIVE_TOOL_ANNOTATIONS,
       inputSchema: {
         post_id: z.number().int().positive(),

@@ -1,7 +1,6 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
-import { defaultPlaywrightProfileKey, playwrightUserSettingKey } from "../lib/playwright-accounts";
 import { markLinkedPlannerItemsPublished } from "../lib/social-publish";
 
 const IMAGE_URL_ALIASES = ["image_url", "imageUrl", "imageURL", "image", "photo", "picture", "media", "media_url", "mediaUrl", "media_urls", "mediaUrls", "url"] as const;
@@ -12,10 +11,8 @@ type TwitterAccountPayload = {
   api_secret: string;
   access_token: string;
   access_secret: string;
-  connection_mode?: "official_api" | "playwright";
+  connection_mode?: "official_api";
   status?: "active" | "inactive";
-  playwright_login?: string;
-  playwright_password?: string;
 };
 
 type TwitterAccountUpdatePayload = Partial<TwitterAccountPayload> & {
@@ -154,18 +151,19 @@ async function readSetting(env: Env, key: string, userId = DEFAULT_USER_ID): Pro
   return row?.value?.trim() || null;
 }
 
-async function readPlaywrightSettings(
+async function readAccountPresentationSettings(
   env: Env,
   accountId: number,
   scopeId = DEFAULT_USER_ID,
-  dashboardUserId = DEFAULT_USER_ID,
-): Promise<{ login: string | null; password: string | null; profileKey: string | null }> {
-  const [login, password, profileKey] = await Promise.all([
-    readSetting(env, playwrightUserSettingKey("social_account", accountId, dashboardUserId, "login"), scopeId),
-    readSetting(env, playwrightUserSettingKey("social_account", accountId, dashboardUserId, "password"), scopeId),
-    readSetting(env, playwrightUserSettingKey("social_account", accountId, dashboardUserId, "profile_key"), scopeId),
+): Promise<{ display_name: string | null; avatar_url: string | null }> {
+  const [displayName, avatarUrl] = await Promise.all([
+    readSetting(env, `social_account:${accountId}:display_name`, scopeId),
+    readSetting(env, `social_account:${accountId}:avatar_url`, scopeId),
   ]);
-  return { login, password, profileKey };
+  return {
+    display_name: displayName,
+    avatar_url: avatarUrl,
+  };
 }
 
 export async function getSocialPostSchemaCapabilities(env: Env): Promise<SocialPostSchemaCapabilities> {
@@ -899,18 +897,6 @@ export async function publishTwitterPost(env: Env, postId: string, userId = DEFA
     if (!post) return errorResponse("Twitter/X post not found", 404);
     if (!post.content?.trim()) return errorResponse("Post content is empty", 400);
     if (post.status === "posted") return errorResponse("Post is already published", 400);
-    if (post.account_id) {
-      const connectionMode = await readSetting(env, `social_account:${post.account_id}:connection_mode`, userId);
-      if (connectionMode === "playwright") {
-        const playwright = await readPlaywrightSettings(env, post.account_id, userId);
-        const profileKey = playwright.profileKey || defaultPlaywrightProfileKey("twitter", post.account_id, userId);
-        return errorResponse(
-          `This Twitter/X account is set to Playwright. Browser publishing must run through profile ${profileKey}; the Worker will not use official API credentials for it.`,
-          501,
-        );
-      }
-    }
-
     const credentials = await getTwitterCredentials(env, post.account_id ?? undefined, userId);
     if (!credentials) return errorResponse("No active Twitter/X account with API credentials was found.", 400);
 
@@ -1026,27 +1012,19 @@ export async function listTwitterAccounts(
         updated_at: string;
         api_credentials_ready: number;
       };
-      const connectionMode = (await readSetting(env, `social_account:${account.id}:connection_mode`, scopeId)) === "playwright"
-        ? "playwright"
-        : "official_api";
-      const playwright = await readPlaywrightSettings(env, account.id, scopeId, dashboardUserId);
-      const playwrightReady = Boolean(playwright.login && playwright.password);
+      const presentation = await readAccountPresentationSettings(env, account.id, scopeId);
       return {
         id: account.id,
         platform: account.platform,
         username: account.username,
-        status: connectionMode === "playwright"
-          ? account.status
-          : account.status === "active" && account.api_credentials_ready
+        ...presentation,
+        status: account.status === "active" && account.api_credentials_ready
           ? "active"
           : "inactive",
         created_at: account.created_at,
         updated_at: account.updated_at,
-        connection_mode: connectionMode,
-        credentials_ready: connectionMode === "playwright" ? playwrightReady : account.api_credentials_ready,
-        playwright_login: playwright.login || undefined,
-        playwright_profile_key: playwright.profileKey || defaultPlaywrightProfileKey("twitter", account.id, dashboardUserId),
-        playwright_ready: playwrightReady,
+        connection_mode: "official_api",
+        credentials_ready: account.api_credentials_ready,
       };
     }));
     return jsonResponse(results);
@@ -1065,19 +1043,12 @@ export async function addTwitterAccount(
     const payload = await parseJson<TwitterAccountPayload>(request);
     const username = payload.username?.trim().replace(/^@+/, "");
     if (!username) return errorResponse("username is required", 400);
-    const connectionMode = payload.connection_mode === "playwright" ? "playwright" : "official_api";
+    const connectionMode = "official_api";
     const status = payload.status === "inactive" ? "inactive" : "active";
-    const playwrightLogin = payload.playwright_login?.trim() ?? "";
-    const playwrightPassword = payload.playwright_password?.trim() ?? "";
-    if (connectionMode === "official_api") {
-      if (!payload.api_key?.trim()) return errorResponse("API key is required", 400);
-      if (!payload.api_secret?.trim()) return errorResponse("API secret is required", 400);
-      if (!payload.access_token?.trim()) return errorResponse("Access token is required", 400);
-      if (!payload.access_secret?.trim()) return errorResponse("Access secret is required", 400);
-    } else {
-      if (!playwrightLogin) return errorResponse("Playwright login is required", 400);
-      if (!playwrightPassword) return errorResponse("Playwright password is required", 400);
-    }
+    if (!payload.api_key?.trim()) return errorResponse("API key is required", 400);
+    if (!payload.api_secret?.trim()) return errorResponse("API secret is required", 400);
+    if (!payload.access_token?.trim()) return errorResponse("Access token is required", 400);
+    if (!payload.access_secret?.trim()) return errorResponse("Access secret is required", 400);
 
     const now = new Date().toISOString();
     const scoped = await scopedInsertColumns(env, "social_accounts", scopeId);
@@ -1091,28 +1062,14 @@ export async function addTwitterAccount(
     const accountId = result.meta.last_row_id;
     await Promise.all([
       upsertSetting(env, `social_account:${accountId}:connection_mode`, connectionMode, now, scopeId),
-      ...(connectionMode === "official_api"
-        ? [
-            upsertSetting(env, `social_account:${accountId}:twitter_api_key`, payload.api_key.trim(), now, scopeId),
-            upsertSetting(env, `social_account:${accountId}:twitter_api_secret`, payload.api_secret.trim(), now, scopeId),
-            upsertSetting(env, `social_account:${accountId}:twitter_access_token`, payload.access_token.trim(), now, scopeId),
-            upsertSetting(env, `social_account:${accountId}:twitter_access_secret`, payload.access_secret.trim(), now, scopeId),
-            upsertSetting(env, "twitter_api_key", payload.api_key.trim(), now, scopeId),
-            upsertSetting(env, "twitter_api_secret", payload.api_secret.trim(), now, scopeId),
-            upsertSetting(env, "twitter_access_token", payload.access_token.trim(), now, scopeId),
-            upsertSetting(env, "twitter_access_secret", payload.access_secret.trim(), now, scopeId),
-          ]
-        : [
-            upsertSetting(env, playwrightUserSettingKey("social_account", accountId, dashboardUserId, "login"), playwrightLogin, now, scopeId),
-            upsertSetting(env, playwrightUserSettingKey("social_account", accountId, dashboardUserId, "password"), playwrightPassword, now, scopeId),
-            upsertSetting(
-              env,
-              playwrightUserSettingKey("social_account", accountId, dashboardUserId, "profile_key"),
-              defaultPlaywrightProfileKey("twitter", accountId, dashboardUserId),
-              now,
-              scopeId,
-            ),
-          ]),
+      upsertSetting(env, `social_account:${accountId}:twitter_api_key`, payload.api_key.trim(), now, scopeId),
+      upsertSetting(env, `social_account:${accountId}:twitter_api_secret`, payload.api_secret.trim(), now, scopeId),
+      upsertSetting(env, `social_account:${accountId}:twitter_access_token`, payload.access_token.trim(), now, scopeId),
+      upsertSetting(env, `social_account:${accountId}:twitter_access_secret`, payload.access_secret.trim(), now, scopeId),
+      upsertSetting(env, "twitter_api_key", payload.api_key.trim(), now, scopeId),
+      upsertSetting(env, "twitter_api_secret", payload.api_secret.trim(), now, scopeId),
+      upsertSetting(env, "twitter_access_token", payload.access_token.trim(), now, scopeId),
+      upsertSetting(env, "twitter_access_secret", payload.access_secret.trim(), now, scopeId),
     ]);
 
     return jsonResponse(
@@ -1122,9 +1079,6 @@ export async function addTwitterAccount(
         username,
         status,
         connection_mode: connectionMode,
-        playwright_login: connectionMode === "playwright" ? playwrightLogin : undefined,
-        playwright_profile_key: connectionMode === "playwright" ? defaultPlaywrightProfileKey("twitter", accountId, dashboardUserId) : undefined,
-        playwright_ready: connectionMode === "playwright",
         created_at: now,
         updated_at: now,
       },
@@ -1178,15 +1132,9 @@ export async function updateTwitterAccount(
     if (payload.api_secret?.trim()) credentialUpdates.push(["twitter_api_secret", payload.api_secret.trim()]);
     if (payload.access_token?.trim()) credentialUpdates.push(["twitter_access_token", payload.access_token.trim()]);
     if (payload.access_secret?.trim()) credentialUpdates.push(["twitter_access_secret", payload.access_secret.trim()]);
-    const playwrightLogin = payload.playwright_login?.trim() ?? "";
-    const playwrightPassword = payload.playwright_password?.trim() ?? "";
-    const connectionMode = payload.connection_mode === "playwright"
-      ? "playwright"
-      : payload.connection_mode === "official_api"
-      ? "official_api"
-      : null;
+    const connectionMode = payload.connection_mode ? "official_api" : null;
 
-    if (accountUpdates.length === 0 && credentialUpdates.length === 0 && !connectionMode && !playwrightLogin && !playwrightPassword) {
+    if (accountUpdates.length === 0 && credentialUpdates.length === 0 && !connectionMode) {
       return errorResponse("No account fields to update", 400);
     }
 
@@ -1202,37 +1150,12 @@ export async function updateTwitterAccount(
         .run();
     }
 
-    if (connectionMode === "playwright" && !playwrightLogin) {
-      const currentPlaywright = await readPlaywrightSettings(env, id, scopeId, dashboardUserId);
-      if (!currentPlaywright.login) return errorResponse("Playwright login is required", 400);
-    }
-
     await Promise.all(
       credentialUpdates.flatMap(([key, value]) => [
         upsertSetting(env, `social_account:${id}:${key}`, value, now, scopeId),
         upsertSetting(env, key, value, now, scopeId),
       ]).concat(
         connectionMode ? [upsertSetting(env, `social_account:${id}:connection_mode`, connectionMode, now, scopeId)] : [],
-      ).concat(
-        playwrightLogin
-          ? [upsertSetting(env, playwrightUserSettingKey("social_account", id, dashboardUserId, "login"), playwrightLogin, now, scopeId)]
-          : [],
-      ).concat(
-        playwrightPassword
-          ? [upsertSetting(env, playwrightUserSettingKey("social_account", id, dashboardUserId, "password"), playwrightPassword, now, scopeId)]
-          : [],
-      ).concat(
-        connectionMode === "playwright" || playwrightLogin || playwrightPassword
-          ? [
-              upsertSetting(
-                env,
-                playwrightUserSettingKey("social_account", id, dashboardUserId, "profile_key"),
-                defaultPlaywrightProfileKey("twitter", id, dashboardUserId),
-                now,
-                scopeId,
-              ),
-            ]
-          : [],
       ),
     );
 

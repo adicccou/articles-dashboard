@@ -255,9 +255,7 @@ export const api = {
   addRedditAccount: (payload: {
     name: string;
     status?: "active" | "inactive";
-    connection_mode?: "official_api" | "playwright";
-    playwright_login?: string;
-    playwright_password?: string;
+    connection_mode?: "official_api";
   }) =>
     request<RedditAccount>("/api/reddit/accounts", {
       method: "POST",
@@ -271,9 +269,7 @@ export const api = {
   updateRedditAccount: (id: number, payload: {
     name?: string;
     status?: "active" | "inactive";
-    connection_mode?: "official_api" | "playwright";
-    playwright_login?: string;
-    playwright_password?: string;
+    connection_mode?: "official_api";
   }) =>
     request<{ success: boolean; updated_at: string }>(`/api/reddit/accounts/${id}`, {
       method: "PUT",
@@ -443,6 +439,11 @@ export const api = {
   deleteSocialAccount: (id: number) =>
     request<{ success: boolean }>(`/api/social/accounts/${id}`, {
       method: "DELETE",
+    }),
+  startInstagramOAuth: () =>
+    request<{ auth_url: string }>("/api/instagram/auth/authorize", {
+      method: "POST",
+      body: JSON.stringify({}),
     }),
   listTwitterAccounts: () => request<SocialAccount[]>("/api/social/twitter/accounts"),
   addTwitterAccount: (payload: SocialAccountInput) =>

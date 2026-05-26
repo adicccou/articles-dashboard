@@ -1,11 +1,10 @@
 import type { Env } from "../lib/types";
 import { errorResponse, jsonResponse, parseJson } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
-import { defaultPlaywrightProfileKey, playwrightUserSettingKey } from "../lib/playwright-accounts";
 import { markLinkedPlannerItemsPublished } from "../lib/social-publish";
 
 type ExtraSocialPlatform = "linkedin" | "instagram" | "youtube";
-type AccountConnectionMode = "official_api" | "playwright";
+type AccountConnectionMode = "official_api";
 type AccountStatus = "active" | "inactive";
 type ExtraSocialPostRow = {
   id: number;
@@ -21,8 +20,6 @@ type ExtraSocialAccountPayload = {
   username?: string;
   status?: AccountStatus;
   connection_mode?: AccountConnectionMode;
-  playwright_login?: string;
-  playwright_password?: string;
   client_id?: string;
   client_secret?: string;
   redirect_uri?: string;
@@ -31,6 +28,16 @@ type ExtraSocialAccountPayload = {
   user_id?: string;
   page_id?: string;
   refresh_token?: string;
+};
+
+type InstagramPageConnection = {
+  id: string;
+  name?: string;
+  access_token?: string;
+  instagram_business_account?: {
+    id?: string;
+    username?: string;
+  } | null;
 };
 
 type FieldName =
@@ -44,6 +51,12 @@ type FieldName =
   | "refresh_token";
 
 const EXTRA_SOCIAL_PLATFORMS: ExtraSocialPlatform[] = ["linkedin", "instagram", "youtube"];
+const DEFAULT_INSTAGRAM_OAUTH_SCOPES = [
+  "pages_show_list",
+  "instagram_basic",
+  "instagram_content_publish",
+  "pages_read_engagement",
+].join(",");
 
 const OFFICIAL_FIELD_SETTINGS: Record<ExtraSocialPlatform, Record<FieldName, string>> = {
   linkedin: {
@@ -80,7 +93,7 @@ const OFFICIAL_FIELD_SETTINGS: Record<ExtraSocialPlatform, Record<FieldName, str
 
 const REQUIRED_OFFICIAL_FIELDS: Record<ExtraSocialPlatform, FieldName[]> = {
   linkedin: ["client_id", "client_secret", "redirect_uri", "scopes", "access_token", "user_id"],
-  instagram: ["client_id", "client_secret", "redirect_uri", "scopes", "access_token", "user_id", "page_id"],
+  instagram: ["access_token", "user_id", "page_id"],
   youtube: ["client_id", "client_secret", "redirect_uri", "scopes", "refresh_token", "user_id"],
 };
 
@@ -133,20 +146,6 @@ async function readSetting(env: Env, key: string, userId = DEFAULT_USER_ID): Pro
   return row?.value ?? "";
 }
 
-async function readPlaywrightSettings(
-  env: Env,
-  accountId: number,
-  scopeId = DEFAULT_USER_ID,
-  dashboardUserId = DEFAULT_USER_ID,
-): Promise<{ login: string; password: string; profileKey: string }> {
-  const [login, password, profileKey] = await Promise.all([
-    readSetting(env, playwrightUserSettingKey("social_account", accountId, dashboardUserId, "login"), scopeId),
-    readSetting(env, playwrightUserSettingKey("social_account", accountId, dashboardUserId, "password"), scopeId),
-    readSetting(env, playwrightUserSettingKey("social_account", accountId, dashboardUserId, "profile_key"), scopeId),
-  ]);
-  return { login, password, profileKey };
-}
-
 async function storedOfficialCredentialsReady(
   env: Env,
   platform: ExtraSocialPlatform,
@@ -160,6 +159,52 @@ async function storedOfficialCredentialsReady(
 
 function graphApiVersion(): string {
   return "v20.0";
+}
+
+async function readStoredInstagramOAuthConfig(env: Env, userId = DEFAULT_USER_ID) {
+  const filters = ["platform = 'instagram'", "status = 'active'"];
+  const values: unknown[] = [];
+  await appendScopedFilter(env, "social_accounts", filters, values, userId);
+  const account = await env.DB.prepare(
+    `SELECT id FROM social_accounts WHERE ${filters.join(" AND ")} ORDER BY updated_at DESC, id DESC LIMIT 1`,
+  )
+    .bind(...values)
+    .first<{ id: number }>();
+  if (!account?.id) return null;
+
+  const [clientId, clientSecret, redirectUri, scopes] = await Promise.all([
+    readSetting(env, `social_account:${account.id}:instagram_client_id`, userId),
+    readSetting(env, `social_account:${account.id}:instagram_client_secret`, userId),
+    readSetting(env, `social_account:${account.id}:instagram_redirect_uri`, userId),
+    readSetting(env, `social_account:${account.id}:instagram_scopes`, userId),
+  ]);
+  if (!clientId || !clientSecret) return null;
+
+  return {
+    appId: clientId,
+    appSecret: clientSecret,
+    redirectUri,
+    scopes,
+  };
+}
+
+async function instagramOAuthConfig(env: Env, requestUrl: string, userId = DEFAULT_USER_ID) {
+  const requestOrigin = new URL(requestUrl).origin;
+  const stored = await readStoredInstagramOAuthConfig(env, userId);
+  return {
+    appId: env.META_APP_ID?.trim() || stored?.appId || "",
+    appSecret: env.META_APP_SECRET?.trim() || stored?.appSecret || "",
+    redirectUri: env.INSTAGRAM_REDIRECT_URI?.trim() || stored?.redirectUri || `${requestOrigin}/api/instagram/auth/callback`,
+    scopes: env.INSTAGRAM_OAUTH_SCOPES?.trim() || stored?.scopes || DEFAULT_INSTAGRAM_OAUTH_SCOPES,
+  };
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function mediaUrls(raw: string | null): string[] {
@@ -191,17 +236,96 @@ async function readOfficialAccountFields(
   return Object.fromEntries(entries) as Record<FieldName, string>;
 }
 
+async function readAccountPresentationSettings(
+  env: Env,
+  accountId: number,
+  scopeId = DEFAULT_USER_ID,
+): Promise<{ display_name: string | null; avatar_url: string | null }> {
+  const [displayName, avatarUrl] = await Promise.all([
+    readSetting(env, `social_account:${accountId}:display_name`, scopeId),
+    readSetting(env, `social_account:${accountId}:avatar_url`, scopeId),
+  ]);
+  return {
+    display_name: displayName || null,
+    avatar_url: avatarUrl || null,
+  };
+}
+
+async function upsertInstagramOAuthAccount(
+  env: Env,
+  account: {
+    username: string;
+    displayName?: string;
+    accessToken: string;
+    instagramUserId: string;
+    pageId: string;
+    appId: string;
+    redirectUri: string;
+    scopes: string;
+    userAccessToken: string;
+    expiresIn?: number;
+  },
+  scopeId = DEFAULT_USER_ID,
+): Promise<number> {
+  const now = new Date().toISOString();
+  const username = account.username.trim().replace(/^@+/, "") || account.instagramUserId;
+  const existingFilters = ["platform = 'instagram'", "username = ?"];
+  const existingValues: unknown[] = [username];
+  await appendScopedFilter(env, "social_accounts", existingFilters, existingValues, scopeId);
+  const existing = await env.DB.prepare(
+    `SELECT id FROM social_accounts WHERE ${existingFilters.join(" AND ")} ORDER BY id DESC LIMIT 1`,
+  )
+    .bind(...existingValues)
+    .first<{ id: number }>();
+
+  let accountId = existing?.id ?? 0;
+  if (accountId) {
+    const updateFilters = ["id = ?"];
+    const updateValues: unknown[] = [accountId];
+    await appendScopedFilter(env, "social_accounts", updateFilters, updateValues, scopeId);
+    await env.DB.prepare(`UPDATE social_accounts SET status = 'active', updated_at = ? WHERE ${updateFilters.join(" AND ")}`)
+      .bind(now, ...updateValues)
+      .run();
+  } else {
+    const scoped = await scopedInsertColumns(env, "social_accounts", scopeId);
+    const result = await env.DB.prepare(
+      `INSERT INTO social_accounts (${[...scoped.columns, "platform", "username", "status", "created_at", "updated_at"].join(", ")})
+       VALUES (${[...scoped.columns.map(() => "?"), "?", "?", "'active'", "?", "?"].join(", ")})`,
+    )
+      .bind(...scoped.values, "instagram", username, now, now)
+      .run() as { meta: { last_row_id: number } };
+    accountId = result.meta.last_row_id;
+  }
+
+  const expiresAt = account.expiresIn
+    ? new Date(Date.now() + account.expiresIn * 1000).toISOString()
+    : "";
+  await Promise.all([
+    upsertSetting(env, `social_account:${accountId}:connection_mode`, "official_api", now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:instagram_client_id`, account.appId, now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:instagram_redirect_uri`, account.redirectUri, now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:instagram_scopes`, account.scopes, now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:instagram_access_token`, account.accessToken, now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:instagram_user_id`, account.instagramUserId, now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:instagram_page_id`, account.pageId, now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:instagram_user_access_token`, account.userAccessToken, now, scopeId),
+    ...(account.displayName?.trim()
+      ? [upsertSetting(env, `social_account:${accountId}:display_name`, account.displayName.trim(), now, scopeId)]
+      : []),
+    ...(expiresAt ? [upsertSetting(env, `social_account:${accountId}:instagram_user_token_expires_at`, expiresAt, now, scopeId)] : []),
+  ]);
+
+  return accountId;
+}
+
 async function resolveExtraAccountForPost(
   env: Env,
   post: ExtraSocialPostRow,
   scopeId = DEFAULT_USER_ID,
-  dashboardUserId = DEFAULT_USER_ID,
 ): Promise<{
   id: number;
   platform: ExtraSocialPlatform;
   username: string;
-  connectionMode: AccountConnectionMode;
-  playwright: { login: string; password: string; profileKey: string };
 } | null> {
   const filters = [`platform = ?`, "status = 'active'"];
   const values: unknown[] = [post.platform];
@@ -221,15 +345,7 @@ async function resolveExtraAccountForPost(
     .first<{ id: number; platform: ExtraSocialPlatform; username: string }>();
   if (!account) return null;
 
-  const [connectionModeValue, playwright] = await Promise.all([
-    readSetting(env, `social_account:${account.id}:connection_mode`, scopeId),
-    readPlaywrightSettings(env, account.id, scopeId, dashboardUserId),
-  ]);
-  return {
-    ...account,
-    connectionMode: connectionModeValue === "playwright" ? "playwright" : "official_api",
-    playwright,
-  };
+  return account;
 }
 
 async function publishInstagramOfficial(
@@ -338,15 +454,9 @@ async function publishLinkedInOfficial(
   return response.headers.get("x-restli-id") || responseText || `linkedin:${Date.now()}`;
 }
 
-function validateCreatePayload(payload: ExtraSocialAccountPayload, platform: ExtraSocialPlatform, connectionMode: AccountConnectionMode): string | null {
+function validateCreatePayload(payload: ExtraSocialAccountPayload, platform: ExtraSocialPlatform): string | null {
   const username = payload.username?.trim().replace(/^@+/, "");
   if (!username) return "Username is required";
-
-  if (connectionMode === "playwright") {
-    if (!payload.playwright_login?.trim()) return "Playwright login is required";
-    if (!payload.playwright_password?.trim()) return "Playwright password is required";
-    return null;
-  }
 
   for (const field of REQUIRED_OFFICIAL_FIELDS[platform]) {
     if (!String(payload[field] ?? "").trim()) {
@@ -380,22 +490,18 @@ export async function listExtraSocialAccounts(
     }>();
 
     const results = await Promise.all((rows.results ?? []).map(async (row) => {
-      const [connectionMode, playwright] = await Promise.all([
-        readSetting(env, `social_account:${row.id}:connection_mode`, scopeId),
-        readPlaywrightSettings(env, row.id, scopeId, dashboardUserId),
+      const [credentialsReady, presentation] = await Promise.all([
+        storedOfficialCredentialsReady(env, row.platform, row.id, scopeId),
+        readAccountPresentationSettings(env, row.id, scopeId),
       ]);
-      const usesPlaywright = connectionMode === "playwright";
-      const credentialsReady = usesPlaywright
-        ? Boolean(playwright.login && playwright.password)
-        : await storedOfficialCredentialsReady(env, row.platform, row.id, scopeId);
       return {
         ...row,
-        connection_mode: usesPlaywright ? "playwright" : "official_api",
-        status: row.status === "active" && credentialsReady ? "active" : "inactive",
+        ...presentation,
+        connection_mode: "official_api",
+        status: row.status === "active" && credentialsReady
+          ? "active"
+          : "inactive",
         credentials_ready: credentialsReady ? 1 : 0,
-        playwright_login: playwright.login || undefined,
-        playwright_profile_key: playwright.profileKey || defaultPlaywrightProfileKey(row.platform, row.id, dashboardUserId),
-        playwright_ready: Boolean(playwright.login && playwright.password),
       };
     }));
 
@@ -405,34 +511,164 @@ export async function listExtraSocialAccounts(
   }
 }
 
-async function readAllPlaywrightUserSettings(
-  env: Env,
-  accountId: number,
-  platform: ExtraSocialPlatform,
-): Promise<Array<{ dashboard_user_id: number; login: string; password: string; profile_key: string }>> {
-  const rows = await env.DB.prepare("SELECT key, value FROM app_settings WHERE key LIKE ?")
-    .bind(`social_account:${accountId}:playwright_user:%`)
-    .all<{ key: string; value: string }>();
-  const grouped = new Map<number, { dashboard_user_id: number; login: string; password: string; profile_key: string }>();
-  const pattern = new RegExp(`^social_account:${accountId}:playwright_user:(\\d+):(login|password|profile_key)$`);
+export async function authorizeInstagramAccount(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
+  try {
+    const config = await instagramOAuthConfig(env, request.url, userId);
+    const missingParts = [
+      !config.appId ? "META_APP_ID" : "",
+      !config.appSecret ? "META_APP_SECRET" : "",
+    ].filter(Boolean);
+    if (missingParts.length > 0) {
+      return errorResponse(`Instagram OAuth is not configured. Missing ${missingParts.join(" and ")} on the Worker, and no stored Instagram app credentials were found.`, 500);
+    }
 
-  for (const row of rows.results ?? []) {
-    const match = String(row.key ?? "").match(pattern);
-    if (!match) continue;
-    const dashboardUserId = Number(match[1]);
-    const field = match[2] as "login" | "password" | "profile_key";
-    if (!dashboardUserId) continue;
-    const entry = grouped.get(dashboardUserId) ?? {
-      dashboard_user_id: dashboardUserId,
-      login: "",
-      password: "",
-      profile_key: defaultPlaywrightProfileKey(platform, accountId, dashboardUserId),
-    };
-    entry[field] = String(row.value ?? "").trim();
-    grouped.set(dashboardUserId, entry);
+    const state = crypto.randomUUID();
+    const now = new Date().toISOString();
+    await upsertSetting(env, `instagram_oauth_state:${state}`, JSON.stringify({
+      app_id: config.appId,
+      redirect_uri: config.redirectUri,
+      scopes: config.scopes,
+      user_id: ownerId(userId),
+      created_at: now,
+    }), now, userId);
+
+    const authUrl = new URL(`https://www.facebook.com/${graphApiVersion()}/dialog/oauth`);
+    authUrl.searchParams.set("client_id", config.appId);
+    authUrl.searchParams.set("redirect_uri", config.redirectUri);
+    authUrl.searchParams.set("scope", config.scopes);
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("state", state);
+
+    return jsonResponse({ auth_url: authUrl.toString() });
+  } catch {
+    return errorResponse("Failed to start Instagram authorization", 500);
   }
+}
 
-  return Array.from(grouped.values()).filter((entry) => entry.login || entry.password || entry.profile_key);
+export async function handleInstagramOAuthCallback(env: Env, url: URL): Promise<Response> {
+  try {
+    const code = url.searchParams.get("code");
+    const state = url.searchParams.get("state");
+    const oauthError = url.searchParams.get("error") || url.searchParams.get("error_message");
+    if (oauthError) {
+      return new Response(`<html><body><h1>Instagram authorization failed</h1><p>${escapeHtml(oauthError)}</p></body></html>`, {
+        status: 400,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+    if (!code || !state) {
+      return new Response("<html><body><h1>Invalid Instagram OAuth callback</h1></body></html>", {
+        status: 400,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
+    const stateKey = `instagram_oauth_state:${state}`;
+    const row = await env.DB.prepare("SELECT value FROM app_settings WHERE key = ?").bind(stateKey).first<{ value: string }>();
+    if (!row?.value) {
+      return new Response("<html><body><h1>Instagram OAuth state expired</h1></body></html>", {
+        status: 400,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
+    const pending = JSON.parse(row.value) as {
+      app_id: string;
+      redirect_uri: string;
+      scopes: string;
+      user_id?: number;
+    };
+    const pendingUserId = ownerId(pending.user_id);
+    const config = await instagramOAuthConfig(env, url.toString(), pendingUserId);
+
+    const tokenUrl = new URL(`https://graph.facebook.com/${graphApiVersion()}/oauth/access_token`);
+    tokenUrl.searchParams.set("client_id", pending.app_id || config.appId);
+    tokenUrl.searchParams.set("client_secret", config.appSecret);
+    tokenUrl.searchParams.set("redirect_uri", pending.redirect_uri || config.redirectUri);
+    tokenUrl.searchParams.set("code", code);
+    const tokenResponse = await fetch(tokenUrl.toString());
+    const tokenPayload = await tokenResponse.json() as { access_token?: string; error?: { message?: string } };
+    if (!tokenResponse.ok || !tokenPayload.access_token) {
+      return new Response(`<html><body><h1>Instagram token exchange failed</h1><p>${escapeHtml(tokenPayload.error?.message || "No access token returned.")}</p></body></html>`, {
+        status: 500,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
+    const longTokenUrl = new URL(`https://graph.facebook.com/${graphApiVersion()}/oauth/access_token`);
+    longTokenUrl.searchParams.set("grant_type", "fb_exchange_token");
+    longTokenUrl.searchParams.set("client_id", pending.app_id || config.appId);
+    longTokenUrl.searchParams.set("client_secret", config.appSecret);
+    longTokenUrl.searchParams.set("fb_exchange_token", tokenPayload.access_token);
+    const longTokenResponse = await fetch(longTokenUrl.toString());
+    const longTokenPayload = await longTokenResponse.json() as { access_token?: string; expires_in?: number; error?: { message?: string } };
+    const userAccessToken = longTokenPayload.access_token || tokenPayload.access_token;
+    if (!longTokenResponse.ok && !userAccessToken) {
+      return new Response(`<html><body><h1>Instagram long-lived token exchange failed</h1><p>${escapeHtml(longTokenPayload.error?.message || "No access token returned.")}</p></body></html>`, {
+        status: 500,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
+    const accountsUrl = new URL(`https://graph.facebook.com/${graphApiVersion()}/me/accounts`);
+    accountsUrl.searchParams.set("fields", "id,name,access_token,instagram_business_account{id,username}");
+    accountsUrl.searchParams.set("access_token", userAccessToken);
+    const accountsResponse = await fetch(accountsUrl.toString());
+    const accountsPayload = await accountsResponse.json() as { data?: InstagramPageConnection[]; error?: { message?: string } };
+    if (!accountsResponse.ok) {
+      return new Response(`<html><body><h1>Instagram account lookup failed</h1><p>${escapeHtml(accountsPayload.error?.message || "Could not load Facebook Pages.")}</p></body></html>`, {
+        status: 500,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
+    const page = (accountsPayload.data ?? []).find((item) => item.instagram_business_account?.id && item.access_token);
+    if (!page?.instagram_business_account?.id || !page.access_token) {
+      return new Response(
+        "<html><body><h1>No Instagram professional account found</h1><p>Connect an Instagram Business or Creator account to a Facebook Page, then try again.</p></body></html>",
+        { status: 400, headers: { "Content-Type": "text/html" } },
+      );
+    }
+
+    const accountId = await upsertInstagramOAuthAccount(env, {
+      username: page.instagram_business_account.username || page.name || page.instagram_business_account.id,
+      displayName: page.name || page.instagram_business_account.username || page.instagram_business_account.id,
+      accessToken: page.access_token,
+      instagramUserId: page.instagram_business_account.id,
+      pageId: page.id,
+      appId: pending.app_id || config.appId,
+      redirectUri: pending.redirect_uri || config.redirectUri,
+      scopes: pending.scopes || config.scopes,
+      userAccessToken,
+      expiresIn: longTokenPayload.expires_in,
+    }, pendingUserId);
+    await env.DB.prepare("DELETE FROM app_settings WHERE key = ?").bind(stateKey).run();
+
+    return new Response(
+      `<html>
+        <head><title>Instagram connected</title></head>
+        <body>
+          <h1>Instagram account connected</h1>
+          <p>You can return to the dashboard now.</p>
+          <script>
+            const payload = { type: "instagram_connected", ok: true, account_id: ${JSON.stringify(accountId)} };
+            if (window.opener) {
+              window.opener.postMessage(payload, window.location.origin);
+              window.close();
+            } else {
+              window.location.href = "/";
+            }
+          </script>
+        </body>
+      </html>`,
+      { status: 200, headers: { "Content-Type": "text/html" } },
+    );
+  } catch (error) {
+    return new Response(
+      `<html><body><h1>Error processing Instagram OAuth callback</h1><p>${escapeHtml(error instanceof Error ? error.message : "Unknown error")}</p></body></html>`,
+      { status: 500, headers: { "Content-Type": "text/html" } },
+    );
+  }
 }
 
 export async function listInternalExtraSocialAccounts(env: Env) {
@@ -451,22 +687,11 @@ export async function listInternalExtraSocialAccounts(env: Env) {
   }>();
 
   return Promise.all((rows.results ?? []).map(async (row) => {
-    const [connectionMode, officialReady, playwrightUsers] = await Promise.all([
-      readSetting(env, `social_account:${row.id}:connection_mode`),
-      storedOfficialCredentialsReady(env, row.platform, row.id),
-      readAllPlaywrightUserSettings(env, row.id, row.platform),
-    ]);
-    const usesPlaywright = connectionMode === "playwright";
-    const readyPlaywrightUser = playwrightUsers.find((entry) => entry.login && entry.password) ?? playwrightUsers[0] ?? null;
+    const officialReady = await storedOfficialCredentialsReady(env, row.platform, row.id);
     return {
       ...row,
-      connection_mode: usesPlaywright ? "playwright" : "official_api",
-      credentials_ready: usesPlaywright ? Boolean(readyPlaywrightUser?.login && readyPlaywrightUser.password) : officialReady,
-      playwright_login: readyPlaywrightUser?.login || undefined,
-      playwright_password: readyPlaywrightUser?.password || undefined,
-      playwright_profile_key: readyPlaywrightUser?.profile_key || undefined,
-      playwright_ready: Boolean(readyPlaywrightUser?.login && readyPlaywrightUser.password),
-      playwright_users: playwrightUsers,
+      connection_mode: "official_api",
+      credentials_ready: officialReady,
     };
   }));
 }
@@ -482,8 +707,8 @@ export async function addExtraSocialAccount(
     const platform = String(payload.platform ?? "").trim().toLowerCase();
     if (!isExtraSocialPlatform(platform)) return errorResponse("Unsupported social platform", 400);
 
-    const connectionMode: AccountConnectionMode = payload.connection_mode === "playwright" ? "playwright" : "official_api";
-    const validationError = validateCreatePayload(payload, platform, connectionMode);
+    const connectionMode: AccountConnectionMode = "official_api";
+    const validationError = validateCreatePayload(payload, platform);
     if (validationError) return errorResponse(validationError, 400);
 
     const username = payload.username!.trim().replace(/^@+/, "");
@@ -500,24 +725,10 @@ export async function addExtraSocialAccount(
     const accountId = result.meta.last_row_id;
     await upsertSetting(env, `social_account:${accountId}:connection_mode`, connectionMode, now, scopeId);
 
-    if (connectionMode === "playwright") {
-      await Promise.all([
-        upsertSetting(env, playwrightUserSettingKey("social_account", accountId, dashboardUserId, "login"), payload.playwright_login!.trim(), now, scopeId),
-        upsertSetting(env, playwrightUserSettingKey("social_account", accountId, dashboardUserId, "password"), payload.playwright_password!.trim(), now, scopeId),
-        upsertSetting(
-          env,
-          playwrightUserSettingKey("social_account", accountId, dashboardUserId, "profile_key"),
-          defaultPlaywrightProfileKey(platform, accountId, dashboardUserId),
-          now,
-          scopeId,
-        ),
-      ]);
-    } else {
-      await Promise.all(Object.entries(OFFICIAL_FIELD_SETTINGS[platform]).flatMap(([field, settingKey]) => {
-        const value = String(payload[field as FieldName] ?? "").trim();
-        return value ? [upsertSetting(env, `social_account:${accountId}:${settingKey}`, value, now, scopeId)] : [];
-      }));
-    }
+    await Promise.all(Object.entries(OFFICIAL_FIELD_SETTINGS[platform]).flatMap(([field, settingKey]) => {
+      const value = String(payload[field as FieldName] ?? "").trim();
+      return value ? [upsertSetting(env, `social_account:${accountId}:${settingKey}`, value, now, scopeId)] : [];
+    }));
 
     return jsonResponse({
       id: accountId,
@@ -526,9 +737,6 @@ export async function addExtraSocialAccount(
       status,
       connection_mode: connectionMode,
       credentials_ready: 1,
-      playwright_login: connectionMode === "playwright" ? payload.playwright_login!.trim() : undefined,
-      playwright_profile_key: connectionMode === "playwright" ? defaultPlaywrightProfileKey(platform, accountId, dashboardUserId) : undefined,
-      playwright_ready: connectionMode === "playwright",
       created_at: now,
       updated_at: now,
     }, { status: 201 });
@@ -587,39 +795,9 @@ export async function updateExtraSocialAccount(
         .run();
     }
 
-    const connectionMode = payload.connection_mode === "playwright"
-      ? "playwright"
-      : payload.connection_mode === "official_api"
-      ? "official_api"
-      : null;
-    const playwrightLogin = payload.playwright_login?.trim() ?? "";
-    const playwrightPassword = payload.playwright_password?.trim() ?? "";
-
-    if (connectionMode === "playwright" && !playwrightLogin) {
-      const currentPlaywright = await readPlaywrightSettings(env, id, scopeId, dashboardUserId);
-      if (!currentPlaywright.login) return errorResponse("Playwright login is required", 400);
-    }
-
     const updates = [];
-    if (connectionMode) {
-      updates.push(upsertSetting(env, `social_account:${id}:connection_mode`, connectionMode, now, scopeId));
-    }
-    if (playwrightLogin) {
-      updates.push(upsertSetting(env, playwrightUserSettingKey("social_account", id, dashboardUserId, "login"), playwrightLogin, now, scopeId));
-    }
-    if (playwrightPassword) {
-      updates.push(upsertSetting(env, playwrightUserSettingKey("social_account", id, dashboardUserId, "password"), playwrightPassword, now, scopeId));
-    }
-    if (connectionMode === "playwright" || playwrightLogin || playwrightPassword) {
-      updates.push(
-        upsertSetting(
-          env,
-          playwrightUserSettingKey("social_account", id, dashboardUserId, "profile_key"),
-          defaultPlaywrightProfileKey(existing.platform, id, dashboardUserId),
-          now,
-          scopeId,
-        ),
-      );
+    if (payload.connection_mode) {
+      updates.push(upsertSetting(env, `social_account:${id}:connection_mode`, "official_api", now, scopeId));
     }
 
     for (const [field, settingKey] of Object.entries(OFFICIAL_FIELD_SETTINGS[existing.platform])) {
@@ -686,16 +864,8 @@ export async function publishExtraSocialPost(
     if (!post) return errorResponse("Social post not found", 404);
     if (post.status === "posted") return errorResponse("Post is already published", 400);
 
-    const account = await resolveExtraAccountForPost(env, post, scopeId, dashboardUserId);
+    const account = await resolveExtraAccountForPost(env, post, scopeId);
     if (!account) return errorResponse(`No active ${post.platform} account is connected.`, 400);
-
-    if (account.connectionMode === "playwright") {
-      const profileKey = account.playwright.profileKey || defaultPlaywrightProfileKey(post.platform, account.id, dashboardUserId);
-      return errorResponse(
-        `This ${post.platform} account is set to Playwright. Browser publishing must run through profile ${profileKey}; the Cloudflare Worker will not use official API credentials for it.`,
-        501,
-      );
-    }
 
     let externalId = "";
     if (post.platform === "instagram") {

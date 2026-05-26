@@ -38,13 +38,18 @@ type ScheduleFormState = {
 
 type SchedulerAccount = Pick<
   SocialAccount,
-  "id" | "platform" | "username" | "status" | "connection_mode" | "credentials_ready" | "playwright_ready"
+  "id" | "platform" | "username" | "status" | "credentials_ready"
 >;
 
 type PlannerPostTarget = {
   platform: SocialAccount["platform"];
   account: SchedulerAccount;
   scheduledFor: string | null;
+};
+
+type PlannerItemMicroNote = {
+  label: string;
+  tone: "success" | "danger";
 };
 
 function toLocalDateTimeInput(value?: string | null): string {
@@ -224,12 +229,7 @@ function plannerTargetKey(platform: SocialAccount["platform"], accountId: number
 }
 
 function plannerAccountLabel(account: SchedulerAccount): string {
-  const mode = account.connection_mode === "playwright" ? "Playwright" : "Official API";
-  return `@${account.username} (${mode})`;
-}
-
-function plannerAccountModeLabel(account: SchedulerAccount): string {
-  return account.connection_mode === "playwright" ? "Browser profile" : "Official API";
+  return `@${account.username} (Official API)`;
 }
 
 function normalizeSubredditInput(value: string): string {
@@ -247,13 +247,12 @@ function normalizeRedditAccount(account: RedditAccount): SchedulerAccount {
     platform: "reddit",
     username: account.name,
     status: account.status,
-    connection_mode: account.connection_mode,
-    playwright_ready: account.playwright_ready,
+    credentials_ready: account.credentials_ready,
   };
 }
 
 type SchedulerSocialAccountSource = Pick<SocialAccount, "id" | "username" | "status"> &
-  Partial<Pick<SocialAccount, "platform" | "connection_mode" | "credentials_ready" | "playwright_ready">>;
+  Partial<Pick<SocialAccount, "platform" | "credentials_ready">>;
 
 function normalizeSchedulerSocialAccount(
   account: SchedulerSocialAccountSource,
@@ -267,9 +266,7 @@ function normalizeSchedulerSocialAccount(
     platform,
     username: account.username,
     status: account.status,
-    connection_mode: account.connection_mode,
     credentials_ready: account.credentials_ready,
-    playwright_ready: account.playwright_ready,
   };
 }
 
@@ -542,6 +539,15 @@ export function PlannerPage() {
     if (!first || !last) return "";
     return formatWeekRange(first, last);
   }, [currentWeekDays]);
+
+  function plannerItemMicroNote(item: PlannerItem): PlannerItemMicroNote | null {
+    if (normalizePlannerStatus(item.status) === "published") return null;
+    if (!item.social_post_id || !item.scheduled_for) return null;
+    if (item.social_post_status === "failed") {
+      return { label: "Publishing failed", tone: "danger" };
+    }
+    return null;
+  }
 
   const today = new Date();
   const modalPlatforms = useMemo(() => {
@@ -1127,7 +1133,6 @@ export function PlannerPage() {
       const publishNowAt = options.publishNow ? new Date().toISOString() : null;
       const publishFailures: string[] = [];
       let publishedNowCount = 0;
-      let queuedBrowserCount = 0;
       let savedCount = 0;
 
       for (const target of targets) {
@@ -1187,10 +1192,6 @@ export function PlannerPage() {
         savedCount += 1;
 
         if (options.publishNow && socialPostId) {
-          if (target.account.connection_mode === "playwright") {
-            queuedBrowserCount += 1;
-            continue;
-          }
           try {
             await api.publishSocialPost(socialPostId);
             publishedNowCount += 1;
@@ -1210,14 +1211,11 @@ export function PlannerPage() {
       closeModal();
       await load({ silent: true });
       const actionLabel = options.publishNow
-        ? [
-            publishedNowCount > 0 ? `${publishedNowCount} published now` : "",
-            queuedBrowserCount > 0 ? `${queuedBrowserCount} queued for browser publishing` : "",
-          ].filter(Boolean).join(", ") || `${savedCount} saved`
+        ? publishedNowCount > 0 ? `${publishedNowCount} published now` : `${savedCount} saved`
         : options.scheduledForByTarget
         ? `Auto-scheduled ${savedCount} post${savedCount === 1 ? "" : "s"}`
         : `Planned ${savedCount} post${savedCount === 1 ? "" : "s"}`;
-      setNotice(actionLabel);
+      setNotice(actionLabel || null);
       if (publishFailures.length > 0) {
         setError(`Some targets could not publish: ${publishFailures.join(" | ")}`);
       }
@@ -1450,12 +1448,18 @@ export function PlannerPage() {
               </div>
               {filteredItems.map((item) => {
                 const status = normalizePlannerStatus(item.status);
+                const microNote = plannerItemMicroNote(item);
                 return (
                   <div className="scheduler-list__row" key={item.id}>
                     <span>
                       <button className="scheduler-title-button" onClick={() => openEditModal(item)}>
                         {displayPlannerTitle(item)}
                       </button>
+                      {microNote ? (
+                        <small className={`scheduler-item-micro-note scheduler-item-micro-note--${microNote.tone}`}>
+                          {microNote.label}
+                        </small>
+                      ) : null}
                       {item.description ? <small>{item.description}</small> : null}
                     </span>
                     <span>
@@ -1544,21 +1548,31 @@ export function PlannerPage() {
                   <div className="scheduler-calendar__day-number">{day.getDate()}</div>
                 </div>
                 <div className="scheduler-calendar__events">
-                  {dayItems.slice(0, 4).map((item) => (
-                    <button
-                      key={item.id}
-                      className={`scheduler-calendar__event scheduler-calendar__event--${item.item_type}`}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        openEditModal(item);
-                      }}
-                    >
-                      <span className="scheduler-calendar__event-time">
-                        {item.scheduled_for ? formatDisplayTime(item.scheduled_for) : "Any time"}
-                      </span>
-                      <span className="scheduler-calendar__event-title">{displayPlannerTitle(item)}</span>
-                    </button>
-                  ))}
+                  {dayItems.slice(0, 4).map((item) => {
+                    const microNote = plannerItemMicroNote(item);
+                    return (
+                      <button
+                        key={item.id}
+                        className={`scheduler-calendar__event scheduler-calendar__event--${item.item_type}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openEditModal(item);
+                        }}
+                      >
+                        <span className="scheduler-calendar__event-time">
+                          {item.scheduled_for ? formatDisplayTime(item.scheduled_for) : "Any time"}
+                        </span>
+                        <span className="scheduler-calendar__event-body">
+                          <span className="scheduler-calendar__event-title">{displayPlannerTitle(item)}</span>
+                          {microNote ? (
+                            <span className={`scheduler-item-micro-note scheduler-item-micro-note--${microNote.tone}`}>
+                              {microNote.label}
+                            </span>
+                          ) : null}
+                        </span>
+                      </button>
+                    );
+                  })}
                   {dayItems.length > 4 ? (
                     <span className="scheduler-calendar__more">+{dayItems.length - 4} more</span>
                   ) : null}
@@ -1653,6 +1667,7 @@ export function PlannerPage() {
                       {itemsByHour[slot.hour]?.map((item) => {
                         const status = normalizePlannerStatus(item.status);
                         const canDragSchedule = status === "planned";
+                        const microNote = plannerItemMicroNote(item);
                         return (
                           <button
                             key={item.id}
@@ -1687,6 +1702,11 @@ export function PlannerPage() {
                               </span>
                             </span>
                             <span className="scheduler-week__slot-title">{displayPlannerTitle(item)}</span>
+                            {microNote ? (
+                              <span className={`scheduler-item-micro-note scheduler-item-micro-note--${microNote.tone}`}>
+                                {microNote.label}
+                              </span>
+                            ) : null}
                           </button>
                         );
                       })}
@@ -1787,7 +1807,7 @@ export function PlannerPage() {
                                     <span className="scheduler-account-option__check" aria-hidden="true" />
                                     <span className="scheduler-account-option__content">
                                       <strong>@{account.username}</strong>
-                                      <small>{plannerAccountModeLabel(account)}</small>
+                                      <small>Official API</small>
                                     </span>
                                   </label>
                                 );
@@ -2032,7 +2052,7 @@ export function PlannerPage() {
                   <div className="scheduler-confirm-target" key={plannerTargetKey(target.platform, target.account.id)}>
                     <strong>{plannerPlatformLabel(target.platform)}</strong>
                     <span>@{target.account.username}</span>
-                    <small>{plannerAccountModeLabel(target.account)}</small>
+                    <small>Official API</small>
                   </div>
                 ))}
               </div>

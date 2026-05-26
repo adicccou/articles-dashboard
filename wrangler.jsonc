@@ -30,6 +30,8 @@
     "ADMIN_USERNAME": "admin",
     "REDDIT_CLIENT_ID": "",
     "REDDIT_CLIENT_SECRET": "",
-    "REDDIT_REDIRECT_URI": "https://marketing-dashboard.adilet-melisov.workers.dev/api/reddit/auth/callback"
+    "REDDIT_REDIRECT_URI": "https://marketing-dashboard.adilet-melisov.workers.dev/api/reddit/auth/callback",
+    "THREADS_REDIRECT_URI": "https://marketing-dashboard.adilet-melisov.workers.dev/api/threads/auth/callback",
+    "INSTAGRAM_REDIRECT_URI": "https://marketing-dashboard.adilet-melisov.workers.dev/api/instagram/auth/callback"
   }
 }

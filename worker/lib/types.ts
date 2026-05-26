@@ -10,6 +10,14 @@ export type Env = {
   REDDIT_CLIENT_ID?: string;
   REDDIT_CLIENT_SECRET?: string;
   REDDIT_REDIRECT_URI?: string;
+  THREADS_CLIENT_ID?: string;
+  THREADS_CLIENT_SECRET?: string;
+  THREADS_REDIRECT_URI?: string;
+  THREADS_SCOPES?: string;
+  META_APP_ID?: string;
+  META_APP_SECRET?: string;
+  INSTAGRAM_REDIRECT_URI?: string;
+  INSTAGRAM_OAUTH_SCOPES?: string;
   DASHBOARD_API_URL?: string;
   MCP_CONNECTOR_TOKEN?: string;
   TRADING_AGENT_SYNC_SECRET?: string;

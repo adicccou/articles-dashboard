@@ -360,13 +360,13 @@
 }
 
 .scheduler-calendar__event {
+  align-items: flex-start;
   border-radius: 6px;
   padding: 3px 6px;
   font-size: 0.68rem;
   font-weight: 400;
   text-align: left;
   display: flex;
-  align-items: baseline;
   gap: 6px;
   border: 0;
   background: transparent;
@@ -396,16 +396,41 @@
   font-weight: 400;
 }
 
+.scheduler-calendar__event-body {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 1px;
+  min-width: 0;
+}
+
 .scheduler-calendar__event-title {
   color: #0f172a;
   display: block;
-  flex: 1 1 auto;
   font-size: 0.68rem;
   font-weight: 400;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.scheduler-item-micro-note {
+  display: block;
+  font-size: 0.58rem;
+  font-weight: 800;
+  line-height: 1.2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scheduler-item-micro-note--success {
+  color: #047857;
+}
+
+.scheduler-item-micro-note--danger {
+  color: #be123c;
 }
 
 .scheduler-calendar__event--post {

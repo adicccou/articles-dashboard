@@ -1,4 +1,4 @@
-# Blogposter Dashboards
+# Oilor Studio Dashboards
 
 React, Vite, Cloudflare Workers, D1, and R2 dashboard workspace split into two deployable projects:
 

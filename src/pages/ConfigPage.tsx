@@ -1,5 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ArrowPathIcon, PencilSquareIcon, TrashIcon } from "@heroicons/react/24/solid";
+import type { IconType } from "react-icons";
+import { FaLinkedinIn } from "react-icons/fa6";
+import { SiInstagram, SiReddit, SiThreads, SiX, SiYoutube } from "react-icons/si";
 import { ModalCloseButton } from "../components/ModalCloseButton";
 import type { RedditAccount, Site, SocialAccount, SocialAccountInput, StudioApp } from "../lib/types";
 import { api } from "../lib/api";
@@ -9,7 +12,7 @@ import "../styles/config-page.css";
 type ConfigTab = "apps" | "accounts";
 type AccountPlatform = "twitter" | "threads" | "reddit" | "linkedin" | "instagram" | "youtube";
 type AccountStatus = "active" | "inactive";
-type AccountConnectionMode = "official_api" | "playwright";
+type AccountConnectionMode = "official_api";
 type ConfigModal = "app" | "account" | "site" | null;
 
 type AppForm = {
@@ -37,10 +40,6 @@ type AccountForm = {
   connection_mode: AccountConnectionMode;
   username: string;
   status: AccountStatus;
-  playwright_login: string;
-  playwright_password: string;
-  playwright_profile_key?: string;
-  playwright_ready?: boolean;
   api_key: string;
   api_secret: string;
   access_token: string;
@@ -59,11 +58,11 @@ type ManagedAccount = {
   platform: AccountPlatform;
   connection_mode: AccountConnectionMode;
   username: string;
+  profile_username?: string | null;
+  display_name?: string | null;
+  avatar_url?: string | null;
   status: AccountStatus;
   credentials_ready?: boolean | number;
-  playwright_login?: string;
-  playwright_profile_key?: string;
-  playwright_ready?: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -110,10 +109,14 @@ const platformOptions: Array<{ id: AccountPlatform; label: string }> = [
   { id: "youtube", label: "YouTube" },
 ];
 
-const connectionModeOptions: Array<{ id: AccountConnectionMode; label: string }> = [
-  { id: "official_api", label: "Official API" },
-  { id: "playwright", label: "Playwright" },
-];
+const platformIcons: Record<AccountPlatform, IconType> = {
+  twitter: SiX,
+  threads: SiThreads,
+  reddit: SiReddit,
+  linkedin: FaLinkedinIn,
+  instagram: SiInstagram,
+  youtube: SiYoutube,
+};
 
 function emptyAppForm(): AppForm {
   return {
@@ -142,8 +145,6 @@ function emptyAccountForm(platform: AccountPlatform = "twitter"): AccountForm {
     connection_mode: "official_api",
     username: "",
     status: "active",
-    playwright_login: "",
-    playwright_password: "",
     api_key: "",
     api_secret: "",
     access_token: "",
@@ -169,6 +170,112 @@ function emptyAccountForm(platform: AccountPlatform = "twitter"): AccountForm {
 
 function platformLabel(platform: AccountPlatform) {
   return platformOptions.find((item) => item.id === platform)?.label ?? platform;
+}
+
+function cleanAccountValue(value: string | null | undefined) {
+  return String(value ?? "").trim().replace(/^@+/, "");
+}
+
+function looksLikeEmail(value: string) {
+  return /\S+@\S+\.\S+/.test(value);
+}
+
+function prefersAtPrefix(platform: AccountPlatform) {
+  return platform === "twitter" || platform === "threads" || platform === "instagram";
+}
+
+function resolveProfileUsername(account: Pick<SocialAccount, "username">) {
+  return cleanAccountValue(account.username);
+}
+
+function accountHandleLabel(account: Pick<ManagedAccount, "platform" | "username" | "profile_username">) {
+  const handle = cleanAccountValue(account.profile_username || account.username);
+  if (!handle) return platformLabel(account.platform);
+  return prefersAtPrefix(account.platform) ? `@${handle}` : handle;
+}
+
+function accountSubtitle(account: Pick<ManagedAccount, "platform" | "username" | "profile_username" | "display_name">) {
+  const explicitName = String(account.display_name ?? "").trim();
+  if (explicitName) return explicitName;
+
+  const storedName = cleanAccountValue(account.username);
+  const visibleHandle = cleanAccountValue(account.profile_username || account.username);
+  if (storedName && storedName.toLowerCase() !== visibleHandle.toLowerCase()) {
+    return storedName;
+  }
+  return platformLabel(account.platform);
+}
+
+function accountAvatarCandidates(account: Pick<ManagedAccount, "platform" | "username" | "profile_username" | "avatar_url">) {
+  const candidates: string[] = [];
+  const addCandidate = (value: string | null | undefined) => {
+    const trimmed = String(value ?? "").trim();
+    if (!trimmed || candidates.includes(trimmed)) return;
+    candidates.push(trimmed);
+  };
+
+  addCandidate(account.avatar_url);
+
+  const handle = cleanAccountValue(account.profile_username || account.username);
+  if (!handle || looksLikeEmail(handle) || /\s/.test(handle)) return candidates;
+
+  if (account.platform === "twitter") addCandidate(`https://unavatar.io/x/${encodeURIComponent(handle)}`);
+  if (account.platform === "threads" || account.platform === "instagram") {
+    addCandidate(`https://unavatar.io/instagram/${encodeURIComponent(handle)}`);
+  }
+  if (account.platform === "reddit") addCandidate(`https://unavatar.io/reddit/${encodeURIComponent(handle)}`);
+
+  return candidates;
+}
+
+function accountInitials(account: Pick<ManagedAccount, "platform" | "username" | "profile_username" | "display_name">) {
+  const source = accountSubtitle(account) || cleanAccountValue(account.profile_username || account.username) || platformLabel(account.platform);
+  const initials = source
+    .split(/[\s._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+  return initials || platformLabel(account.platform).slice(0, 1).toUpperCase();
+}
+
+function AccountAvatar({ account }: { account: ManagedAccount }) {
+  const candidates = accountAvatarCandidates(account);
+  const avatarSignature = candidates.join("|");
+  const [avatarIndex, setAvatarIndex] = useState(() => candidates.length ? 0 : -1);
+
+  useEffect(() => {
+    setAvatarIndex(candidates.length ? 0 : -1);
+  }, [avatarSignature]);
+
+  const src = avatarIndex >= 0 ? candidates[avatarIndex] : "";
+
+  return (
+    <div className="config-account-avatar" aria-hidden="true">
+      {src ? (
+        <img
+          src={src}
+          alt=""
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={() => {
+            setAvatarIndex((current) => (current + 1 < candidates.length ? current + 1 : -1));
+          }}
+        />
+      ) : (
+        <span className="config-account-avatar__fallback">{accountInitials(account)}</span>
+      )}
+    </div>
+  );
+}
+
+function AccountPlatformLogo({ platform }: { platform: AccountPlatform }) {
+  const Icon = platformIcons[platform];
+  return (
+    <span className={`config-account-platform config-account-platform--${platform}`} aria-hidden="true">
+      <Icon />
+    </span>
+  );
 }
 
 function statusTone(status: string) {
@@ -308,25 +415,25 @@ function normalizeAccounts(
   const socialAccounts = social.map((account) => ({
     id: account.id,
     platform: account.platform as AccountPlatform,
-    connection_mode: (account.connection_mode === "playwright" ? "playwright" : "official_api") as AccountConnectionMode,
+    connection_mode: "official_api" as const,
     username: account.username,
+    profile_username: resolveProfileUsername(account) || null,
+    display_name: account.display_name?.trim() || null,
+    avatar_url: account.avatar_url?.trim() || null,
     status: account.status,
     credentials_ready: account.credentials_ready,
-    playwright_login: account.playwright_login,
-    playwright_profile_key: account.playwright_profile_key,
-    playwright_ready: Boolean(account.playwright_ready),
     created_at: account.created_at,
     updated_at: account.updated_at || account.created_at,
   }));
   const redditAccounts = reddit.map((account) => ({
     id: account.id,
     platform: "reddit" as const,
-    connection_mode: (account.connection_mode === "playwright" ? "playwright" : "official_api") as AccountConnectionMode,
+    connection_mode: "official_api" as AccountConnectionMode,
     username: account.name,
+    profile_username: cleanAccountValue(account.name) || null,
+    display_name: null,
+    avatar_url: null,
     status: account.status,
-    playwright_login: account.playwright_login,
-    playwright_profile_key: account.playwright_profile_key,
-    playwright_ready: Boolean(account.playwright_ready),
     created_at: account.created_at,
     updated_at: account.updated_at || account.created_at,
   }));
@@ -340,12 +447,7 @@ function putIfFilled(payload: SocialAccountInput & { status?: AccountStatus }, k
   if (trimmed) payload[key] = trimmed;
 }
 
-function deriveAccountStatus(form: AccountForm, playwrightLogin: string, playwrightPassword: string): AccountStatus {
-  if (form.connection_mode === "playwright") {
-    if (form.id) return form.playwright_ready || (playwrightLogin && playwrightPassword) ? "active" : "inactive";
-    return playwrightLogin && playwrightPassword ? "active" : "inactive";
-  }
-
+function deriveAccountStatus(form: AccountForm): AccountStatus {
   if (form.platform === "reddit") return form.id ? "active" : "inactive";
   if (form.id) return "active";
   if (form.platform === "twitter") {
@@ -355,6 +457,11 @@ function deriveAccountStatus(form: AccountForm, playwrightLogin: string, playwri
     return form.access_token.trim() && form.user_id.trim() ? "active" : "inactive";
   }
   return form.access_token.trim() || form.refresh_token.trim() || form.user_id.trim() || form.page_id.trim() ? "active" : "inactive";
+}
+
+function usesHostedOAuth(form: AccountForm) {
+  return !form.id
+    && (form.platform === "threads" || form.platform === "instagram");
 }
 
 function normalizeComparable(value: string | null | undefined) {
@@ -628,52 +735,74 @@ export function ConfigPage() {
   async function saveAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const username = accountForm.username.trim().replace(/^@+/, "");
-    const playwrightLogin = accountForm.playwright_login.trim();
-    const playwrightPassword = accountForm.playwright_password.trim();
-    if (!username) {
+    const hostedOAuth = usesHostedOAuth(accountForm);
+    if (!hostedOAuth && !username) {
       setError(accountForm.platform === "reddit" ? "Reddit account name is required." : "Username is required.");
       return;
     }
 
-    const usesPlaywright = accountForm.connection_mode === "playwright";
-    if (usesPlaywright && !playwrightLogin) {
-      setError("Playwright login is required.");
-      return;
-    }
-    if (usesPlaywright && !accountForm.id && !playwrightPassword) {
-      setError("Playwright password is required.");
-      return;
-    }
-    const derivedStatus = deriveAccountStatus(accountForm, playwrightLogin, playwrightPassword);
+    const derivedStatus = deriveAccountStatus(accountForm);
 
     try {
       setSaving(true);
       setError(null);
+
+      if (hostedOAuth) {
+        const popup = window.open("about:blank", `${accountForm.platform}-connect`, "width=540,height=760");
+        try {
+          const { auth_url } = accountForm.platform === "threads"
+            ? await api.startThreadsOAuth({})
+            : await api.startInstagramOAuth();
+          if (!popup) {
+            window.location.href = auth_url;
+            return;
+          }
+
+          await new Promise<void>((resolve, reject) => {
+            const expectedType = accountForm.platform === "threads" ? "threads_connected" : "instagram_connected";
+            const timeout = window.setTimeout(() => {
+              window.removeEventListener("message", handleMessage);
+              reject(new Error(`${platformLabel(accountForm.platform)} authorization timed out.`));
+            }, 5 * 60 * 1000);
+            const closeTimer = window.setInterval(() => {
+              if (popup.closed) {
+                window.clearInterval(closeTimer);
+                window.clearTimeout(timeout);
+                window.removeEventListener("message", handleMessage);
+                reject(new Error(`${platformLabel(accountForm.platform)} authorization window was closed.`));
+              }
+            }, 800);
+            function handleMessage(event: MessageEvent) {
+              if (event.origin !== window.location.origin) return;
+              if (event.data?.type !== expectedType || event.data?.ok !== true) return;
+              window.clearInterval(closeTimer);
+              window.clearTimeout(timeout);
+              window.removeEventListener("message", handleMessage);
+              resolve();
+            }
+            window.addEventListener("message", handleMessage);
+            popup.location.href = auth_url;
+          });
+        } catch (hostedOAuthError) {
+          if (popup && !popup.closed) popup.close();
+          throw hostedOAuthError;
+        }
+
+        setFeedback(`${platformLabel(accountForm.platform)} account connected.`);
+        setAccountForm(emptyAccountForm(accountForm.platform));
+        setActiveModal(null);
+        await load({ silent: true });
+        return;
+      }
 
       if (accountForm.platform === "reddit") {
         if (accountForm.id) {
           await api.updateRedditAccount(accountForm.id, {
             name: username,
             status: derivedStatus,
-            connection_mode: accountForm.connection_mode,
-            playwright_login: usesPlaywright ? playwrightLogin : undefined,
-            playwright_password: usesPlaywright && playwrightPassword ? playwrightPassword : undefined,
+            connection_mode: "official_api",
           });
           setFeedback("Reddit account updated.");
-          setAccountForm(emptyAccountForm("reddit"));
-          setActiveModal(null);
-          await load({ silent: true });
-          return;
-        }
-        if (usesPlaywright) {
-          await api.addRedditAccount({
-            name: username,
-            status: derivedStatus,
-            connection_mode: accountForm.connection_mode,
-            playwright_login: playwrightLogin,
-            playwright_password: playwrightPassword,
-          });
-          setFeedback("Reddit account added.");
           setAccountForm(emptyAccountForm("reddit"));
           setActiveModal(null);
           await load({ silent: true });
@@ -689,10 +818,8 @@ export function ConfigPage() {
           platform: accountForm.platform,
           username,
           status: derivedStatus,
-          connection_mode: accountForm.connection_mode,
+          connection_mode: "official_api",
         };
-        putIfFilled(extraPayload, "playwright_login", usesPlaywright ? playwrightLogin : "");
-        putIfFilled(extraPayload, "playwright_password", usesPlaywright ? playwrightPassword : "");
         putIfFilled(extraPayload, "client_id", accountForm.client_id);
         putIfFilled(extraPayload, "client_secret", accountForm.client_secret);
         putIfFilled(extraPayload, "redirect_uri", accountForm.redirect_uri);
@@ -720,10 +847,8 @@ export function ConfigPage() {
           const payload: SocialAccountInput & { status: AccountStatus } = {
             username,
             status: derivedStatus,
-            connection_mode: accountForm.connection_mode,
+            connection_mode: "official_api",
           };
-          putIfFilled(payload, "playwright_login", usesPlaywright ? playwrightLogin : "");
-          putIfFilled(payload, "playwright_password", usesPlaywright ? playwrightPassword : "");
           putIfFilled(payload, "api_key", accountForm.api_key);
           putIfFilled(payload, "api_secret", accountForm.api_secret);
           putIfFilled(payload, "access_token", accountForm.access_token);
@@ -734,9 +859,7 @@ export function ConfigPage() {
           await api.addTwitterAccount({
             username,
             status: derivedStatus,
-            connection_mode: accountForm.connection_mode,
-            playwright_login: usesPlaywright ? playwrightLogin : "",
-            playwright_password: usesPlaywright ? playwrightPassword : "",
+            connection_mode: "official_api",
             api_key: accountForm.api_key.trim(),
             api_secret: accountForm.api_secret.trim(),
             access_token: accountForm.access_token.trim(),
@@ -753,10 +876,8 @@ export function ConfigPage() {
       const threadsPayload: SocialAccountInput & { status: AccountStatus } = {
         username,
         status: derivedStatus,
-        connection_mode: accountForm.connection_mode,
+        connection_mode: "official_api",
       };
-      putIfFilled(threadsPayload, "playwright_login", usesPlaywright ? playwrightLogin : "");
-      putIfFilled(threadsPayload, "playwright_password", usesPlaywright ? playwrightPassword : "");
       putIfFilled(threadsPayload, "client_id", accountForm.client_id);
       putIfFilled(threadsPayload, "client_secret", accountForm.client_secret);
       putIfFilled(threadsPayload, "redirect_uri", accountForm.redirect_uri);
@@ -773,26 +894,11 @@ export function ConfigPage() {
         return;
       }
 
-      if (usesPlaywright) {
-        await api.addThreadsAccount({
-          username,
-          status: derivedStatus,
-          connection_mode: accountForm.connection_mode,
-          playwright_login: playwrightLogin,
-          playwright_password: playwrightPassword,
-        });
-        setFeedback("Threads account added.");
-        setAccountForm(emptyAccountForm("threads"));
-        setActiveModal(null);
-        await load({ silent: true });
-        return;
-      }
-
       if (accountForm.access_token.trim() && accountForm.user_id.trim()) {
         await api.addThreadsAccount({
           username,
           status: derivedStatus,
-          connection_mode: accountForm.connection_mode,
+          connection_mode: "official_api",
           client_id: accountForm.client_id.trim(),
           client_secret: accountForm.client_secret.trim(),
           redirect_uri: accountForm.redirect_uri.trim(),
@@ -809,7 +915,7 @@ export function ConfigPage() {
 
       const result = await api.startThreadsOAuth({
         username,
-        connection_mode: accountForm.connection_mode,
+        connection_mode: "official_api",
         client_id: accountForm.client_id.trim(),
         client_secret: accountForm.client_secret.trim(),
         redirect_uri: accountForm.redirect_uri.trim(),
@@ -857,12 +963,9 @@ export function ConfigPage() {
     setAccountForm({
       ...emptyAccountForm(account.platform),
       id: account.id,
-      connection_mode: account.connection_mode,
+      connection_mode: "official_api",
       username: account.username,
       status: account.status,
-      playwright_login: account.playwright_login || "",
-      playwright_profile_key: account.playwright_profile_key,
-      playwright_ready: account.playwright_ready,
     });
     setActiveModal("account");
   }
@@ -870,17 +973,16 @@ export function ConfigPage() {
   function accountSubmitLabel() {
     if (saving) return "Saving...";
     if (accountForm.id) return "Save account";
-    if (accountForm.connection_mode === "playwright") return "Add account";
     if (accountForm.platform === "reddit") return "Connect Reddit account";
-    if (accountForm.platform === "threads" && (!accountForm.access_token.trim() || !accountForm.user_id.trim())) {
-      return "Connect Threads account";
-    }
+    if (accountForm.platform === "threads") return "Connect Threads account";
+    if (accountForm.platform === "instagram") return "Connect Instagram account";
     return "Add account";
   }
 
   const officialFieldGroups = accountForm.platform === "reddit"
     ? []
     : officialFieldsByPlatform[accountForm.platform];
+  const hostedOAuthAccount = usesHostedOAuth(accountForm);
 
   if (loading) {
     return <section className="panel">Loading Config...</section>;
@@ -1040,13 +1142,14 @@ export function ConfigPage() {
                 {accounts.map((account) => (
                   <article className="config-table__row" key={`${account.platform}-${account.id}`}>
                     <div className="config-main-cell">
-                      <strong>{account.platform === "twitter" || account.platform === "threads" || account.platform === "instagram" ? `@${account.username}` : account.username}</strong>
-                      <small>
-                        {platformLabel(account.platform)}
-                        {account.connection_mode === "playwright"
-                          ? ` • ${account.playwright_ready ? "Playwright ready for you" : "Playwright not connected for you"}`
-                          : ""}
-                      </small>
+                      <div className="config-account-cell">
+                        <AccountPlatformLogo platform={account.platform} />
+                        <AccountAvatar account={account} />
+                        <div className="config-account-copy">
+                          <strong className="config-account-copy__title">{accountHandleLabel(account)}</strong>
+                          <small className="config-account-copy__subtitle">{accountSubtitle(account)}</small>
+                        </div>
+                      </div>
                     </div>
                     <span className={`config-pill config-pill--${statusTone(account.status)}`}>{account.status}</span>
                     <span className="config-muted">{formatDisplayDate(account.created_at)}</span>
@@ -1208,68 +1311,22 @@ export function ConfigPage() {
                 ))}
               </select>
             </label>
-            <div className="config-mode-field">
-              <span>Connection mode</span>
-              <div className="config-mode-switch" role="tablist" aria-label="Connection mode">
-                {connectionModeOptions.map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    className={`config-mode-switch__option ${accountForm.connection_mode === option.id ? "is-active" : ""}`}
-                    onClick={() => setAccountForm((current) => ({ ...current, connection_mode: option.id }))}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
+            <p className="config-hint">Publishing uses official platform auth and API credentials.</p>
+            {hostedOAuthAccount ? (
               <p className="config-hint">
-                {accountForm.connection_mode === "playwright"
-                  ? "Save this account for browser-driven posting, crawling, and reply automation. Playwright login stays isolated per dashboard user."
-                  : "Use the platform's official auth and API credentials for publishing and account sync."}
+                This opens the official {platformLabel(accountForm.platform)} authorization popup. The connected account name and IDs are saved automatically after approval.
               </p>
-            </div>
-            <label>
-              {accountForm.platform === "reddit"
-                ? "Account name"
-                : accountForm.platform === "youtube"
-                ? "Channel handle / label"
-                : "Username"}
-              <input value={accountForm.username} onChange={(event) => setAccountForm((current) => ({ ...current, username: event.target.value }))} required />
-            </label>
-            {accountForm.connection_mode === "playwright" ? (
-              <>
-                <div className="grid-two">
-                  <label>
-                    Browser login
-                    <input
-                      value={accountForm.playwright_login}
-                      onChange={(event) => setAccountForm((current) => ({ ...current, playwright_login: event.target.value }))}
-                      placeholder={accountForm.platform === "reddit" ? "username or email" : "username, email, or phone"}
-                      required
-                    />
-                  </label>
-                  <label>
-                    Browser password
-                    <input
-                      type="password"
-                      value={accountForm.playwright_password}
-                      onChange={(event) => setAccountForm((current) => ({ ...current, playwright_password: event.target.value }))}
-                      placeholder={accountForm.id ? "Leave blank to keep saved password" : ""}
-                      required={!accountForm.id}
-                    />
-                  </label>
-                </div>
-                <div className="config-session-card">
-                  <strong>{accountForm.playwright_ready ? "Personal browser session saved" : "Personal browser session not saved yet"}</strong>
-                  <small>
-                    {accountForm.playwright_profile_key
-                      ? `Profile key: ${accountForm.playwright_profile_key}`
-                      : "A separate browser profile key will be created for this dashboard user after save."}
-                  </small>
-                </div>
-              </>
-            ) : null}
-            {accountForm.platform !== "reddit" && accountForm.connection_mode === "official_api" ? (
+            ) : (
+              <label>
+                {accountForm.platform === "reddit"
+                  ? "Account name"
+                  : accountForm.platform === "youtube"
+                  ? "Channel handle / label"
+                  : "Username"}
+                <input value={accountForm.username} onChange={(event) => setAccountForm((current) => ({ ...current, username: event.target.value }))} required />
+              </label>
+            )}
+            {accountForm.platform !== "reddit" && !hostedOAuthAccount ? (
               <>
                 {officialFieldGroups.map((group, groupIndex) => (
                   group.length === 2 ? (
@@ -1306,7 +1363,7 @@ export function ConfigPage() {
               </>
             ) : null}
 
-            {accountForm.platform === "reddit" && accountForm.connection_mode === "official_api" && !accountForm.id ? (
+            {accountForm.platform === "reddit" && !accountForm.id ? (
               <p className="config-hint">This will open Reddit OAuth to connect the account.</p>
             ) : null}
 

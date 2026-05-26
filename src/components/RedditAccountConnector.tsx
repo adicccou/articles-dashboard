@@ -54,7 +54,7 @@ export const RedditAccountConnector: React.FC<RedditAccountConnectorProps> = ({
               Redirecting to Reddit...
             </p>
             <p style={{ color: "#6b7280", marginBottom: "24px" }}>
-              Please log in with your Reddit account and authorize BlogPoster.
+              Please log in with your Reddit account and authorize Oilor Studio.
             </p>
             <div className="spinner" style={{ margin: "0 auto" }} />
           </div>
@@ -135,7 +135,7 @@ export const RedditAccountConnector: React.FC<RedditAccountConnectorProps> = ({
             <strong>What happens next:</strong>
             <ul style={{ margin: "8px 0 0 20px", paddingLeft: 0 }}>
               <li>You'll be redirected to Reddit to log in</li>
-              <li>Grant BlogPoster access to your account</li>
+              <li>Grant Oilor Studio access to your account</li>
               <li>You'll be redirected back with your account connected</li>
             </ul>
           </div>

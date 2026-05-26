@@ -148,10 +148,7 @@ export type RedditAccount = {
   id: number;
   name: string;
   status: "active" | "inactive";
-  connection_mode?: "official_api" | "playwright";
-  playwright_login?: string;
-  playwright_profile_key?: string;
-  playwright_ready?: boolean | number;
+  credentials_ready?: boolean | number;
   created_at: string;
   updated_at: string;
 };
@@ -637,6 +634,7 @@ export type PlannerItem = {
   status: "planned" | "drafting" | "approved" | "published" | "archived";
   scheduled_for?: string | null;
   social_post_id?: number | null;
+  social_post_status?: SocialPost["status"] | null;
   account_id?: number | null;
   subreddit?: string | null;
   instruction?: string | null;
@@ -694,11 +692,10 @@ export type SocialAccount = {
   platform: "twitter" | "threads" | "reddit" | "linkedin" | "instagram" | "youtube";
   username: string;
   status: "active" | "inactive";
-  connection_mode?: "official_api" | "playwright";
+  connection_mode?: "official_api";
   credentials_ready?: boolean | number;
-  playwright_login?: string;
-  playwright_profile_key?: string;
-  playwright_ready?: boolean | number;
+  display_name?: string | null;
+  avatar_url?: string | null;
   created_at: string;
   updated_at: string;
 };
