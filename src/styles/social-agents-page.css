@@ -512,6 +512,19 @@
   line-clamp: 5;
 }
 
+.social-post-card__error {
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: 8px;
+  color: #be123c;
+  font-size: 0.82rem;
+  font-weight: 650;
+  line-height: 1.4;
+  margin: 0;
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+}
+
 .social-post-card__description {
   color: var(--text-soft);
   display: -webkit-box;

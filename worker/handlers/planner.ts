@@ -1,5 +1,6 @@
 import { jsonResponse, errorResponse, parseJson } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, scopedInsertColumns } from "../lib/ownership";
+import { socialPostsHaveLastError } from "../lib/social-publish";
 import type { Env } from "../lib/types";
 
 type PlannerStatus = "planned" | "published";
@@ -55,6 +56,7 @@ export async function listPlannerItems(env: Env, userId = DEFAULT_USER_ID): Prom
   try {
     const hasSocialPostLinks = await plannerHasSocialPostLinks(env);
     const hasImageUrl = await plannerHasImageUrl(env);
+    const hasSocialPostLastError = hasSocialPostLinks ? await socialPostsHaveLastError(env) : false;
     const filters: string[] = [];
     const values: unknown[] = [];
     await appendScopedFilter(env, "planner_items", filters, values, userId, "pi");
@@ -72,6 +74,7 @@ export async function listPlannerItems(env: Env, userId = DEFAULT_USER_ID): Prom
           pi.scheduled_for,
           ${hasSocialPostLinks ? "pi.social_post_id" : "NULL AS social_post_id"},
           ${hasSocialPostLinks ? "sp.status" : "NULL"} AS social_post_status,
+          ${hasSocialPostLinks && hasSocialPostLastError ? "sp.last_error" : "NULL"} AS social_post_last_error,
           pi.account_id,
           pi.instruction,
           pi.interval_minutes,

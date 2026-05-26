@@ -398,6 +398,7 @@ async function handleInternalContext(env: Env) {
     "scheduled_at",
     "posted_at",
     "external_id",
+    ...(socialPostSchema.hasLastError ? ["last_error"] : ["NULL AS last_error"]),
     "updated_at",
   ].join(", ");
   const [
@@ -632,12 +633,15 @@ async function handleInternalSocialPostPublishResult(env: Env, postId: string, r
     external_id?: string | null;
     posted_at?: string | null;
     account_id?: number | null;
+    error?: string | null;
+    last_error?: string | null;
   }>(request);
   const status = payload.status === "failed" ? "failed" : "posted";
   const now = new Date().toISOString();
   const postedAt = status === "posted" ? (payload.posted_at || now) : null;
   const existing = await env.DB.prepare("SELECT id FROM social_posts WHERE id = ?").bind(id).first<{ id: number }>();
   if (!existing) return json({ error: "Social post not found" }, { status: 404 });
+  const socialPostSchema = await getSocialPostSchemaCapabilities(env);
 
   const updates = ["status = ?", "updated_at = ?"];
   const values: unknown[] = [status, now];
@@ -650,6 +654,10 @@ async function handleInternalSocialPostPublishResult(env: Env, postId: string, r
   if (payload.account_id !== undefined) {
     updates.push("account_id = ?");
     values.push(payload.account_id);
+  }
+  if (socialPostSchema.hasLastError) {
+    updates.push("last_error = ?");
+    values.push(status === "failed" ? (payload.last_error || payload.error || "Publishing failed") : null);
   }
 
   await env.DB.prepare(`UPDATE social_posts SET ${updates.join(", ")} WHERE id = ?`).bind(...values, id).run();

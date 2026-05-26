@@ -3,7 +3,7 @@ import type { RedditCampaign } from "../../src/lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 import { getSocialPostSchemaCapabilities } from "./twitter";
 import { DEFAULT_USER_ID, appendScopedFilter, scopedInsertColumns } from "../lib/ownership";
-import { markLinkedPlannerItemsPublished } from "../lib/social-publish";
+import { markLinkedPlannerItemsPublished, markSocialPostsFailed, socialPublishErrorMessage } from "../lib/social-publish";
 
 interface CreateCampaignPayload {
   name: string;
@@ -580,6 +580,9 @@ export async function publishRedditPost(
     if (!isReply && !post.title?.trim()) return errorResponse("Reddit posts need a title.", 400);
     if (!isReply && !post.subreddit?.trim()) return errorResponse("Reddit posts need a subreddit.", 400);
     if (isReply && !post.content?.trim()) return errorResponse("Reddit replies need text.", 400);
+    if (post.status === "posted" && post.external_id?.trim()) {
+      return jsonResponse({ success: true, external_id: post.external_id.trim(), already_posted: true, account_id: post.account_id });
+    }
     if (post.status === "posted") return errorResponse("Post is already published", 400);
 
     const account = await getActiveRedditAccount(env, post.account_id ?? undefined, userId);
@@ -596,25 +599,28 @@ export async function publishRedditPost(
     const now = new Date().toISOString();
     await env.DB.prepare(
       `UPDATE social_posts
-       SET status = 'posted', posted_at = ?, external_id = ?, account_id = ?, updated_at = ?
+       SET status = 'posted', posted_at = ?, external_id = ?, account_id = ?, updated_at = ?${capabilities.hasLastError ? ", last_error = NULL" : ""}
        WHERE ${filters.join(" AND ")}`,
     )
       .bind(now, externalId, readyAccount.id, now, ...values)
       .run();
-    await markLinkedPlannerItemsPublished(env, id, now);
+    try {
+      await markLinkedPlannerItemsPublished(env, id, now);
+    } catch (plannerError) {
+      console.error("Failed to mark linked planner items published for Reddit post:", plannerError);
+    }
     return jsonResponse({ success: true, external_id: externalId, posted_at: now, account_id: readyAccount.id });
   } catch (error) {
+    const message = socialPublishErrorMessage(error, "Failed to publish Reddit post");
     const id = Number(postId);
     if (!Number.isNaN(id)) {
       const now = new Date().toISOString();
       const filters = ["id = ?"];
       const values: unknown[] = [id];
       await appendScopedFilter(env, "social_posts", filters, values, userId);
-      await env.DB.prepare(`UPDATE social_posts SET status = 'failed', updated_at = ? WHERE ${filters.join(" AND ")}`)
-        .bind(now, ...values)
-        .run();
+      await markSocialPostsFailed(env, filters, values, now, message);
     }
-    return errorResponse(error instanceof Error ? error.message : "Failed to publish Reddit post", 500);
+    return errorResponse(message, 500);
   }
 }
 

@@ -1,12 +1,15 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
-import { markLinkedPlannerItemsPublished } from "../lib/social-publish";
+import { markLinkedPlannerItemsPublished, markSocialPostsFailed, socialPostsHaveLastError, socialPublishErrorMessage } from "../lib/social-publish";
 
 const IMAGE_URL_ALIASES = ["image_url", "imageUrl", "imageURL", "image", "photo", "picture", "media", "media_url", "mediaUrl", "media_urls", "mediaUrls", "url"] as const;
 const TWITTER_OAUTH_REQUEST_TOKEN_URL = "https://api.x.com/oauth/request_token";
 const TWITTER_OAUTH_AUTHORIZE_URL = "https://api.x.com/oauth/authorize";
 const TWITTER_OAUTH_ACCESS_TOKEN_URL = "https://api.x.com/oauth/access_token";
+const TWITTER_MEDIA_UPLOAD_URL = "https://upload.twitter.com/1.1/media/upload.json";
+const TWITTER_MAX_IMAGES_PER_POST = 4;
+const TWITTER_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 type TwitterAccountPayload = {
   username: string;
@@ -59,6 +62,7 @@ type SocialPostSchemaCapabilities = {
   hasSubreddit: boolean;
   hasAccountId: boolean;
   hasReplyToId: boolean;
+  hasLastError: boolean;
 };
 
 function handlerErrorMessage(error: unknown, fallback: string): string {
@@ -277,6 +281,7 @@ export async function getSocialPostSchemaCapabilities(env: Env): Promise<SocialP
     hasSubreddit: names.has("subreddit"),
     hasAccountId: names.has("account_id"),
     hasReplyToId: names.has("reply_to_id"),
+    hasLastError: names.has("last_error"),
   };
 }
 
@@ -433,12 +438,13 @@ async function deleteTwitterPostExternally(env: Env, externalId: string, userId 
 }
 
 function extractTwitterErrorMessage(
-  payload: { detail?: string; title?: string; errors?: Array<{ message?: string }> },
+  payload: { detail?: string; title?: string; error?: string; errors?: Array<{ message?: string }> },
   fallback: string,
 ): string {
   return (
     payload.detail
     || payload.title
+    || payload.error
     || payload.errors?.map((error) => error.message).filter(Boolean).join("; ")
     || fallback
   );
@@ -456,6 +462,86 @@ function classifyTwitterPublishError(message: string): TwitterPublishError {
     status: 500,
     message: normalized || "Failed to publish Twitter/X post",
   };
+}
+
+function twitterMediaFileName(index: number, contentType: string): string {
+  const extension = contentType.includes("png")
+    ? "png"
+    : contentType.includes("webp")
+    ? "webp"
+    : contentType.includes("gif")
+    ? "gif"
+    : "jpg";
+  return `social-post-${index + 1}.${extension}`;
+}
+
+async function fetchTwitterMediaBlob(imageUrl: string, index: number): Promise<Blob> {
+  let parsed: URL;
+  try {
+    parsed = new URL(imageUrl);
+  } catch {
+    throw new Error(`Twitter/X image ${index + 1} must be an absolute public URL.`);
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error(`Twitter/X image ${index + 1} must be an HTTP or HTTPS URL.`);
+  }
+
+  const response = await fetch(parsed.toString());
+  if (!response.ok) {
+    throw new Error(`Twitter/X could not download image ${index + 1} (${response.status}).`);
+  }
+  const contentType = (response.headers.get("content-type") || "application/octet-stream").split(";")[0].trim().toLowerCase();
+  if (!contentType.startsWith("image/")) {
+    throw new Error(`Twitter/X image ${index + 1} is not an image (${contentType || "unknown content type"}).`);
+  }
+  const bytes = await response.arrayBuffer();
+  if (bytes.byteLength === 0) {
+    throw new Error(`Twitter/X image ${index + 1} is empty.`);
+  }
+  if (bytes.byteLength > TWITTER_MAX_IMAGE_BYTES) {
+    throw new Error(`Twitter/X image ${index + 1} is larger than 5 MB. Compress it or split the post before publishing.`);
+  }
+  return new Blob([bytes], { type: contentType });
+}
+
+async function uploadTwitterMedia(credentials: TwitterCredentials, imageUrl: string, index: number): Promise<string> {
+  const blob = await fetchTwitterMediaBlob(imageUrl, index);
+  const form = new FormData();
+  form.set("media", blob, twitterMediaFileName(index, blob.type));
+  form.set("media_category", "tweet_image");
+
+  const response = await fetch(TWITTER_MEDIA_UPLOAD_URL, {
+    method: "POST",
+    headers: {
+      Authorization: await buildTwitterOAuthHeader("POST", TWITTER_MEDIA_UPLOAD_URL, credentials),
+    },
+    body: form,
+  });
+  const payload = await response.json().catch(() => ({})) as {
+    media_id_string?: string;
+    media_id?: string | number;
+    detail?: string;
+    title?: string;
+    error?: string;
+    errors?: Array<{ message?: string }>;
+  };
+  const mediaId = payload.media_id_string || (payload.media_id ? String(payload.media_id) : "");
+  if (!response.ok || !mediaId) {
+    throw new Error(extractTwitterErrorMessage(payload, `Twitter/X image ${index + 1} upload failed.`));
+  }
+  return mediaId;
+}
+
+async function uploadTwitterPostMedia(credentials: TwitterCredentials, imageUrls: string[]): Promise<string[]> {
+  if (imageUrls.length === 0) return [];
+  if (imageUrls.length > TWITTER_MAX_IMAGES_PER_POST) {
+    throw new Error(`Twitter/X supports up to ${TWITTER_MAX_IMAGES_PER_POST} images per post. This post has ${imageUrls.length}; split it before publishing so no images are dropped.`);
+  }
+  const mediaIds: string[] = [];
+  for (const [index, imageUrl] of imageUrls.entries()) {
+    mediaIds.push(await uploadTwitterMedia(credentials, imageUrl, index));
+  }
+  return mediaIds;
 }
 
 // ------------------------------------------------------------------ social posts
@@ -1016,6 +1102,7 @@ export async function searchTwitterPosts(env: Env, url: URL): Promise<Response> 
 export async function publishTwitterPost(env: Env, postId: string, userId = DEFAULT_USER_ID): Promise<Response> {
   const id = Number(postId);
   if (Number.isNaN(id)) return errorResponse("Invalid post ID", 400);
+  let publishedExternalId: string | null = null;
 
   try {
     const capabilities = await getSocialPostSchemaCapabilities(env);
@@ -1025,56 +1112,84 @@ export async function publishTwitterPost(env: Env, postId: string, userId = DEFA
     const values: unknown[] = [id];
     await appendScopedFilter(env, "social_posts", filters, values, userId);
     const post = await env.DB.prepare(
-      `SELECT id, content, status, ${replySelect}, ${accountSelect} FROM social_posts WHERE ${filters.join(" AND ")}`,
+      `SELECT id, content, image_url, status, external_id, ${replySelect}, ${accountSelect} FROM social_posts WHERE ${filters.join(" AND ")}`,
     )
       .bind(...values)
-      .first<{ id: number; content: string; status: string; reply_to_id: string | null; account_id: number | null }>();
+      .first<{ id: number; content: string | null; image_url: string | null; status: string; external_id: string | null; reply_to_id: string | null; account_id: number | null }>();
     if (!post) return errorResponse("Twitter/X post not found", 404);
-    if (!post.content?.trim()) return errorResponse("Post content is empty", 400);
+    const imageUrls = extractImageUrls(post.image_url);
+    if (!post.content?.trim() && imageUrls.length === 0) return errorResponse("Post content is empty", 400);
+    if (post.status === "posted" && post.external_id?.trim()) {
+      return jsonResponse({ success: true, external_id: post.external_id.trim(), already_posted: true });
+    }
     if (post.status === "posted") return errorResponse("Post is already published", 400);
     const credentials = await getTwitterCredentials(env, post.account_id ?? undefined, userId);
     if (!credentials) return errorResponse("No active Twitter/X account with API credentials was found.", 400);
+    const mediaIds = await uploadTwitterPostMedia(credentials, imageUrls);
 
     const endpoint = "https://api.twitter.com/2/tweets";
+    const body: Record<string, unknown> = {};
+    if (post.content?.trim()) body.text = post.content.trim();
+    if (post.reply_to_id?.trim()) {
+      body.reply = { in_reply_to_tweet_id: post.reply_to_id.trim() };
+    }
+    if (mediaIds.length > 0) {
+      body.media = { media_ids: mediaIds };
+    }
+
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         Authorization: await buildTwitterOAuthHeader("POST", endpoint, credentials),
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        text: post.content.trim(),
-        ...(post.reply_to_id?.trim()
-          ? { reply: { in_reply_to_tweet_id: post.reply_to_id.trim() } }
-          : {}),
-      }),
+      body: JSON.stringify(body),
     });
     const payload = await response.json() as { data?: { id?: string }; detail?: string; title?: string; errors?: Array<{ message?: string }> };
     if (!response.ok || !payload.data?.id) {
       const message = extractTwitterErrorMessage(payload, "Twitter/X publish failed");
       throw new Error(message);
     }
+    publishedExternalId = payload.data.id;
 
     const now = new Date().toISOString();
     await env.DB.prepare(
       `UPDATE social_posts
-       SET status = 'posted', posted_at = ?, external_id = ?, updated_at = ?
+       SET status = 'posted', posted_at = ?, external_id = ?, updated_at = ?${capabilities.hasLastError ? ", last_error = NULL" : ""}
        WHERE ${filters.join(" AND ")}`,
     )
-      .bind(now, payload.data.id, now, ...values)
+      .bind(now, publishedExternalId, now, ...values)
       .run();
-    await markLinkedPlannerItemsPublished(env, id, now);
+    try {
+      await markLinkedPlannerItemsPublished(env, id, now);
+    } catch (plannerError) {
+      console.error("Failed to mark linked planner items published for Twitter/X post:", plannerError);
+    }
 
-    return jsonResponse({ success: true, external_id: payload.data.id, posted_at: now });
+    return jsonResponse({ success: true, external_id: publishedExternalId, posted_at: now, media_count: mediaIds.length });
   } catch (error) {
+    if (publishedExternalId) {
+      console.error("Twitter/X published externally but dashboard sync failed:", error);
+      const now = new Date().toISOString();
+      const filters = ["id = ?"];
+      const values: unknown[] = [id];
+      await appendScopedFilter(env, "social_posts", filters, values, userId);
+      const lastErrorAssignment = await socialPostsHaveLastError(env) ? ", last_error = NULL" : "";
+      await env.DB.prepare(
+        `UPDATE social_posts SET status = 'posted', posted_at = COALESCE(posted_at, ?), external_id = ?, updated_at = ?${lastErrorAssignment} WHERE ${filters.join(" AND ")}`,
+      )
+        .bind(now, publishedExternalId, now, ...values)
+        .run()
+        .catch((syncError) => console.error("Failed to repair Twitter/X published state:", syncError));
+      return errorResponse("Twitter/X published externally, but the dashboard could not finish syncing the published state. Refresh before retrying to avoid a duplicate.", 502);
+    }
     const now = new Date().toISOString();
     const filters = ["id = ?"];
     const values: unknown[] = [id];
     await appendScopedFilter(env, "social_posts", filters, values, userId);
-    await env.DB.prepare(`UPDATE social_posts SET status = 'failed', updated_at = ? WHERE ${filters.join(" AND ")}`)
-      .bind(now, ...values)
-      .run();
-    const failure = classifyTwitterPublishError(error instanceof Error ? error.message : "Failed to publish Twitter/X post");
+    const message = socialPublishErrorMessage(error, "Failed to publish Twitter/X post");
+    await markSocialPostsFailed(env, filters, values, now, message);
+    const failure = classifyTwitterPublishError(message);
     return errorResponse(failure.message, failure.status);
   }
 }

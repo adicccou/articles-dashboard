@@ -636,6 +636,7 @@ export type PlannerItem = {
   scheduled_for?: string | null;
   social_post_id?: number | null;
   social_post_status?: SocialPost["status"] | null;
+  social_post_last_error?: string | null;
   account_id?: number | null;
   subreddit?: string | null;
   instruction?: string | null;
@@ -719,6 +720,7 @@ export type SocialPost = {
   scheduled_at: string | null;
   posted_at: string | null;
   external_id: string | null;
+  last_error?: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;

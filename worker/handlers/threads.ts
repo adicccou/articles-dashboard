@@ -1,7 +1,7 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
-import { markLinkedPlannerItemsPublished, markSocialPostFailed } from "../lib/social-publish";
+import { markLinkedPlannerItemsPublished, markSocialPostFailed, socialPostsHaveLastError, socialPublishErrorMessage } from "../lib/social-publish";
 import { listSocialPosts, createSocialPost, updateSocialPost, deleteSocialPost, getSocialPostSchemaCapabilities } from "./twitter";
 
 // Re-export post handlers using the 'threads' platform
@@ -617,6 +617,7 @@ export async function authorizeThreadsAccount(env: Env, request: Request, userId
 }
 
 export async function publishThreadsPost(env: Env, postId: string, userId = DEFAULT_USER_ID): Promise<Response> {
+  let publishedExternalId: string | null = null;
   try {
     const id = Number(postId);
     if (Number.isNaN(id)) return errorResponse("Invalid post ID", 400);
@@ -628,12 +629,15 @@ export async function publishThreadsPost(env: Env, postId: string, userId = DEFA
     const values: unknown[] = [id];
     await appendScopedFilter(env, "social_posts", filters, values, userId);
     const post = await env.DB.prepare(
-      `SELECT id, content, image_url, status, ${accountSelect}, ${replySelect} FROM social_posts WHERE ${filters.join(" AND ")}`,
+      `SELECT id, content, image_url, status, external_id, ${accountSelect}, ${replySelect} FROM social_posts WHERE ${filters.join(" AND ")}`,
     )
       .bind(...values)
-      .first<{ id: number; content: string; image_url: string | null; status: string; account_id: number | null; reply_to_id: string | null }>();
+      .first<{ id: number; content: string; image_url: string | null; status: string; external_id: string | null; account_id: number | null; reply_to_id: string | null }>();
     if (!post) return errorResponse("Threads post not found", 404);
     if (!post.content?.trim() && !post.image_url?.trim()) return errorResponse("Post content is empty", 400);
+    if (post.status === "posted" && post.external_id?.trim()) {
+      return jsonResponse({ success: true, external_id: post.external_id.trim(), already_posted: true });
+    }
     if (post.status === "posted") return errorResponse("Post is already published", 400);
     const now = new Date().toISOString();
     const published = await publishThreadsText(env, {
@@ -643,22 +647,42 @@ export async function publishThreadsPost(env: Env, postId: string, userId = DEFA
       accountId: post.account_id ?? undefined,
       userId,
     });
+    publishedExternalId = published.externalId;
     await env.DB.prepare(
       `UPDATE social_posts
-       SET status = 'posted', posted_at = ?, external_id = ?, updated_at = ?
+       SET status = 'posted', posted_at = ?, external_id = ?, updated_at = ?${capabilities.hasLastError ? ", last_error = NULL" : ""}
        WHERE ${filters.join(" AND ")}`,
     )
-      .bind(now, published.externalId, now, ...values)
+      .bind(now, publishedExternalId, now, ...values)
       .run();
-    await markLinkedPlannerItemsPublished(env, id, now);
+    try {
+      await markLinkedPlannerItemsPublished(env, id, now);
+    } catch (plannerError) {
+      console.error("Failed to mark linked planner items published for Threads post:", plannerError);
+    }
 
-    return jsonResponse({ success: true, external_id: published.externalId, posted_at: now });
+    return jsonResponse({ success: true, external_id: publishedExternalId, posted_at: now });
   } catch (error) {
     const id = Number(postId);
+    const message = socialPublishErrorMessage(error, "Failed to publish Threads post");
     if (!Number.isNaN(id)) {
-      await markSocialPostFailed(env, id, new Date().toISOString());
+      if (publishedExternalId) {
+        const now = new Date().toISOString();
+        const lastErrorAssignment = await socialPostsHaveLastError(env) ? ", last_error = NULL" : "";
+        await env.DB.prepare(
+          `UPDATE social_posts SET status = 'posted', posted_at = COALESCE(posted_at, ?), external_id = ?, updated_at = ?${lastErrorAssignment} WHERE id = ?`,
+        )
+          .bind(now, publishedExternalId, now, id)
+          .run()
+          .catch((syncError) => console.error("Failed to repair Threads published state:", syncError));
+      } else {
+        await markSocialPostFailed(env, id, new Date().toISOString(), message);
+      }
     }
-    return errorResponse(error instanceof Error ? error.message : "Failed to publish Threads post", 500);
+    if (publishedExternalId) {
+      return errorResponse("Threads published externally, but the dashboard could not finish syncing the published state. Refresh before retrying to avoid a duplicate.", 502);
+    }
+    return errorResponse(message, 500);
   }
 }
 

@@ -500,6 +500,9 @@ export const SocialPublisherWorkspace = forwardRef<SocialAgentToolbarHandle, Soc
                         </span>
                       </div>
                       <p className="social-post-card__content">{post.content || "No text content"}</p>
+                      {post.status === "failed" && post.last_error ? (
+                        <p className="social-post-card__error">{post.last_error}</p>
+                      ) : null}
                     </div>
                     <div className="social-post-card__actions">
                       {onPublishPost && post.status !== "posted" ? (

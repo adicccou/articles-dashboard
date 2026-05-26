@@ -1,7 +1,7 @@
 import type { Env } from "../lib/types";
 import { errorResponse, jsonResponse, parseJson } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
-import { markLinkedPlannerItemsPublished } from "../lib/social-publish";
+import { markLinkedPlannerItemsPublished, markSocialPostsFailed, socialPostsHaveLastError, socialPublishErrorMessage } from "../lib/social-publish";
 
 type ExtraSocialPlatform = "linkedin" | "instagram" | "youtube";
 type AccountConnectionMode = "official_api";
@@ -105,6 +105,8 @@ const DEFAULT_LINKEDIN_OAUTH_SCOPES = ["openid", "profile", "w_member_social"].j
 const INSTAGRAM_AUTHORIZE_URL = "https://www.instagram.com/oauth/authorize";
 const INSTAGRAM_TOKEN_URL = "https://api.instagram.com/oauth/access_token";
 const INSTAGRAM_GRAPH_BASE_URL = "https://graph.instagram.com";
+const INSTAGRAM_MAX_CAROUSEL_IMAGES = 10;
+const INSTAGRAM_CONTAINER_POLL_ATTEMPTS = 12;
 const LINKEDIN_AUTHORIZE_URL = "https://www.linkedin.com/oauth/v2/authorization";
 const LINKEDIN_TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken";
 const LINKEDIN_USERINFO_URL = "https://api.linkedin.com/v2/userinfo";
@@ -440,6 +442,38 @@ function mediaUrls(raw: string | null): string[] {
   return value.split(/[\n,]+/).map((item) => item.trim()).filter(Boolean);
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForInstagramContainer(accessToken: string, containerId: string): Promise<void> {
+  const statusUrl = new URL(`${INSTAGRAM_GRAPH_BASE_URL}/${graphApiVersion()}/${encodeURIComponent(containerId)}`);
+  statusUrl.searchParams.set("fields", "status_code,status");
+  statusUrl.searchParams.set("access_token", accessToken);
+
+  for (let attempt = 0; attempt < INSTAGRAM_CONTAINER_POLL_ATTEMPTS; attempt += 1) {
+    if (attempt > 0) {
+      await sleep(Math.min(1000 + attempt * 500, 4000));
+    }
+    const response = await fetch(statusUrl.toString());
+    const payload = await response.json().catch(() => ({})) as {
+      status_code?: string;
+      status?: string;
+      error?: { message?: string };
+    };
+    if (!response.ok) {
+      throw new Error(payload.error?.message || `Instagram media container ${containerId} status check failed.`);
+    }
+    const statusCode = String(payload.status_code || "").toUpperCase();
+    if (statusCode === "FINISHED") return;
+    if (statusCode === "ERROR" || statusCode === "EXPIRED") {
+      throw new Error(payload.status || `Instagram media container ${containerId} ended with ${statusCode}.`);
+    }
+  }
+
+  throw new Error(`Instagram media container ${containerId} was not ready in time. Try again in a minute.`);
+}
+
 async function readOfficialAccountFields(
   env: Env,
   platform: ExtraSocialPlatform,
@@ -658,6 +692,9 @@ async function publishInstagramOfficial(
   const images = mediaUrls(post.image_url);
   if (!accessToken || !instagramUserId) throw new Error("Instagram official API credentials are incomplete.");
   if (images.length === 0) throw new Error("Instagram official API publishing needs an attached public image URL.");
+  if (images.length > INSTAGRAM_MAX_CAROUSEL_IMAGES) {
+    throw new Error(`Instagram supports up to ${INSTAGRAM_MAX_CAROUSEL_IMAGES} images per carousel. This post has ${images.length}; split it before publishing.`);
+  }
 
   const createMediaContainer = async (body: URLSearchParams) => {
     const mediaResponse = await fetch(`${INSTAGRAM_GRAPH_BASE_URL}/${graphApiVersion()}/${encodeURIComponent(instagramUserId)}/media`, {
@@ -679,18 +716,21 @@ async function publishInstagramOfficial(
       caption: post.content?.trim() ?? "",
       access_token: accessToken,
     }));
+    await waitForInstagramContainer(accessToken, creationId);
   } else {
     const childIds = await Promise.all(images.map((imageUrl) => createMediaContainer(new URLSearchParams({
       image_url: imageUrl,
       is_carousel_item: "true",
       access_token: accessToken,
     }))));
+    await Promise.all(childIds.map((childId) => waitForInstagramContainer(accessToken, childId)));
     creationId = await createMediaContainer(new URLSearchParams({
       media_type: "CAROUSEL",
       children: childIds.join(","),
       caption: post.content?.trim() ?? "",
       access_token: accessToken,
     }));
+    await waitForInstagramContainer(accessToken, creationId);
   }
 
   const publishBody = new URLSearchParams({
@@ -1511,19 +1551,23 @@ export async function publishExtraSocialPost(
 ): Promise<Response> {
   const id = Number(postId);
   if (Number.isNaN(id)) return errorResponse("Invalid post ID", 400);
+  let publishedExternalId: string | null = null;
 
   try {
     const filters = ["id = ?", `platform IN (${EXTRA_SOCIAL_PLATFORMS.map(() => "?").join(", ")})`];
     const values: unknown[] = [id, ...EXTRA_SOCIAL_PLATFORMS];
     await appendScopedFilter(env, "social_posts", filters, values, scopeId);
     const post = await env.DB.prepare(
-      `SELECT id, platform, content, image_url, status, account_id
+      `SELECT id, platform, content, image_url, status, external_id, account_id
        FROM social_posts
        WHERE ${filters.join(" AND ")}`,
     )
       .bind(...values)
-      .first<ExtraSocialPostRow>();
+      .first<ExtraSocialPostRow & { external_id: string | null }>();
     if (!post) return errorResponse("Social post not found", 404);
+    if (post.status === "posted" && post.external_id?.trim()) {
+      return jsonResponse({ success: true, external_id: post.external_id.trim(), already_posted: true, account_id: post.account_id });
+    }
     if (post.status === "posted") return errorResponse("Post is already published", 400);
 
     const account = await resolveExtraAccountForPost(env, post, scopeId);
@@ -1537,25 +1581,45 @@ export async function publishExtraSocialPost(
     } else {
       return errorResponse("YouTube official API publishing is not implemented yet.", 501);
     }
+    publishedExternalId = externalId;
 
     const now = new Date().toISOString();
+    const lastErrorAssignment = await socialPostsHaveLastError(env) ? ", last_error = NULL" : "";
     await env.DB.prepare(
       `UPDATE social_posts
-       SET status = 'posted', posted_at = ?, external_id = ?, account_id = ?, updated_at = ?
+       SET status = 'posted', posted_at = ?, external_id = ?, account_id = ?, updated_at = ?${lastErrorAssignment}
        WHERE ${filters.join(" AND ")}`,
     )
       .bind(now, externalId, account.id, now, ...values)
       .run();
-    await markLinkedPlannerItemsPublished(env, id, now);
+    try {
+      await markLinkedPlannerItemsPublished(env, id, now);
+    } catch (plannerError) {
+      console.error(`Failed to mark linked planner items published for ${post.platform} post:`, plannerError);
+    }
     return jsonResponse({ success: true, external_id: externalId, posted_at: now, account_id: account.id });
   } catch (error) {
+    const message = socialPublishErrorMessage(error, "Failed to publish social post");
+    if (publishedExternalId) {
+      console.error("Social post published externally but dashboard sync failed:", error);
+      const now = new Date().toISOString();
+      const filters = ["id = ?"];
+      const values: unknown[] = [id];
+      await appendScopedFilter(env, "social_posts", filters, values, scopeId);
+      const lastErrorAssignment = await socialPostsHaveLastError(env) ? ", last_error = NULL" : "";
+      await env.DB.prepare(
+        `UPDATE social_posts SET status = 'posted', posted_at = COALESCE(posted_at, ?), external_id = ?, updated_at = ?${lastErrorAssignment} WHERE ${filters.join(" AND ")}`,
+      )
+        .bind(now, publishedExternalId, now, ...values)
+        .run()
+        .catch((syncError) => console.error("Failed to repair external published social post state:", syncError));
+      return errorResponse("The platform published externally, but the dashboard could not finish syncing the published state. Refresh before retrying to avoid a duplicate.", 502);
+    }
     const now = new Date().toISOString();
     const filters = ["id = ?"];
     const values: unknown[] = [id];
     await appendScopedFilter(env, "social_posts", filters, values, scopeId);
-    await env.DB.prepare(`UPDATE social_posts SET status = 'failed', updated_at = ? WHERE ${filters.join(" AND ")}`)
-      .bind(now, ...values)
-      .run();
-    return errorResponse(error instanceof Error ? error.message : "Failed to publish social post", 500);
+    await markSocialPostsFailed(env, filters, values, now, message);
+    return errorResponse(message, 500);
   }
 }

@@ -50,6 +50,7 @@ type PlannerPostTarget = {
 type PlannerItemMicroNote = {
   label: string;
   tone: "success" | "danger";
+  title?: string;
 };
 
 function toLocalDateTimeInput(value?: string | null): string {
@@ -548,7 +549,7 @@ export function PlannerPage() {
     if (normalizePlannerStatus(item.status) === "published") return null;
     if (!item.social_post_id || !item.scheduled_for) return null;
     if (item.social_post_status === "failed") {
-      return { label: "Publishing failed", tone: "danger" };
+      return { label: "Publishing failed", tone: "danger", title: item.social_post_last_error || undefined };
     }
     return null;
   }
@@ -1819,7 +1820,7 @@ export function PlannerPage() {
                             </span>
                             <span className="scheduler-week__slot-title">{displayPlannerTitle(item)}</span>
                             {microNote ? (
-                              <span className={`scheduler-item-micro-note scheduler-item-micro-note--${microNote.tone}`}>
+                              <span className={`scheduler-item-micro-note scheduler-item-micro-note--${microNote.tone}`} title={microNote.title}>
                                 {microNote.label}
                               </span>
                             ) : null}
