@@ -587,6 +587,7 @@ export function PlannerPage() {
   const modalPlatformLabel = plannerPlatformLabel(form.platform);
   const modalStatus = normalizePlannerStatus(form.status);
   const isPublishedSchedule = modalStatus === "published";
+  const canDeleteModalSchedule = Boolean(form.id && !isPublishedSchedule);
   const isRedditModal = selectedModalPlatforms.includes("reddit");
   const selectedRedditAccountIds = selectedAccountIdsByPlatform.reddit ?? [];
   const selectedRedditAccounts = useMemo(() => {
@@ -1261,12 +1262,53 @@ export function PlannerPage() {
     }
   }
 
-  async function deleteSchedule(id: number) {
+  async function deleteLinkedQueuedSocialPost(socialPostId: number, platform: string) {
+    const normalizedPlatform = normalizePlannerAccountPlatform(platform);
+    if (!normalizedPlatform) {
+      throw new Error("Cannot delete linked post because its platform is unknown.");
+    }
+    const linkedPost = await api.listSocialPosts(normalizedPlatform)
+      .then((posts) => posts.find((post) => post.id === socialPostId) ?? null)
+      .catch(() => null);
+    if (linkedPost?.status === "posted") {
+      throw new Error("This post is already published, so it was not deleted.");
+    }
+    await api.deleteSocialPost(socialPostId);
+  }
+
+  async function deleteSchedule(item: Pick<PlannerItem, "id" | "social_post_id" | "status" | "platform">) {
     try {
-      await api.deletePlannerItem(id);
+      if (normalizePlannerStatus(item.status) !== "published" && item.social_post_id) {
+        await deleteLinkedQueuedSocialPost(item.social_post_id, item.platform);
+      } else {
+        await api.deletePlannerItem(item.id);
+      }
       await load({ silent: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete schedule");
+    }
+  }
+
+  async function deleteCurrentSchedule() {
+    if (!form.id || isPublishedSchedule) return;
+    const confirmed = window.confirm("Delete this planned post? This removes it from the calendar and publishing queue.");
+    if (!confirmed) return;
+
+    try {
+      setSaving(true);
+      setError(null);
+      if (form.social_post_id) {
+        await deleteLinkedQueuedSocialPost(form.social_post_id, form.platform);
+      } else {
+        await api.deletePlannerItem(form.id);
+      }
+      closeModal();
+      setNotice("Deleted planned post.");
+      await load({ silent: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete planned post");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -1413,7 +1455,7 @@ export function PlannerPage() {
                       </button>
                       <button
                         className="scheduler-delete dashboard-icon-button"
-                        onClick={() => void deleteSchedule(item.id)}
+                        onClick={() => void deleteSchedule(item)}
                         aria-label={`Delete ${displayPlannerTitle(item)}`}
                         title="Delete"
                       >
@@ -1641,7 +1683,21 @@ export function PlannerPage() {
             <form className="stack" onSubmit={saveSchedule}>
               <div className="panel__title-row">
                 <h2>{form.id ? "Edit Schedule" : "New post"}</h2>
-                <ModalCloseButton onClick={closeModal} />
+                <div className="scheduler-modal-title-actions">
+                  {canDeleteModalSchedule ? (
+                    <button
+                      aria-label="Delete planned post"
+                      className="scheduler-modal-delete-button"
+                      disabled={saving}
+                      onClick={() => void deleteCurrentSchedule()}
+                      title="Delete planned post"
+                      type="button"
+                    >
+                      <TrashIcon aria-hidden="true" />
+                    </button>
+                  ) : null}
+                  <ModalCloseButton onClick={closeModal} />
+                </div>
               </div>
               <div className="scheduler-modal-meta-row">
                 <div className="scheduler-platform-field">

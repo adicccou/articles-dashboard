@@ -619,6 +619,41 @@
   gap: 8px;
 }
 
+.scheduler-modal-title-actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.scheduler-modal-delete-button {
+  align-items: center;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: 8px;
+  color: #be123c;
+  display: inline-flex;
+  height: 34px;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0;
+  width: 34px;
+}
+
+.scheduler-modal-delete-button svg {
+  height: 17px;
+  width: 17px;
+}
+
+.scheduler-modal-delete-button:hover {
+  background: #ffe4e6;
+  color: #9f1239;
+}
+
+.scheduler-modal-delete-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .scheduler-account-targets {
   display: grid;
   gap: 12px;
