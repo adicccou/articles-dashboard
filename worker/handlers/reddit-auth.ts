@@ -558,9 +558,15 @@ export async function deleteRedditAccount(
       return errorResponse("Reddit account not found", 404);
     }
 
-    await env.DB.prepare(
-      `DELETE FROM reddit_comments WHERE campaign_id IN (SELECT id FROM reddit_campaigns WHERE reddit_account_id = ?)`,
-    )
+    const campaignSubquery = "SELECT id FROM reddit_campaigns WHERE reddit_account_id = ?";
+    const commentSubquery = `SELECT id FROM reddit_comments WHERE campaign_id IN (${campaignSubquery})`;
+    await env.DB.prepare(`DELETE FROM reddit_reply_drafts WHERE comment_id IN (${commentSubquery})`)
+      .bind(id)
+      .run();
+    await env.DB.prepare(`DELETE FROM approval_batches WHERE campaign_id IN (${campaignSubquery})`)
+      .bind(id)
+      .run();
+    await env.DB.prepare(`DELETE FROM reddit_comments WHERE campaign_id IN (${campaignSubquery})`)
       .bind(id)
       .run();
     await env.DB.prepare("DELETE FROM reddit_campaigns WHERE reddit_account_id = ?").bind(id).run();
@@ -585,6 +591,8 @@ export async function deleteRedditAccount(
 
     return jsonResponse({ success: true });
   } catch (error) {
-    return errorResponse("Failed to delete account", 500);
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("Failed to delete Reddit account", message);
+    return errorResponse(`Failed to delete account: ${message}`, 500);
   }
 }
