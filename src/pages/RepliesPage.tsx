@@ -692,7 +692,7 @@ export function RepliesPage() {
       </section>
 
       {mediaViewerUrl ? (
-        <div className="replies-media-viewer" onClick={() => setMediaViewerUrl(null)}>
+        <div className="replies-media-viewer">
           <div className="replies-media-viewer__dialog" onClick={(event) => event.stopPropagation()}>
             <ModalCloseButton className="replies-media-viewer__close" onClick={() => setMediaViewerUrl(null)} />
             {isVideoMediaUrl(mediaViewerUrl) ? (
@@ -705,7 +705,7 @@ export function RepliesPage() {
       ) : null}
 
       {composerComment ? (
-        <div className="replies-compose-backdrop" onClick={closeComposer}>
+        <div className="replies-compose-backdrop">
           <div className="replies-compose-modal panel" onClick={(event) => event.stopPropagation()}>
             <div className="panel__title-row">
               <div>

@@ -47,7 +47,7 @@ export function ExecutionControlsModal({
 
   return (
     <div className="execution-controls-modal" role="dialog" aria-modal="true" aria-label={`${title} controls`}>
-      <button type="button" className="execution-controls-modal__backdrop" aria-label="Close modal" onClick={onClose} />
+      <div className="execution-controls-modal__backdrop" aria-hidden="true" />
       <div className="execution-controls-modal__card">
         <div className="execution-controls-modal__header">
           <div>

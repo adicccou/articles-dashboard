@@ -16,6 +16,8 @@ const PLANNER_VIEW_STORAGE_KEY = "dashboard:planner:view";
 const LEGACY_PLANNER_VIEW_STORAGE_KEY = "blogposter:planner:view";
 const DEFAULT_SCHEDULE_HOUR = 10;
 
+type PlatformAccountIds = Partial<Record<SocialAccount["platform"], string[]>>;
+
 type ScheduleFormState = {
   id?: number;
   social_post_id?: number | null;
@@ -24,9 +26,11 @@ type ScheduleFormState = {
   media_urls: string[];
   item_type: PlannerItem["item_type"];
   platform: string;
+  platforms: Array<SocialAccount["platform"]>;
   status: PlannerItemInput["status"];
   scheduled_for: string;
   account_id: string;
+  account_ids: PlatformAccountIds;
   subreddit: string;
   related_strategy_id: string;
 };
@@ -35,6 +39,12 @@ type SchedulerAccount = Pick<
   SocialAccount,
   "id" | "platform" | "username" | "status" | "connection_mode" | "credentials_ready" | "playwright_ready"
 >;
+
+type PlannerPostTarget = {
+  platform: SocialAccount["platform"];
+  account: SchedulerAccount;
+  scheduledFor: string | null;
+};
 
 function toLocalDateTimeInput(value?: string | null): string {
   if (!value) return "";
@@ -45,15 +55,18 @@ function toLocalDateTimeInput(value?: string | null): string {
 }
 
 function createEmptyScheduleForm(platform = ""): ScheduleFormState {
+  const normalizedPlatform = normalizePlannerAccountPlatform(platform);
   return {
     title: "",
     description: "",
     media_urls: [],
     item_type: "post",
-    platform,
+    platform: normalizedPlatform ?? platform,
+    platforms: normalizedPlatform ? [normalizedPlatform] : [],
     status: "planned",
     scheduled_for: "",
     account_id: "",
+    account_ids: {},
     subreddit: "",
     related_strategy_id: "",
   };
@@ -131,7 +144,7 @@ function getClipboardImageFiles(clipboardData: DataTransfer | null): File[] {
     .map(normalizeClipboardImageFile);
 }
 
-function buildPlannerTitle(form: ScheduleFormState): string {
+function buildPlannerTitle(form: ScheduleFormState, platformOverride?: string): string {
   const normalizedDescription = form.description
     .split("\n")
     .map((line) => line.trim())
@@ -139,7 +152,8 @@ function buildPlannerTitle(form: ScheduleFormState): string {
     ?.replace(/\s+/g, " ")
     ?? "";
   const existingTitle = form.title.trim().replace(/\s+/g, " ");
-  const fallbackTitle = `${form.platform.trim() || "Untitled"} ${form.item_type === "campaign" ? "campaign" : "post"}`;
+  const fallbackPlatform = platformOverride ?? form.platform;
+  const fallbackTitle = `${fallbackPlatform.trim() || "Untitled"} ${form.item_type === "campaign" ? "campaign" : "post"}`;
   const source = normalizedDescription || existingTitle || fallbackTitle;
   return source.length > 96 ? `${source.slice(0, 93).trimEnd()}...` : source;
 }
@@ -172,6 +186,40 @@ function normalizePlannerAccountPlatform(platform?: string | null): SocialAccoun
   if (normalized === "linkedin") return "linkedin";
   if (normalized === "youtube") return "youtube";
   return null;
+}
+
+function uniquePlannerPlatforms(platforms: Array<string | null | undefined>): Array<SocialAccount["platform"]> {
+  const selected = new Set<SocialAccount["platform"]>();
+  platforms.forEach((platform) => {
+    const normalized = normalizePlannerAccountPlatform(platform);
+    if (normalized) selected.add(normalized);
+  });
+  return schedulerPlatformOrder.filter((platform) => selected.has(platform));
+}
+
+function selectedPlannerPlatforms(form: ScheduleFormState): Array<SocialAccount["platform"]> {
+  return uniquePlannerPlatforms([...(form.platforms ?? []), form.platform]);
+}
+
+function selectedPlannerAccountIds(form: ScheduleFormState, platform: SocialAccount["platform"]): string[] {
+  const fromPlatformMap = form.account_ids?.[platform] ?? [];
+  const fallback = normalizePlannerAccountPlatform(form.platform) === platform && form.account_id ? [form.account_id] : [];
+  const seen = new Set<string>();
+  return [...fromPlatformMap, ...fallback]
+    .map((id) => String(id).trim())
+    .filter((id) => {
+      if (!id || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+}
+
+function sameStringArray(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function plannerTargetKey(platform: SocialAccount["platform"], accountId: number): string {
+  return `${platform}:${accountId}`;
 }
 
 function plannerAccountLabel(account: SchedulerAccount): string {
@@ -350,6 +398,7 @@ export function PlannerPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [subredditWarning, setSubredditWarning] = useState<string | null>(null);
   const [loadingSubreddits, setLoadingSubreddits] = useState(false);
   const [uploadingMedia, setUploadingMedia] = useState(false);
@@ -490,21 +539,31 @@ export function PlannerPage() {
   const today = new Date();
   const modalPlatforms = useMemo(() => {
     const options = [...availablePlatforms];
-    const normalizedCurrent = normalizePlannerAccountPlatform(form.platform);
-    if (normalizedCurrent && !options.includes(normalizedCurrent)) {
-      options.push(normalizedCurrent);
-    }
-    return options;
-  }, [availablePlatforms, form.platform]);
-  const normalizedModalPlatform = normalizePlannerAccountPlatform(form.platform);
-  const modalAccounts = useMemo(
-    () => schedulerAccounts.filter((account) => normalizePlannerAccountPlatform(account.platform) === normalizedModalPlatform),
-    [normalizedModalPlatform, schedulerAccounts],
-  );
-  const selectedModalAccount = useMemo(() => {
-    const selectedId = Number(form.account_id || 0);
-    return modalAccounts.find((account) => account.id === selectedId) ?? modalAccounts[0] ?? null;
-  }, [form.account_id, modalAccounts]);
+    selectedPlannerPlatforms(form).forEach((platform) => {
+      if (!options.includes(platform)) options.push(platform);
+    });
+    return schedulerPlatformOrder.filter((platform) => options.includes(platform));
+  }, [availablePlatforms, form.platform, form.platforms]);
+  const selectedModalPlatforms = useMemo(() => {
+    const selected = selectedPlannerPlatforms(form).filter((platform) => modalPlatforms.includes(platform));
+    if (selected.length > 0) return selected;
+    return modalPlatforms[0] ? [modalPlatforms[0]] : [];
+  }, [form.platform, form.platforms, modalPlatforms]);
+  const selectedAccountIdsByPlatform = useMemo(() => {
+    const selections: PlatformAccountIds = {};
+    selectedModalPlatforms.forEach((platform) => {
+      const accounts = schedulerAccounts.filter((account) => normalizePlannerAccountPlatform(account.platform) === platform);
+      const selectedIds = selectedPlannerAccountIds(form, platform).filter((id) =>
+        accounts.some((account) => String(account.id) === id),
+      );
+      selections[platform] = selectedIds.length > 0
+        ? selectedIds
+        : accounts[0]
+        ? [String(accounts[0].id)]
+        : [];
+    });
+    return selections;
+  }, [form.account_id, form.account_ids, form.platform, form.platforms, schedulerAccounts, selectedModalPlatforms]);
   const plannerMediaEntries = useMemo(
     () => form.media_urls.map((url, index) => ({ url, index, isVideo: isVideoMediaUrl(url) })),
     [form.media_urls],
@@ -522,15 +581,16 @@ export function PlannerPage() {
   const modalPlatformLabel = plannerPlatformLabel(form.platform);
   const modalStatus = normalizePlannerStatus(form.status);
   const isPublishedSchedule = modalStatus === "published";
-  const scheduledSlots = useMemo(
-    () => collectActiveScheduledSocialSlots(items, form.id),
-    [form.id, items],
-  );
-  const isRedditModal = normalizedModalPlatform === "reddit";
+  const isRedditModal = selectedModalPlatforms.includes("reddit");
+  const selectedRedditAccountIds = selectedAccountIdsByPlatform.reddit ?? [];
+  const selectedRedditAccounts = useMemo(() => {
+    const selectedIds = new Set(selectedRedditAccountIds);
+    return redditAccounts.filter((account) => selectedIds.has(String(account.id)));
+  }, [redditAccounts, selectedRedditAccountIds]);
   const selectedRedditAccount = useMemo(() => {
-    const selectedId = Number(form.account_id || 0);
+    const selectedId = Number(selectedRedditAccountIds[0] || 0);
     return redditAccounts.find((account) => account.id === selectedId) ?? redditAccounts[0] ?? null;
-  }, [form.account_id, redditAccounts]);
+  }, [redditAccounts, selectedRedditAccountIds]);
   const redditSubredditOptions = useMemo(() => {
     const query = normalizeSubredditInput(form.subreddit).toLowerCase();
     return redditSubreddits
@@ -546,15 +606,51 @@ export function PlannerPage() {
   }, [form.subreddit, redditSubreddits]);
 
   useEffect(() => {
-    if (!isModalOpen || !normalizedModalPlatform || !selectedModalAccount) return;
-    if (String(selectedModalAccount.id) === form.account_id) return;
-    setForm((current) => ({ ...current, account_id: String(selectedModalAccount.id) }));
-  }, [form.account_id, isModalOpen, normalizedModalPlatform, selectedModalAccount]);
+    if (!isModalOpen) return;
+    setForm((current) => {
+      const currentPlatforms = selectedPlannerPlatforms(current).filter((platform) => modalPlatforms.includes(platform));
+      const nextPlatforms = currentPlatforms.length > 0
+        ? currentPlatforms
+        : modalPlatforms[0]
+        ? [modalPlatforms[0]]
+        : [];
+      const nextAccountIds: PlatformAccountIds = {};
+      let changed = !sameStringArray(nextPlatforms, current.platforms);
 
-  useEffect(() => {
-    if (!isModalOpen || !isRedditModal || form.account_id || !selectedRedditAccount) return;
-    setForm((current) => ({ ...current, account_id: String(selectedRedditAccount.id) }));
-  }, [form.account_id, isModalOpen, isRedditModal, selectedRedditAccount]);
+      nextPlatforms.forEach((platform) => {
+        const accounts = schedulerAccounts.filter((account) => normalizePlannerAccountPlatform(account.platform) === platform);
+        const validIds = selectedPlannerAccountIds(current, platform).filter((id) =>
+          accounts.some((account) => String(account.id) === id),
+        );
+        const nextIds = validIds.length > 0
+          ? validIds
+          : accounts[0]
+          ? [String(accounts[0].id)]
+          : [];
+        nextAccountIds[platform] = nextIds;
+        if (!sameStringArray(current.account_ids?.[platform] ?? [], nextIds)) {
+          changed = true;
+        }
+      });
+
+      const primaryPlatform = nextPlatforms[0] ?? normalizePlannerAccountPlatform(current.platform);
+      const primaryAccountId = primaryPlatform ? nextAccountIds[primaryPlatform]?.[0] ?? "" : "";
+      if ((primaryPlatform && current.platform !== primaryPlatform) || current.account_id !== primaryAccountId) {
+        changed = true;
+      }
+
+      return changed
+        ? {
+            ...current,
+            platform: primaryPlatform ?? current.platform,
+            platforms: nextPlatforms,
+            account_id: primaryAccountId,
+            account_ids: nextAccountIds,
+            subreddit: nextPlatforms.includes("reddit") ? current.subreddit : "",
+          }
+        : current;
+    });
+  }, [isModalOpen, modalPlatforms, schedulerAccounts]);
 
   useEffect(() => {
     if (!isModalOpen || !isRedditModal) {
@@ -684,18 +780,93 @@ export function PlannerPage() {
     return scheduledAt;
   }
 
+  function accountsForPlatform(platform: SocialAccount["platform"]) {
+    return schedulerAccounts.filter((account) => normalizePlannerAccountPlatform(account.platform) === platform);
+  }
+
+  function defaultAccountIdsForPlatforms(platforms: Array<SocialAccount["platform"]>) {
+    const accountIds: PlatformAccountIds = {};
+    platforms.forEach((platform) => {
+      const account = accountsForPlatform(platform)[0];
+      accountIds[platform] = account ? [String(account.id)] : [];
+    });
+    return accountIds;
+  }
+
+  function selectedAccountsForPlatform(platform: SocialAccount["platform"], state: ScheduleFormState = form) {
+    const accounts = accountsForPlatform(platform);
+    const selectedIds = selectedPlannerAccountIds(state, platform);
+    const selectedIdSet = new Set(selectedIds);
+    const selectedAccounts = accounts.filter((account) => selectedIdSet.has(String(account.id)));
+    return selectedAccounts.length > 0 ? selectedAccounts : accounts.slice(0, 1);
+  }
+
+  function setPlatformAccountSelection(platform: SocialAccount["platform"], accountId: string, selected: boolean) {
+    setForm((current) => {
+      const currentPlatforms = selectedPlannerPlatforms(current);
+      const nextPlatforms = currentPlatforms.includes(platform) ? currentPlatforms : [...currentPlatforms, platform];
+      const currentIds = selectedPlannerAccountIds(current, platform);
+      const nextIds = selected
+        ? Array.from(new Set([...currentIds, accountId]))
+        : currentIds.filter((id) => id !== accountId);
+      if (nextIds.length === 0) return current;
+      const accountIds = { ...current.account_ids, [platform]: nextIds };
+      const primaryPlatform = nextPlatforms[0] ?? platform;
+      return {
+        ...current,
+        platform: primaryPlatform,
+        platforms: nextPlatforms,
+        account_id: accountIds[primaryPlatform]?.[0] ?? current.account_id,
+        account_ids: accountIds,
+        subreddit: nextPlatforms.includes("reddit") ? current.subreddit : "",
+      };
+    });
+  }
+
+  function toggleModalPlatform(platform: SocialAccount["platform"]) {
+    setForm((current) => {
+      const currentPlatforms = selectedPlannerPlatforms(current);
+      const removing = currentPlatforms.includes(platform);
+      const nextPlatforms = removing
+        ? currentPlatforms.length > 1
+          ? currentPlatforms.filter((item) => item !== platform)
+          : currentPlatforms
+        : [...currentPlatforms, platform];
+      const accountIds: PlatformAccountIds = {};
+      nextPlatforms.forEach((nextPlatform) => {
+        const existingIds = selectedPlannerAccountIds(current, nextPlatform);
+        accountIds[nextPlatform] = existingIds.length > 0
+          ? existingIds
+          : defaultAccountIdsForPlatforms([nextPlatform])[nextPlatform] ?? [];
+      });
+      const primaryPlatform = nextPlatforms[0] ?? platform;
+      return {
+        ...current,
+        platform: primaryPlatform,
+        platforms: nextPlatforms,
+        account_id: accountIds[primaryPlatform]?.[0] ?? "",
+        account_ids: accountIds,
+        subreddit: nextPlatforms.includes("reddit") ? current.subreddit : "",
+      };
+    });
+  }
+
   function openCreateModal(scheduledAt?: Date) {
     const platform = availablePlatforms[0] ?? "";
-    const account = schedulerAccounts.find((item) => normalizePlannerAccountPlatform(item.platform) === platform);
+    const platforms = platform ? [platform] : [];
+    const accountIds = defaultAccountIdsForPlatforms(platforms);
     clearDescriptionAutosave();
     lastAutosavedDescriptionRef.current = {
       description: "",
       title: "",
     };
     setError(null);
+    setNotice(null);
     setForm({
       ...createEmptyScheduleForm(platform),
-      account_id: account ? String(account.id) : "",
+      platforms,
+      account_id: platform ? accountIds[platform]?.[0] ?? "" : "",
+      account_ids: accountIds,
       scheduled_for: scheduledAt ? toDateTimeLocalValue(scheduledAt) : "",
     });
     setIsModalOpen(true);
@@ -711,6 +882,8 @@ export function PlannerPage() {
 
   function openEditModal(item: PlannerItem) {
     const description = item.description ?? "";
+    const platform = normalizePlannerAccountPlatform(item.platform);
+    const accountIds = platform && item.account_id ? { [platform]: [String(item.account_id)] } : {};
     const nextForm = {
       id: item.id,
       social_post_id: item.social_post_id ?? null,
@@ -718,10 +891,12 @@ export function PlannerPage() {
       description,
       media_urls: getPostImageUrls(item.image_url),
       item_type: item.item_type,
-      platform: item.platform,
+      platform: platform ?? item.platform,
+      platforms: platform ? [platform] : [],
       status: normalizePlannerStatus(item.status),
       scheduled_for: toLocalDateTimeInput(item.scheduled_for),
       account_id: item.account_id ? String(item.account_id) : "",
+      account_ids: accountIds,
       subreddit: item.subreddit ?? extractPlannerSubreddit(item.instruction),
       related_strategy_id: item.related_strategy_id ? String(item.related_strategy_id) : "",
     };
@@ -732,6 +907,7 @@ export function PlannerPage() {
       title: buildPlannerTitle(nextForm),
     };
     setForm(nextForm);
+    setNotice(null);
     setIsModalOpen(true);
   }
 
@@ -850,85 +1026,167 @@ export function PlannerPage() {
     }));
   }
 
-  async function savePlannerItem(scheduledFor: string | null) {
-    clearDescriptionAutosave();
-    const normalizedPlatform = normalizePlannerAccountPlatform(form.platform);
-    if (!normalizedPlatform) {
-      setError("Platform is required.");
-      return;
+  function collectPlannerTargets(defaultScheduledFor: string | null, scheduledForByTarget?: Map<string, string>): PlannerPostTarget[] | null {
+    const platforms = form.id
+      ? uniquePlannerPlatforms([form.platform])
+      : selectedModalPlatforms;
+    if (platforms.length === 0) {
+      setError("Choose at least one platform.");
+      return null;
     }
-    const selectedAccount = selectedModalAccount;
-    const selectedAccountId = selectedAccount?.id ?? null;
-    if (!selectedAccountId) {
-      setError(`Connect an active ${plannerPlatformLabel(normalizedPlatform)} account in Config before creating a post.`);
-      return;
-    }
-    const isRedditPost = normalizedPlatform === "reddit";
-    const subreddit = normalizeSubredditInput(form.subreddit);
 
-    if (isRedditPost && !selectedAccountId) {
-      setError("Connect a Reddit account in Config before creating a Reddit post.");
-      return;
+    const targets: PlannerPostTarget[] = [];
+    for (const platform of platforms) {
+      const selectedAccounts = selectedAccountsForPlatform(platform);
+      if (selectedAccounts.length === 0) {
+        setError(`Connect an active ${plannerPlatformLabel(platform)} account in Config before creating a post.`);
+        return null;
+      }
+      selectedAccounts.forEach((account) => {
+        const key = plannerTargetKey(platform, account.id);
+        targets.push({
+          platform,
+          account,
+          scheduledFor: scheduledForByTarget?.get(key) ?? defaultScheduledFor,
+        });
+      });
     }
-    if (isRedditPost && !subreddit) {
+
+    if (targets.some((target) => target.platform === "reddit") && !normalizeSubredditInput(form.subreddit)) {
       setError("Choose a subreddit before creating a Reddit post.");
-      return;
+      return null;
     }
+
+    return targets;
+  }
+
+  function chooseAutoSchedulesForTargets(targets: PlannerPostTarget[]) {
+    const scheduledByTarget = new Map<string, string>();
+    const slotsByPlatform = new Map<SocialAccount["platform"], string[]>();
+
+    targets.forEach((target) => {
+      const platformSlots = slotsByPlatform.get(target.platform)
+        ?? collectActiveScheduledSocialSlots(items, form.id, { platform: target.platform });
+      const scheduledAt = chooseAutoSchedule(platformSlots);
+      const scheduledIso = scheduledAt.toISOString();
+      scheduledByTarget.set(plannerTargetKey(target.platform, target.account.id), scheduledIso);
+      slotsByPlatform.set(target.platform, [...platformSlots, scheduledIso]);
+    });
+
+    return scheduledByTarget;
+  }
+
+  async function savePlannerItem(
+    scheduledFor: string | null,
+    options: { publishNow?: boolean; scheduledForByTarget?: Map<string, string> } = {},
+  ) {
+    clearDescriptionAutosave();
+    setNotice(null);
+    const subreddit = normalizeSubredditInput(form.subreddit);
+    const targets = collectPlannerTargets(scheduledFor, options.scheduledForByTarget);
+    if (!targets) return;
 
     try {
       setSaving(true);
-      const title = buildPlannerTitle(form);
+      setError(null);
       const imageUrl = form.item_type === "post" ? serializePostMediaUrls(form.media_urls) : null;
-      let socialPostId = form.social_post_id ?? null;
+      const publishNowAt = options.publishNow ? new Date().toISOString() : null;
+      const publishFailures: string[] = [];
+      let publishedNowCount = 0;
+      let queuedBrowserCount = 0;
+      let savedCount = 0;
 
-      if (form.item_type === "post") {
-        const socialPostPayload: Partial<SocialPost> & {
-          platform: SocialAccount["platform"];
-          content: string;
-          scheduled_at?: string | null;
-          image_url?: string | null;
-        } = {
-          platform: normalizedPlatform,
+      for (const target of targets) {
+        const title = buildPlannerTitle(form, target.platform);
+        const isRedditPost = target.platform === "reddit";
+        const effectiveScheduledFor = target.scheduledFor ?? publishNowAt;
+        let socialPostId = form.id ? form.social_post_id ?? null : null;
+
+        if (form.item_type === "post") {
+          const socialPostPayload: Partial<SocialPost> & {
+            platform: SocialAccount["platform"];
+            content: string;
+            scheduled_at?: string | null;
+            image_url?: string | null;
+          } = {
+            platform: target.platform,
+            title,
+            subreddit: isRedditPost ? subreddit : null,
+            content: form.description.trim(),
+            image_url: imageUrl,
+            scheduled_at: effectiveScheduledFor,
+            account_id: target.account.id,
+            status: effectiveScheduledFor ? "scheduled" : "draft",
+          };
+
+          if (socialPostId) {
+            await api.updateSocialPost(socialPostId, socialPostPayload);
+          } else {
+            const socialPost = await api.createSocialPost(target.platform, socialPostPayload);
+            socialPostId = socialPost.id;
+          }
+        }
+
+        const payload: PlannerItemInput = {
           title,
-          subreddit: isRedditPost ? subreddit : null,
-          content: form.description.trim(),
+          description: form.description.trim() || null,
           image_url: imageUrl,
-          scheduled_at: scheduledFor,
-          account_id: selectedAccountId,
-          status: scheduledFor ? "scheduled" : "draft",
+          item_type: form.item_type,
+          platform: target.platform,
+          status: normalizePlannerStatus(form.status),
+          scheduled_for: effectiveScheduledFor,
+          social_post_id: socialPostId,
+          account_id: target.account.id,
+          subreddit: isRedditPost ? subreddit : null,
+          instruction: isRedditPost ? `subreddit: ${subreddit}` : null,
+          related_strategy_id: form.related_strategy_id ? Number(form.related_strategy_id) : null,
         };
 
-        if (socialPostId) {
-          await api.updateSocialPost(socialPostId, socialPostPayload);
+        let plannerItemId = form.id ?? null;
+        if (form.id) {
+          await api.updatePlannerItem(form.id, payload);
         } else {
-          const socialPost = await api.createSocialPost(normalizedPlatform, socialPostPayload);
-          socialPostId = socialPost.id;
+          const plannerItem = await api.createPlannerItem(payload);
+          plannerItemId = plannerItem.id;
         }
-      }
 
-      const payload: PlannerItemInput = {
-        title,
-        description: form.description.trim() || null,
-        image_url: imageUrl,
-        item_type: form.item_type,
-        platform: normalizedPlatform,
-        status: normalizePlannerStatus(form.status),
-        scheduled_for: scheduledFor,
-        social_post_id: socialPostId,
-        account_id: selectedAccountId,
-        subreddit: isRedditPost ? subreddit : null,
-        instruction: isRedditPost ? `subreddit: ${subreddit}` : null,
-        related_strategy_id: form.related_strategy_id ? Number(form.related_strategy_id) : null,
-      };
+        savedCount += 1;
 
-      if (form.id) {
-        await api.updatePlannerItem(form.id, payload);
-      } else {
-        await api.createPlannerItem(payload);
+        if (options.publishNow && socialPostId) {
+          if (target.account.connection_mode === "playwright") {
+            queuedBrowserCount += 1;
+            continue;
+          }
+          try {
+            await api.publishSocialPost(socialPostId);
+            publishedNowCount += 1;
+            if (plannerItemId) {
+              await api.updatePlannerItem(plannerItemId, {
+                status: "published",
+                scheduled_for: effectiveScheduledFor,
+              });
+            }
+          } catch (err) {
+            const reason = err instanceof Error ? err.message : "publish failed";
+            publishFailures.push(`${plannerPlatformLabel(target.platform)} @${target.account.username}: ${reason}`);
+          }
+        }
       }
 
       closeModal();
       await load({ silent: true });
+      const actionLabel = options.publishNow
+        ? [
+            publishedNowCount > 0 ? `${publishedNowCount} published now` : "",
+            queuedBrowserCount > 0 ? `${queuedBrowserCount} queued for browser publishing` : "",
+          ].filter(Boolean).join(", ") || `${savedCount} saved`
+        : options.scheduledForByTarget
+        ? `Auto-scheduled ${savedCount} post${savedCount === 1 ? "" : "s"}`
+        : `Planned ${savedCount} post${savedCount === 1 ? "" : "s"}`;
+      setNotice(actionLabel);
+      if (publishFailures.length > 0) {
+        setError(`Some targets could not publish: ${publishFailures.join(" | ")}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save schedule");
     } finally {
@@ -938,13 +1196,19 @@ export function PlannerPage() {
 
   async function saveSchedule(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await savePlannerItem(form.scheduled_for ? new Date(form.scheduled_for).toISOString() : null);
+    const scheduledFor = form.scheduled_for ? new Date(form.scheduled_for).toISOString() : null;
+    await savePlannerItem(scheduledFor, { publishNow: !scheduledFor });
   }
 
   async function autoSchedulePlannerItem() {
-    const scheduledAt = chooseAutoSchedule(scheduledSlots);
-    setForm((current) => ({ ...current, scheduled_for: toDateTimeLocalValue(scheduledAt) }));
-    await savePlannerItem(scheduledAt.toISOString());
+    const targets = collectPlannerTargets(null);
+    if (!targets) return;
+    const scheduledForByTarget = chooseAutoSchedulesForTargets(targets);
+    const firstScheduled = scheduledForByTarget.values().next().value;
+    if (firstScheduled) {
+      setForm((current) => ({ ...current, scheduled_for: toDateTimeLocalValue(new Date(firstScheduled)) }));
+    }
+    await savePlannerItem(null, { scheduledForByTarget });
   }
 
   async function improveDescription() {
@@ -1029,6 +1293,7 @@ export function PlannerPage() {
   return (
     <div className="scheduler-page">
       {error ? <p className="error panel">{error}</p> : null}
+      {notice ? <p className="success panel">{notice}</p> : null}
 
       <section className="panel scheduler-overview">
         <div className="scheduler-hero scheduler-hero--minimal scheduler-overview__bar">
@@ -1341,7 +1606,7 @@ export function PlannerPage() {
       </section>
 
       {isModalOpen ? (
-        <div className="scheduler-modal-backdrop" onClick={closeModal}>
+        <div className="scheduler-modal-backdrop">
           <div className="scheduler-modal" onClick={(event) => event.stopPropagation()}>
             <form className="stack" onSubmit={saveSchedule}>
               <div className="panel__title-row">
@@ -1350,25 +1615,16 @@ export function PlannerPage() {
               </div>
               <div className="scheduler-modal-meta-row">
                 <div className="scheduler-platform-field">
-                  <p className="scheduler-media-field__label">Platform</p>
+                  <p className="scheduler-media-field__label">Platforms</p>
                   {canSelectModalPlatform ? (
-                    <div className="scheduler-platform-chips" role="radiogroup" aria-label="Platform">
+                    <div className="scheduler-platform-chips" role="group" aria-label="Platforms">
                       {modalPlatforms.map((platform) => (
                         <button
                           key={platform}
                           type="button"
-                          className={`scheduler-platform-chip${normalizePlannerAccountPlatform(form.platform) === platform ? " scheduler-platform-chip--active" : ""}`}
-                          onClick={() =>
-                            setForm((current) => ({
-                              ...current,
-                              platform,
-                              account_id: String(
-                                schedulerAccounts.find((account) => normalizePlannerAccountPlatform(account.platform) === platform)?.id ?? "",
-                              ),
-                              subreddit: platform === "reddit" ? current.subreddit : "",
-                            }))
-                          }
-                          aria-pressed={normalizePlannerAccountPlatform(form.platform) === platform}
+                          className={`scheduler-platform-chip${selectedModalPlatforms.includes(platform) ? " scheduler-platform-chip--active" : ""}`}
+                          onClick={() => toggleModalPlatform(platform)}
+                          aria-pressed={selectedModalPlatforms.includes(platform)}
                         >
                           {plannerPlatformLabel(platform)}
                         </button>
@@ -1389,26 +1645,45 @@ export function PlannerPage() {
                   </div>
                 ) : null}
               </div>
-              {modalAccounts.length > 0 ? (
-                <label className="scheduler-account-field">
-                  <span className="scheduler-media-field__label">Account</span>
-                  <select
-                    value={selectedModalAccount ? String(selectedModalAccount.id) : ""}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        account_id: event.target.value,
-                        subreddit: isRedditModal ? "" : current.subreddit,
-                      }))
-                    }
-                  >
-                    {modalAccounts.map((account) => (
-                      <option key={`${account.platform}-${account.id}`} value={account.id}>
-                        {plannerAccountLabel(account)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+              {selectedModalPlatforms.length > 0 ? (
+                <div className="scheduler-account-field">
+                  <span className="scheduler-media-field__label">Accounts</span>
+                  <div className="scheduler-account-targets">
+                    {selectedModalPlatforms.map((platform) => {
+                      const accounts = accountsForPlatform(platform);
+                      const selectedIds = selectedAccountIdsByPlatform[platform] ?? [];
+                      return (
+                        <div className="scheduler-account-target" key={platform}>
+                          <div className="scheduler-account-target__header">
+                            <strong>{plannerPlatformLabel(platform)}</strong>
+                            <small>{selectedIds.length} selected</small>
+                          </div>
+                          {accounts.length > 0 ? (
+                            <div className="scheduler-account-target__options">
+                              {accounts.map((account) => {
+                                const accountId = String(account.id);
+                                const checked = selectedIds.includes(accountId);
+                                return (
+                                  <label className="scheduler-account-option" key={`${account.platform}-${account.id}`}>
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      disabled={!canSelectModalPlatform}
+                                      onChange={(event) => setPlatformAccountSelection(platform, accountId, event.target.checked)}
+                                    />
+                                    <span>{plannerAccountLabel(account)}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <p className="scheduler-reddit-target__hint">No active account connected.</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               ) : null}
               {isRedditModal ? (
                 <div className="scheduler-reddit-target">
@@ -1416,7 +1691,11 @@ export function PlannerPage() {
                     <label className="scheduler-reddit-target__field">
                       <span className="scheduler-field-label-row">
                         <span>Subreddit</span>
-                        {selectedRedditAccount ? <small>@{selectedRedditAccount.name}</small> : null}
+                        {selectedRedditAccounts.length > 0 ? (
+                          <small>{selectedRedditAccounts.map((account) => `@${account.name}`).join(", ")}</small>
+                        ) : selectedRedditAccount ? (
+                          <small>@{selectedRedditAccount.name}</small>
+                        ) : null}
                       </span>
                       <input
                         list="scheduler-reddit-subreddits"
@@ -1432,27 +1711,6 @@ export function PlannerPage() {
                         ))}
                       </datalist>
                     </label>
-                    {redditAccounts.length > 1 ? (
-                      <label className="scheduler-reddit-target__account">
-                        Account
-                        <select
-                          value={selectedRedditAccount ? String(selectedRedditAccount.id) : ""}
-                          onChange={(event) =>
-                            setForm((current) => ({
-                              ...current,
-                              account_id: event.target.value,
-                              subreddit: "",
-                            }))
-                          }
-                        >
-                          {redditAccounts.map((account) => (
-                            <option key={account.id} value={account.id}>
-                              @{account.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    ) : null}
                   </div>
                   {loadingSubreddits ? (
                     <p className="scheduler-reddit-target__hint">Loading subscribed subreddits...</p>
@@ -1540,10 +1798,12 @@ export function PlannerPage() {
                               <div className="scheduler-media-card" key={`${url}-${index}`}>
                                 <button
                                   className="scheduler-media-card__remove"
+                                  aria-label={`Remove media ${index + 1}`}
+                                  title="Remove media"
                                   onClick={() => removePlannerMedia(index)}
                                   type="button"
                                 >
-                                  Remove
+                                  <TrashIcon aria-hidden="true" />
                                 </button>
                                 <video className="scheduler-media-card__asset" src={url} controls playsInline />
                               </div>
@@ -1556,10 +1816,12 @@ export function PlannerPage() {
                               <div className="scheduler-media-card scheduler-media-card--thumb" key={`${url}-${index}`}>
                                 <button
                                   className="scheduler-media-card__remove"
+                                  aria-label={`Remove media ${index + 1}`}
+                                  title="Remove media"
                                   onClick={() => removePlannerMedia(index)}
                                   type="button"
                                 >
-                                  Remove
+                                  <TrashIcon aria-hidden="true" />
                                 </button>
                                 <img className="scheduler-media-card__asset" src={url} alt={`Uploaded post media ${index + 1}`} />
                               </div>
@@ -1573,10 +1835,12 @@ export function PlannerPage() {
                           <div className="scheduler-media-card" key={`${url}-${index}`}>
                             <button
                               className="scheduler-media-card__remove"
+                              aria-label={`Remove media ${index + 1}`}
+                              title="Remove media"
                               onClick={() => removePlannerMedia(index)}
                               type="button"
                             >
-                              Remove
+                              <TrashIcon aria-hidden="true" />
                             </button>
                             {isVideoMediaUrl(url) ? (
                               <video className="scheduler-media-card__asset" src={url} controls playsInline />

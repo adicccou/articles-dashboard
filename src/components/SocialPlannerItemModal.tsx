@@ -31,7 +31,7 @@ export function SocialPlannerItemModal({
   const actionLabel = itemType === "campaign" ? "Campaign" : "Post";
 
   return (
-    <div className="social-connections-modal-backdrop" onClick={onClose}>
+    <div className="social-connections-modal-backdrop">
       <div className="social-connections-modal panel social-editor-modal" onClick={(event) => event.stopPropagation()}>
         <div className="panel__title-row">
           <div>

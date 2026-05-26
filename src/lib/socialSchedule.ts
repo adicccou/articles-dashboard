@@ -40,11 +40,14 @@ function sameDay(left: Date, right: Date): boolean {
 export function collectActiveScheduledSocialSlots(
   items: ScheduledPlannerLike[],
   excludeItemId?: number,
+  options: { platform?: string | null } = {},
 ): string[] {
+  const requestedPlatform = normalizeSocialSchedulePlatform(options.platform);
   return items
     .filter((item) => item.id !== excludeItemId)
     .filter((item) => String(item.item_type ?? "post").trim().toLowerCase() === "post")
     .filter((item) => SOCIAL_AUTOSCHEDULE_PLATFORMS.has(normalizeSocialSchedulePlatform(item.platform)))
+    .filter((item) => !requestedPlatform || normalizeSocialSchedulePlatform(item.platform) === requestedPlatform)
     .filter((item) => ACTIVE_PLANNER_STATUSES.has(String(item.status ?? "").trim().toLowerCase()))
     .map((item) => item.scheduled_for)
     .filter((value): value is string => Boolean(value));

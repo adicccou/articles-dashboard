@@ -96,7 +96,7 @@ export function SettingsModal({
   );
 
   return (
-    <div className="settings-modal-backdrop" onClick={onClose}>
+    <div className="settings-modal-backdrop">
       <div className="settings-modal panel" onClick={(event) => event.stopPropagation()}>
         <div className="panel__title-row">
           <div>

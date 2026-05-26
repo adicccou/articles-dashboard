@@ -619,6 +619,71 @@
   gap: 8px;
 }
 
+.scheduler-account-targets {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.scheduler-account-target {
+  border: 1px solid #dbe5f1;
+  border-radius: 12px;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.scheduler-account-target__header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.scheduler-account-target__header strong {
+  color: #0f172a;
+  font-size: 0.88rem;
+}
+
+.scheduler-account-target__header small {
+  color: var(--text-soft);
+  font-size: 0.76rem;
+}
+
+.scheduler-account-target__options {
+  display: grid;
+  gap: 6px;
+}
+
+.scheduler-account-option {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  color: #334155;
+  cursor: pointer;
+  display: flex;
+  font-size: 0.84rem;
+  font-weight: 650;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+}
+
+.scheduler-account-option input {
+  accent-color: #2563eb;
+}
+
+.scheduler-account-option:has(input:checked) {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.scheduler-account-option:has(input:disabled) {
+  cursor: default;
+}
+
 .scheduler-modal-status-field {
   align-items: start;
   display: grid;
@@ -852,22 +917,41 @@
   top: 10px;
   right: 10px;
   z-index: 1;
-  background: rgba(15, 23, 42, 0.84);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: #dc2626;
   color: #fff;
-  padding: 0.4rem 0.7rem;
-  border-radius: 999px;
-  font-size: 0.78rem;
+  box-shadow: 0 10px 24px rgba(127, 29, 29, 0.28);
+}
+
+.scheduler-media-card__remove svg {
+  width: 18px;
+  height: 18px;
 }
 
 .scheduler-media-card--thumb .scheduler-media-card__remove {
-  font-size: 0.72rem;
-  padding: 0.3rem 0.55rem;
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
   right: 8px;
   top: 8px;
 }
 
 .scheduler-media-card__remove:hover {
-  background: rgba(15, 23, 42, 0.96);
+  background: #b91c1c;
+  color: #fff;
+}
+
+.scheduler-media-card__remove:focus-visible {
+  outline: 3px solid rgba(248, 113, 113, 0.5);
+  outline-offset: 2px;
 }
 
 .scheduler-modal-backdrop {

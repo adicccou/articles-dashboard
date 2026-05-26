@@ -1357,14 +1357,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
       )}
 
       {editingPost ? (
-        <div
-          className="studio-modal-backdrop"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) {
-              closeSuggestionEditor();
-            }
-          }}
-        >
+        <div className="studio-modal-backdrop">
           <section
             aria-labelledby="studio-suggestion-editor-title"
             aria-modal="true"
