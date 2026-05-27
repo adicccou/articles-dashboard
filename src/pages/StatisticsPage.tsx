@@ -20,6 +20,7 @@ type AccountStats = {
   repliesSent: number;
   lastPostAt: string | null;
 };
+type PlatformSelection = "all" | Platform;
 
 const PLATFORMS: Platform[] = ["twitter", "threads", "reddit", "instagram", "linkedin", "facebook", "youtube"];
 const COMMENT_PLATFORMS = new Set<Platform>(["twitter", "threads", "reddit"]);
@@ -110,6 +111,8 @@ export function StatisticsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [posts, setPosts] = useState<SocialPost[]>([]);
   const [commentsByAccount, setCommentsByAccount] = useState<Record<string, SocialComment[]>>({});
+  const [selectedPlatform, setSelectedPlatform] = useState<PlatformSelection>("all");
+  const [selectedAccountKey, setSelectedAccountKey] = useState("all");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -189,20 +192,61 @@ export function StatisticsPage() {
     }).sort((left, right) => right.publishedPosts - left.publishedPosts || right.totalPosts - left.totalPosts);
   }, [accounts, commentsByAccount, posts]);
 
+  const platformTabs = useMemo(() => {
+    const platforms = Array.from(new Set(statsByAccount.map((item) => item.account.platform)));
+    return platforms.sort((left, right) => platformLabel(left).localeCompare(platformLabel(right)));
+  }, [statsByAccount]);
+
+  useEffect(() => {
+    if (selectedPlatform !== "all" && !platformTabs.includes(selectedPlatform)) {
+      setSelectedPlatform("all");
+      setSelectedAccountKey("all");
+    }
+  }, [platformTabs, selectedPlatform]);
+
+  const platformStats = useMemo(() => {
+    return selectedPlatform === "all"
+      ? statsByAccount
+      : statsByAccount.filter((item) => item.account.platform === selectedPlatform);
+  }, [selectedPlatform, statsByAccount]);
+
+  useEffect(() => {
+    if (selectedAccountKey !== "all" && !platformStats.some((item) => accountKey(item.account) === selectedAccountKey)) {
+      setSelectedAccountKey("all");
+    }
+  }, [platformStats, selectedAccountKey]);
+
+  const visibleStats = useMemo(() => {
+    return selectedAccountKey === "all"
+      ? platformStats
+      : platformStats.filter((item) => accountKey(item.account) === selectedAccountKey);
+  }, [platformStats, selectedAccountKey]);
+
   const totals = useMemo(() => ({
-    accounts: statsByAccount.length,
-    posts: statsByAccount.reduce((sum, item) => sum + item.totalPosts, 0),
-    published: statsByAccount.reduce((sum, item) => sum + item.publishedPosts, 0),
-    scheduled: statsByAccount.reduce((sum, item) => sum + item.scheduledPosts, 0),
-    comments: statsByAccount.reduce((sum, item) => sum + item.commentsCount, 0),
-    replies: statsByAccount.reduce((sum, item) => sum + item.repliesSent, 0),
-  }), [statsByAccount]);
+    accounts: visibleStats.length,
+    posts: visibleStats.reduce((sum, item) => sum + item.totalPosts, 0),
+    published: visibleStats.reduce((sum, item) => sum + item.publishedPosts, 0),
+    scheduled: visibleStats.reduce((sum, item) => sum + item.scheduledPosts, 0),
+    comments: visibleStats.reduce((sum, item) => sum + item.commentsCount, 0),
+    replies: visibleStats.reduce((sum, item) => sum + item.repliesSent, 0),
+  }), [visibleStats]);
 
   const recentPosts = useMemo(() => {
-    return [...posts]
+    const visiblePostIds = new Set(visibleStats.flatMap((item) => item.posts.map((post) => post.id)));
+    return posts
+      .filter((post) => visiblePostIds.has(post.id))
       .sort((left, right) => new Date(right.posted_at || right.scheduled_at || right.updated_at || right.created_at).getTime() - new Date(left.posted_at || left.scheduled_at || left.updated_at || left.created_at).getTime())
       .slice(0, 8);
-  }, [posts]);
+  }, [posts, visibleStats]);
+
+  const selectedAccount = selectedAccountKey === "all"
+    ? null
+    : visibleStats[0]?.account ?? platformStats.find((item) => accountKey(item.account) === selectedAccountKey)?.account ?? null;
+  const selectedScopeLabel = selectedAccount
+    ? accountLabel(selectedAccount)
+    : selectedPlatform === "all"
+      ? "all platforms"
+      : platformLabel(selectedPlatform);
 
   if (loading) return <div className="stats-loading">Loading social statistics...</div>;
 
@@ -233,8 +277,71 @@ export function StatisticsPage() {
           <div className="stats-loading">No active social accounts yet. Add accounts in Config to see social media statistics here.</div>
         ) : (
           <>
+            <section className="stats-tabs-panel" aria-label="Statistics filters">
+              <div className="stats-tabs-group">
+                <span className="stats-tabs-label">Platform</span>
+                <div className="stats-tabs-scroll" role="tablist" aria-label="Social platform statistics">
+                  <button
+                    type="button"
+                    className={`stats-tab ${selectedPlatform === "all" ? "stats-tab--active" : ""}`}
+                    onClick={() => {
+                      setSelectedPlatform("all");
+                      setSelectedAccountKey("all");
+                    }}
+                  >
+                    All platforms
+                    <span>{statsByAccount.length}</span>
+                  </button>
+                  {platformTabs.map((platform) => {
+                    const count = statsByAccount.filter((item) => item.account.platform === platform).length;
+                    return (
+                      <button
+                        type="button"
+                        className={`stats-tab ${selectedPlatform === platform ? "stats-tab--active" : ""}`}
+                        key={platform}
+                        onClick={() => {
+                          setSelectedPlatform(platform);
+                          setSelectedAccountKey("all");
+                        }}
+                      >
+                        {platformLabel(platform)}
+                        <span>{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {selectedPlatform !== "all" ? (
+                <div className="stats-tabs-group">
+                  <span className="stats-tabs-label">Account</span>
+                  <div className="stats-tabs-scroll" role="tablist" aria-label="Social account statistics">
+                    <button
+                      type="button"
+                      className={`stats-tab ${selectedAccountKey === "all" ? "stats-tab--active" : ""}`}
+                      onClick={() => setSelectedAccountKey("all")}
+                    >
+                      All {platformLabel(selectedPlatform)} accounts
+                      <span>{platformStats.length}</span>
+                    </button>
+                    {platformStats.map((item) => (
+                      <button
+                        type="button"
+                        className={`stats-tab ${selectedAccountKey === accountKey(item.account) ? "stats-tab--active" : ""}`}
+                        key={accountKey(item.account)}
+                        onClick={() => setSelectedAccountKey(accountKey(item.account))}
+                      >
+                        {item.account.username ? `@${item.account.username}` : `Account ${item.account.id}`}
+                        <span>{item.totalPosts}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </section>
+
             <div className="stats-grid stats-grid--summary">
-              <StatCard label="Accounts" value={totals.accounts} sub="active accounts in Config" accent="blue" />
+              <StatCard label="Accounts" value={totals.accounts} sub={`visible in ${selectedScopeLabel}`} accent="blue" />
               <StatCard label="Published Posts" value={totals.published} sub={`${totals.posts} total created`} accent="green" />
               <StatCard label="Scheduled" value={totals.scheduled} sub="waiting to publish" accent="amber" />
               <StatCard label="Comments" value={totals.comments} sub={`${totals.replies} replied`} accent="purple" />
@@ -244,11 +351,11 @@ export function StatisticsPage() {
               <div className="stats-section__header">
                 <div>
                   <h3>Account Performance</h3>
-                  <p>Each card shows the publishing health and available engagement for one connected account.</p>
+                  <p>Showing publishing health and available engagement for {selectedScopeLabel}.</p>
                 </div>
               </div>
               <div className="stats-account-grid">
-                {statsByAccount.map((item) => (
+                {visibleStats.map((item) => (
                   <article className="stats-account-card" key={accountKey(item.account)}>
                     <div className="stats-account-card__header">
                       <div>
@@ -280,7 +387,7 @@ export function StatisticsPage() {
               <div className="stats-section__header">
                 <div>
                   <h3>Post Performance By Account</h3>
-                  <p>Views, likes, and shares need platform insights APIs before exact numbers can be shown.</p>
+                  <p>Filtered to {selectedScopeLabel}. Views, likes, and shares need platform insights APIs before exact numbers can be shown.</p>
                 </div>
               </div>
               <div className="stats-table-wrap">
@@ -300,7 +407,7 @@ export function StatisticsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {statsByAccount.map((item) => (
+                    {visibleStats.map((item) => (
                       <tr key={accountKey(item.account)}>
                         <td>{accountLabel(item.account)}</td>
                         <td>{item.totalPosts}</td>
@@ -323,7 +430,7 @@ export function StatisticsPage() {
               <div className="stats-section__header">
                 <div>
                   <h3>Recent Social Posts</h3>
-                  <p>Latest created, scheduled, and published posts across all connected social accounts.</p>
+                  <p>Latest created, scheduled, and published posts for {selectedScopeLabel}.</p>
                 </div>
               </div>
               {recentPosts.length === 0 ? (
