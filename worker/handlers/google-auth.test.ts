@@ -13,13 +13,13 @@ describe("Google dashboard auth", () => {
   const env = {
     GOOGLE_CLIENT_ID: "client-id",
     GOOGLE_CLIENT_SECRET: "client-secret",
-    GOOGLE_REDIRECT_URI: "https://marketing-dashboard.adilet-melisov.workers.dev/api/auth/google/callback",
+    GOOGLE_REDIRECT_URI: "https://oilor.app/api/auth/google/callback",
     GOOGLE_ALLOWED_EMAILS: "adiccou@gmail.com, teammate@example.com",
     DASHBOARD_OWNER_EMAIL: "adiccou@gmail.com",
   } as Env;
 
   it("builds an authorization URL that always lets the user select the Google account", () => {
-    const authUrl = new URL(buildGoogleAuthorizationUrl(env, "https://marketing-dashboard.adilet-melisov.workers.dev/", "state-123"));
+    const authUrl = new URL(buildGoogleAuthorizationUrl(env, "https://oilor.app/", "state-123"));
 
     expect(authUrl.origin).toBe("https://accounts.google.com");
     expect(authUrl.searchParams.get("scope")).toBe("openid email profile");
@@ -47,13 +47,24 @@ describe("Google dashboard auth", () => {
 
   it("redirects to the sign-in page instead of dumping JSON when OAuth secrets are missing", async () => {
     const response = await authorizeGoogleDashboardLogin(
-      new Request("https://marketing-dashboard.adilet-melisov.workers.dev/api/auth/google/authorize"),
+      new Request("https://oilor.app/api/auth/google/authorize"),
       { ...env, GOOGLE_CLIENT_SECRET: "" } as Env,
     );
 
     expect(response.status).toBe(303);
     expect(response.headers.get("Location")).toBe(
-      "https://marketing-dashboard.adilet-melisov.workers.dev/?auth_error=google_not_configured",
+      "https://oilor.app/?auth_error=google_not_configured",
     );
+  });
+
+  it("preserves a safe OAuth return path through the Google login state cookie", async () => {
+    const response = await authorizeGoogleDashboardLogin(
+      new Request("https://oilor.app/api/auth/google/authorize?return_to=/oauth/authorize%3Fclient_id%3Dchatgpt"),
+      env,
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("https://accounts.google.com/");
+    expect(response.headers.get("Set-Cookie")).toContain("%22return_to%22%3A%22%2Foauth%2Fauthorize%3Fclient_id%3Dchatgpt%22");
   });
 });

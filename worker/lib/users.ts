@@ -3,7 +3,7 @@ import type { DashboardUser } from "./ownership";
 import { DEFAULT_USER_ID, attachPrimaryWorkspace, ensureDefaultWorkspace, tableHasColumn } from "./ownership";
 
 const PASSWORD_HASH_PREFIX = "pbkdf2-sha256";
-const PASSWORD_ITERATIONS = 120000;
+const PASSWORD_ITERATIONS = 100000;
 const encoder = new TextEncoder();
 
 function exactArrayBuffer(bytes: Uint8Array): ArrayBuffer {

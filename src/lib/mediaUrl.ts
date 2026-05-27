@@ -1,4 +1,6 @@
 const DASHBOARD_MEDIA_HOSTS = new Set([
+  "oilor.app",
+  "www.oilor.app",
   "dashboard.adilet-melisov.workers.dev",
   "marketing-dashboard.adilet-melisov.workers.dev",
 ]);
@@ -15,7 +17,7 @@ export function normalizeDashboardMediaUrl(raw: string | null | undefined): stri
   if (/^(blob|data):/i.test(value)) return value;
 
   const origin = currentOrigin();
-  const base = origin ?? "https://marketing-dashboard.adilet-melisov.workers.dev";
+  const base = origin ?? "https://oilor.app";
 
   try {
     const url = new URL(value, base);

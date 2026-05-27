@@ -708,9 +708,10 @@ export async function fetchThreadsRepliesData(
     reverse?: string | null;
     limit?: string | null;
     userId?: number | null;
+    accountId?: number | null;
   },
 ): Promise<Array<Record<string, unknown>>> {
-  const credentials = await getThreadsCredentials(env, undefined, options?.userId ?? DEFAULT_USER_ID);
+  const credentials = await getThreadsCredentials(env, options?.accountId ?? undefined, options?.userId ?? DEFAULT_USER_ID);
   if (!credentials) return [];
 
   const mediaId = options?.mediaId?.trim();
@@ -800,21 +801,26 @@ export async function listThreadsReplies(env: Env, url: URL, userId = DEFAULT_US
   }
 }
 
-export async function listThreadsComments(env: Env, postId?: string | null, limit?: string | null, userId = DEFAULT_USER_ID): Promise<Response> {
+export async function listThreadsComments(env: Env, postId?: string | null, limit?: string | null, userId = DEFAULT_USER_ID, accountId?: string | null): Promise<Response> {
   try {
     const requestedLimit = Math.max(1, Math.min(Number(limit || 100) || 100, 100));
+    const requestedAccountId = Number(accountId || 0) || undefined;
     const filters = ["platform = 'threads'", "status = 'posted'"];
     const values: unknown[] = [];
     if (postId) {
       filters.unshift("id = ?");
       values.unshift(Number(postId));
     }
+    if (requestedAccountId) {
+      filters.push("account_id = ?");
+      values.push(requestedAccountId);
+    }
     await appendScopedFilter(env, "social_posts", filters, values, userId);
     const targets = await env.DB.prepare(
-      `SELECT id, external_id, content, image_url FROM social_posts WHERE ${filters.join(" AND ")} ORDER BY posted_at DESC, updated_at DESC`,
+      `SELECT id, external_id, content, image_url, account_id FROM social_posts WHERE ${filters.join(" AND ")} ORDER BY posted_at DESC, updated_at DESC`,
     )
       .bind(...values)
-      .all<{ id: number; external_id: string | null; content: string | null; image_url: string | null }>();
+      .all<{ id: number; external_id: string | null; content: string | null; image_url: string | null; account_id: number | null }>();
     const targetRows = (targets.results ?? []).filter((row) => row.external_id?.trim());
     if (targetRows.length === 0) return jsonResponse({ data: [] });
 
@@ -825,6 +831,7 @@ export async function listThreadsComments(env: Env, postId?: string | null, limi
           limit: String(requestedLimit),
           reverse: "true",
           userId,
+          accountId: requestedAccountId ?? target.account_id ?? undefined,
         });
         const ownerRepliesByParent = new Map<string, Record<string, unknown>>();
         replies
@@ -845,6 +852,7 @@ export async function listThreadsComments(env: Env, postId?: string | null, limi
             const ownerReply = ownerRepliesByParent.get(String(reply.id));
             return {
             platform: "threads",
+            account_id: requestedAccountId ?? target.account_id ?? null,
             post_id: target.id,
             post_external_id: String(target.external_id).trim(),
             post_preview: target.content?.slice(0, 120) ?? null,

@@ -12,11 +12,11 @@ describe("Reddit OAuth", () => {
   const env = {
     REDDIT_CLIENT_ID: "reddit-client-id",
     REDDIT_CLIENT_SECRET: "reddit-client-secret",
-    REDDIT_REDIRECT_URI: "https://marketing-dashboard.adilet-melisov.workers.dev/api/reddit/auth/callback",
+    REDDIT_REDIRECT_URI: "https://oilor.app/api/reddit/auth/callback",
   } as Env;
 
   it("requests the scopes needed for identity, subreddit selection, and publishing", () => {
-    const authUrl = new URL(buildRedditAuthorizationUrl(env, "https://marketing-dashboard.adilet-melisov.workers.dev/config", "state-123"));
+    const authUrl = new URL(buildRedditAuthorizationUrl(env, "https://oilor.app/config", "state-123"));
     const scopes = authUrl.searchParams.get("scope")?.split(",") ?? [];
 
     expect(authUrl.origin).toBe("https://www.reddit.com");
@@ -44,7 +44,7 @@ describe("Reddit OAuth", () => {
   it("returns an actionable error when OAuth credentials are missing", async () => {
     const response = await handleAuthorizeRequest(
       { ...env, REDDIT_CLIENT_SECRET: "" } as Env,
-      new Request("https://marketing-dashboard.adilet-melisov.workers.dev/api/reddit/auth/authorize", {
+      new Request("https://oilor.app/api/reddit/auth/authorize", {
         method: "POST",
         body: JSON.stringify({ account_name: "Reddit" }),
       }),
@@ -53,6 +53,6 @@ describe("Reddit OAuth", () => {
 
     expect(response.status).toBe(500);
     expect(payload.error).toContain("REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET");
-    expect(payload.error).toContain("https://marketing-dashboard.adilet-melisov.workers.dev/api/reddit/auth/callback");
+    expect(payload.error).toContain("https://oilor.app/api/reddit/auth/callback");
   });
 });

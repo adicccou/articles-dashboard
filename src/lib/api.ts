@@ -502,10 +502,11 @@ export const api = {
     request<{ success: boolean }>(`/api/social/twitter/accounts/${id}`, {
       method: "DELETE",
     }),
-  listSocialComments: (platform: "twitter" | "threads" | "reddit", postId?: number, limit?: number) => {
+  listSocialComments: (platform: "twitter" | "threads" | "reddit", postId?: number, limit?: number, accountId?: number) => {
     const params = new URLSearchParams({ platform });
     if (postId) params.set("post_id", String(postId));
     if (limit) params.set("limit", String(limit));
+    if (accountId) params.set("account_id", String(accountId));
     return request<{ data: SocialComment[] }>(`/api/social/comments?${params.toString()}`);
   },
   suggestSocialReply: (payload: {
@@ -521,15 +522,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
-  createTwitterReply: (reply_to_id: string, text: string) =>
+  createTwitterReply: (reply_to_id: string, text: string, account_id?: number | null) =>
     request<SocialReplyPublishResponse>("/api/social/twitter/replies", {
       method: "POST",
-      body: JSON.stringify({ reply_to_id, text }),
+      body: JSON.stringify({ reply_to_id, text, account_id }),
     }),
-  createRedditReply: (reply_to_id: string, text: string) =>
+  createRedditReply: (reply_to_id: string, text: string, account_id?: number | null) =>
     request<SocialReplyPublishResponse>("/api/social/reddit/replies", {
       method: "POST",
-      body: JSON.stringify({ reply_to_id, text }),
+      body: JSON.stringify({ reply_to_id, text, account_id }),
     }),
 
   // Threads accounts
@@ -578,9 +579,9 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(payload),
     }),
-  createThreadsReply: (reply_to_id: string, text: string, image_url?: string) =>
+  createThreadsReply: (reply_to_id: string, text: string, image_url?: string, account_id?: number | null) =>
     request<SocialReplyPublishResponse>("/api/social/threads/replies", {
       method: "POST",
-      body: JSON.stringify({ reply_to_id, text, image_url }),
+      body: JSON.stringify({ reply_to_id, text, image_url, account_id }),
     }),
 };

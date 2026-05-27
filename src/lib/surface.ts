@@ -38,7 +38,7 @@ export function getSurfaceViews(surface: DashboardSurface): NavView[] {
 }
 
 export function getDefaultView(surface: DashboardSurface): NavView {
-  return surface === "trading" ? "trading" : "articles";
+  return surface === "trading" ? "trading" : "planner";
 }
 
 export function isViewAllowedForSurface(view: NavView, surface: DashboardSurface): boolean {

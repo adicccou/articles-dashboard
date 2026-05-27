@@ -25,6 +25,11 @@ type GoogleUserInfoResponse = {
   error_description?: string;
 };
 
+type GoogleStatePayload = {
+  state: string;
+  return_to?: string;
+};
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -43,9 +48,34 @@ function cookieValue(request: Request, name: string): string {
     ?.slice(name.length + 1) ?? "";
 }
 
-function stateCookie(state: string): string {
+function safeReturnPath(value: string | null): string {
+  const raw = String(value ?? "").trim();
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "";
+  try {
+    const parsed = new URL(raw, "https://dashboard.local");
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return "";
+  }
+}
+
+function encodeStateCookie(payload: GoogleStatePayload): string {
+  return encodeURIComponent(JSON.stringify(payload));
+}
+
+function decodeStateCookie(value: string): GoogleStatePayload | null {
+  const decoded = decodeURIComponent(value || "");
+  try {
+    const parsed = JSON.parse(decoded) as Partial<GoogleStatePayload>;
+    return parsed.state ? { state: parsed.state, return_to: safeReturnPath(parsed.return_to ?? "") || undefined } : null;
+  } catch {
+    return decoded ? { state: decoded } : null;
+  }
+}
+
+function stateCookie(state: string, returnTo = ""): string {
   return [
-    `${GOOGLE_STATE_COOKIE}=${encodeURIComponent(state)}`,
+    `${GOOGLE_STATE_COOKIE}=${encodeStateCookie({ state, return_to: safeReturnPath(returnTo) || undefined })}`,
     "Path=/api/auth/google",
     "HttpOnly",
     "SameSite=Lax",
@@ -124,9 +154,10 @@ export async function authorizeGoogleDashboardLogin(request: Request, env: Env):
   }
 
   const state = crypto.randomUUID();
+  const returnTo = safeReturnPath(new URL(request.url).searchParams.get("return_to"));
   const headers = new Headers({
     Location: buildGoogleAuthorizationUrl(env, request.url, state),
-    "Set-Cookie": stateCookie(state),
+    "Set-Cookie": stateCookie(state, returnTo),
   });
   return new Response(null, { status: 302, headers });
 }
@@ -137,8 +168,8 @@ export async function handleGoogleDashboardCallback(request: Request, env: Env):
   if (oauthError) return googleAuthError(oauthError);
 
   const state = url.searchParams.get("state")?.trim() || "";
-  const expectedState = decodeURIComponent(cookieValue(request, GOOGLE_STATE_COOKIE));
-  if (!state || !expectedState || state !== expectedState) {
+  const expectedState = decodeStateCookie(cookieValue(request, GOOGLE_STATE_COOKIE));
+  if (!state || !expectedState?.state || state !== expectedState.state) {
     return googleAuthError("Google sign-in state expired or did not match. Please try again.");
   }
 
@@ -190,7 +221,7 @@ export async function handleGoogleDashboardCallback(request: Request, env: Env):
     picture: userInfo.picture,
   });
 
-  const headers = new Headers({ Location: "/" });
+  const headers = new Headers({ Location: expectedState.return_to || "/" });
   headers.append("Set-Cookie", await createSessionCookie(user, env, true));
   headers.append("Set-Cookie", clearStateCookie());
   return new Response(null, { status: 303, headers });

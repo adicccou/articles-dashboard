@@ -14,23 +14,23 @@ afterEach(() => {
 
 describe("normalizeDashboardMediaUrl", () => {
   it("rewrites old dashboard media hosts to the current dashboard host", () => {
-    setWindowOrigin("https://marketing-dashboard.adilet-melisov.workers.dev");
+    setWindowOrigin("https://oilor.app");
 
     expect(
       normalizeDashboardMediaUrl("https://dashboard.adilet-melisov.workers.dev/api/media/uploads/example.jpg"),
-    ).toBe("https://marketing-dashboard.adilet-melisov.workers.dev/api/media/uploads/example.jpg?source=dashboard-media");
+    ).toBe("https://oilor.app/api/media/uploads/example.jpg?source=dashboard-media");
   });
 
   it("adds a cache marker to relative dashboard media URLs", () => {
-    setWindowOrigin("https://marketing-dashboard.adilet-melisov.workers.dev");
+    setWindowOrigin("https://oilor.app");
 
     expect(normalizeDashboardMediaUrl("/api/media/uploads/example.jpg")).toBe(
-      "https://marketing-dashboard.adilet-melisov.workers.dev/api/media/uploads/example.jpg?source=dashboard-media",
+      "https://oilor.app/api/media/uploads/example.jpg?source=dashboard-media",
     );
   });
 
   it("leaves external and data URLs untouched", () => {
-    setWindowOrigin("https://marketing-dashboard.adilet-melisov.workers.dev");
+    setWindowOrigin("https://oilor.app");
 
     expect(normalizeDashboardMediaUrl("https://cdn.example.com/image.jpg")).toBe("https://cdn.example.com/image.jpg");
     expect(normalizeDashboardMediaUrl("data:image/png;base64,abc")).toBe("data:image/png;base64,abc");

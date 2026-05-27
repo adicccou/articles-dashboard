@@ -731,6 +731,7 @@ export type SocialPost = {
 
 export type SocialComment = {
   platform: "twitter" | "threads" | "reddit";
+  account_id?: number | null;
   post_id: number | null;
   post_external_id: string | null;
   post_preview?: string | null;
@@ -757,7 +758,7 @@ export type SocialReplySuggestion = {
 
 export type StudioAccount = {
   id: number;
-  platform: "twitter" | "threads" | "reddit";
+  platform: "twitter" | "threads" | "reddit" | "instagram" | "linkedin";
   username: string;
   tags?: string[] | null;
   status: "active" | "inactive";
@@ -788,7 +789,7 @@ export type StudioCampaign = {
   campaign_type: "post" | "reply";
   result_limit: number;
   account_refs: string[];
-  platforms: Array<"twitter" | "threads" | "reddit">;
+  platforms: Array<"twitter" | "threads" | "reddit" | "instagram" | "linkedin">;
   instructions: string;
   status: "active" | "paused" | "archived";
   created_at: string;
@@ -804,7 +805,7 @@ export type StudioCrawlerRun = {
   campaign_type: "post" | "reply";
   result_limit: number;
   account_refs: string[];
-  platforms: Array<"twitter" | "threads" | "reddit">;
+  platforms: Array<"twitter" | "threads" | "reddit" | "instagram" | "linkedin">;
   instructions: string;
   status: "pending" | "running" | "completed" | "failed";
   crawler_summary?: string | null;
@@ -823,7 +824,7 @@ export type StudioSignal = {
   campaign_name?: string | null;
   app_id: number;
   app_name?: string | null;
-  platform: "twitter" | "threads" | "reddit";
+  platform: "twitter" | "threads" | "reddit" | "instagram" | "linkedin";
   source: string;
   query: string;
   title: string;
@@ -848,7 +849,7 @@ export type StudioStrategistPost = {
   campaign_name?: string | null;
   app_id: number;
   app_name?: string | null;
-  platform: "twitter" | "threads" | "reddit";
+  platform: "twitter" | "threads" | "reddit" | "instagram" | "linkedin";
   post_text: string;
   idea: string;
   rationale: string;

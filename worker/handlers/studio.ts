@@ -12,6 +12,7 @@ type StudioCampaignStatus = "active" | "paused" | "archived";
 type StudioCrawlerStatus = "pending" | "running" | "completed" | "failed";
 type StudioPostStatus = "suggested" | "asset_needed" | "scheduled" | "posted" | "dismissed";
 type StudioSignalStatus = "candidate" | "filtered" | "signal" | "rejected";
+type StudioPlatform = "twitter" | "threads" | "reddit" | "instagram" | "linkedin";
 
 type StudioAppPayload = {
   name?: string;
@@ -132,10 +133,15 @@ type StudioCrawlerBrief = {
 };
 
 const PLATFORM_LABELS: Record<string, string> = {
-  twitter: "Twitter",
+  twitter: "Twitter/X",
   threads: "Threads",
   reddit: "Reddit",
+  instagram: "Instagram",
+  linkedin: "LinkedIn",
 };
+
+const STUDIO_PLATFORMS: StudioPlatform[] = ["twitter", "threads", "reddit", "instagram", "linkedin"];
+const REPLY_CAPABLE_STUDIO_PLATFORMS = new Set<StudioPlatform>(["twitter", "threads", "reddit"]);
 
 const columnCapabilityCache = new Map<string, boolean>();
 
@@ -156,7 +162,17 @@ function normalizePlatform(platform: unknown): string {
   const value = String(platform ?? "").trim().toLowerCase();
   if (value === "x" || value === "twitter/x") return "twitter";
   if (value === "thread") return "threads";
+  if (value === "ig") return "instagram";
+  if (value === "linked") return "linkedin";
   return value;
+}
+
+function isStudioPlatform(platform: string): platform is StudioPlatform {
+  return STUDIO_PLATFORMS.includes(platform as StudioPlatform);
+}
+
+function isReplyCapableStudioPlatform(platform: string) {
+  return isStudioPlatform(platform) && REPLY_CAPABLE_STUDIO_PLATFORMS.has(platform);
 }
 
 function normalizePlatforms(value: unknown): string[] {
@@ -171,7 +187,7 @@ function normalizePlatforms(value: unknown): string[] {
   const platforms: string[] = [];
   for (const item of source) {
     const platform = normalizePlatform(item);
-    if (!platform || !["twitter", "threads", "reddit"].includes(platform) || seen.has(platform)) continue;
+    if (!platform || !isStudioPlatform(platform) || seen.has(platform)) continue;
     seen.add(platform);
     platforms.push(platform);
   }
@@ -263,7 +279,7 @@ function accountIdForPlatform(accountRefs: string[], platform: string): number |
 }
 
 function accountIdForSocialPosts(platform: string, accountId: number | null): number | null {
-  return normalizePlatform(platform) === "reddit" ? accountId : null;
+  return isStudioPlatform(normalizePlatform(platform)) ? accountId : null;
 }
 
 function extractSubreddit(value: unknown): string | null {
@@ -646,7 +662,7 @@ async function replaceSignalsForRun(
     : await scopedInsertColumns(env, "studio_signals", userId);
   for (const signal of signals.slice(0, 100)) {
     const platform = normalizePlatform(signal.platform) || runPlatforms[0] || "threads";
-    if (!["twitter", "threads", "reddit"].includes(platform)) continue;
+    if (!isStudioPlatform(platform)) continue;
     const title = cleanText(signal.title);
     const snippet = cleanText(signal.snippet);
     const painPoint = cleanText(signal.pain_point);
@@ -866,8 +882,9 @@ async function enqueueStudioNotification(
 
 export async function listStudioAccounts(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
-    const socialFilters = ["platform IN ('twitter', 'threads')"];
-    const socialValues: unknown[] = [];
+    const socialPlatforms: StudioPlatform[] = ["twitter", "threads", "instagram", "linkedin"];
+    const socialFilters = [`platform IN (${socialPlatforms.map(() => "?").join(", ")})`];
+    const socialValues: unknown[] = [...socialPlatforms];
     await appendScopedFilter(env, "social_accounts", socialFilters, socialValues, userId);
     const redditFilters: string[] = [];
     const redditValues: unknown[] = [];
@@ -876,7 +893,7 @@ export async function listStudioAccounts(env: Env, userId = DEFAULT_USER_ID): Pr
       env.DB.prepare(
         `SELECT id, platform, username, status, created_at, updated_at
          FROM social_accounts
-         WHERE ${socialFilters.join(" AND ")}
+          WHERE ${socialFilters.join(" AND ")}
          ORDER BY platform ASC, updated_at DESC`,
       ).bind(...socialValues).all<Record<string, unknown>>(),
       env.DB.prepare(
@@ -1061,6 +1078,9 @@ export async function createStudioCampaign(
     if (!Number.isFinite(appId) || appId <= 0) return errorResponse("App selection is required", 400);
     if (!name) return errorResponse("Campaign name is required", 400);
     if (platforms.length === 0) return errorResponse("Select at least one social platform", 400);
+    if (campaignType === "reply" && platforms.some((platform) => !isReplyCapableStudioPlatform(platform))) {
+      return errorResponse("Reply campaigns are available for Twitter/X, Threads, and Reddit only.", 400);
+    }
     if (accountRefs.length === 0) return errorResponse("Select at least one connected account", 400);
     const now = nowIso();
     const hasCampaignType = await tableHasColumn(env, "studio_campaigns", "campaign_type");
@@ -1129,8 +1149,13 @@ export async function updateStudioCampaign(env: Env, campaignId: string, request
       updates.push("result_limit = ?");
       values.push(normalizeResultLimit(payload.result_limit));
     }
+    const nextCampaignType = payload.campaign_type === "reply" ? "reply" : payload.campaign_type === "post" ? "post" : undefined;
+    const nextPlatforms = payload.platforms !== undefined ? normalizePlatforms(payload.platforms) : undefined;
+    if (nextCampaignType === "reply" && nextPlatforms?.some((platform) => !isReplyCapableStudioPlatform(platform))) {
+      return errorResponse("Reply campaigns are available for Twitter/X, Threads, and Reddit only.", 400);
+    }
     if (payload.account_refs !== undefined) { updates.push("account_refs = ?"); values.push(stringifyJson(normalizeRefs(payload.account_refs))); }
-    if (payload.platforms !== undefined) { updates.push("platforms = ?"); values.push(stringifyJson(normalizePlatforms(payload.platforms))); }
+    if (nextPlatforms !== undefined) { updates.push("platforms = ?"); values.push(stringifyJson(nextPlatforms)); }
     if (payload.instructions !== undefined) { updates.push("instructions = ?"); values.push(cleanText(payload.instructions)); }
     if (payload.status !== undefined) { updates.push("status = ?"); values.push(payload.status); }
     if (updates.length === 0) return errorResponse("No campaign fields to update", 400);
@@ -1225,6 +1250,9 @@ export async function createStudioCrawlerRun(
     }
     if (!Number.isFinite(appId) || appId <= 0) return errorResponse("App selection is required", 400);
     if (platforms.length === 0) return errorResponse("Select at least one social platform", 400);
+    if (campaignType === "reply" && platforms.some((platform) => !isReplyCapableStudioPlatform(platform))) {
+      return errorResponse("Reply campaigns are available for Twitter/X, Threads, and Reddit only.", 400);
+    }
     if (!instructions) return errorResponse("Crawler instructions are required", 400);
     const appFilters = ["id = ?"];
     const appValues: unknown[] = [appId];
@@ -1784,8 +1812,17 @@ export async function scheduleStudioStrategistPost(
     const accountRefs = decodeList(post.account_refs);
     const accountId = accountIdForPlatform(accountRefs, platform);
     const replyToId = cleanText(post.target_external_id);
+    if (!isStudioPlatform(platform)) {
+      return errorResponse("This Studio platform is not supported for scheduling.", 400);
+    }
+    if (campaignType === "reply" && !isReplyCapableStudioPlatform(platform)) {
+      return errorResponse("Reply campaigns are available for Twitter/X, Threads, and Reddit only.", 400);
+    }
     if (campaignType === "reply" && !replyToId) {
       return errorResponse("Reply suggestions need a target post/comment ID before scheduling.", 400);
+    }
+    if (campaignType === "post" && platform === "instagram" && !mediaUrl) {
+      return errorResponse("Instagram Studio posts need an attached image before scheduling.", 400);
     }
     const scheduledAt = payload.scheduled_at || await chooseAutoSchedule(env, accountId, platform, campaignType, userId);
     const subreddit = platform === "reddit"
@@ -1841,7 +1878,7 @@ export async function scheduleStudioStrategistPost(
     const plannerResult = hasSocialPostLinks
       ? await env.DB.prepare(
         `INSERT INTO planner_items (
-          ${scopedPlanner.columns.length ? "user_id," : ""}
+          ${scopedPlanner.columns.length ? `${scopedPlanner.columns.join(", ")},` : ""}
           title, description, item_type, platform, status, scheduled_for, social_post_id, account_id, instruction, created_by, created_at, updated_at
         )
         VALUES (${scopedPlanner.columns.length ? "?," : ""}?, ?, 'post', ?, 'approved', ?, ?, ?, ?, 'studio', ?, ?)`,
@@ -1850,7 +1887,7 @@ export async function scheduleStudioStrategistPost(
         .run() as { meta: { last_row_id: number } }
       : await env.DB.prepare(
         `INSERT INTO planner_items (
-          ${scopedPlanner.columns.length ? "user_id," : ""}
+          ${scopedPlanner.columns.length ? `${scopedPlanner.columns.join(", ")},` : ""}
           title, description, item_type, platform, status, scheduled_for, account_id, instruction, created_by, created_at, updated_at
         )
         VALUES (${scopedPlanner.columns.length ? "?," : ""}?, ?, 'post', ?, 'approved', ?, ?, ?, 'studio', ?, ?)`,

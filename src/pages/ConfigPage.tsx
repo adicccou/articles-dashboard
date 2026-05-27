@@ -634,7 +634,7 @@ function buildAppSiteRows(apps: StudioApp[], sites: Site[]): AppSiteRow[] {
 }
 
 export function ConfigPage() {
-  const [tab, setTab] = useState<ConfigTab>("apps");
+  const [tab, setTab] = useState<ConfigTab>("accounts");
   const [apps, setApps] = useState<StudioApp[]>([]);
   const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
@@ -1151,17 +1151,17 @@ export function ConfigPage() {
           <div className="ui-tabs__list config-tabs__list">
             <button
               type="button"
-              className={`ui-tab config-tab ${tab === "apps" ? "ui-tab--active config-tab--active" : ""}`}
-              onClick={() => setTab("apps")}
-            >
-              Apps/Sites ({appsAndSitesCount})
-            </button>
-            <button
-              type="button"
               className={`ui-tab config-tab ${tab === "accounts" ? "ui-tab--active config-tab--active" : ""}`}
               onClick={() => setTab("accounts")}
             >
               Social Media Accounts ({accounts.length})
+            </button>
+            <button
+              type="button"
+              className={`ui-tab config-tab ${tab === "apps" ? "ui-tab--active config-tab--active" : ""}`}
+              onClick={() => setTab("apps")}
+            >
+              Apps/Sites ({appsAndSitesCount})
             </button>
           </div>
           <div className="ui-tabs__actions config-tabs__actions">

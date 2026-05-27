@@ -928,14 +928,23 @@ function isTradingApiPath(pathname: string): boolean {
   );
 }
 
+function isMcpEndpointPath(pathname: string): boolean {
+  return pathname === "/mcp" || pathname === "/mcp/" || pathname === "/api/mcp" || pathname === "/api/mcp/";
+}
+
+function isMcpAuthPath(pathname: string): boolean {
+  return isMcpEndpointPath(pathname) || pathname.startsWith("/oauth/") || pathname.startsWith("/.well-known/oauth");
+}
+
 function enforceSurfaceRoute(env: Env, pathname: string): Response | null {
   const surface = getWorkerSurface(env);
 
-  if (pathname === "/mcp" && surface !== "marketing") {
+  if (isMcpAuthPath(pathname) && surface !== "marketing") {
     return text("Not found", 404);
   }
 
   if (!pathname.startsWith("/api/")) return null;
+  if (isMcpAuthPath(pathname)) return null;
   if (isSharedApiPath(pathname)) return null;
 
   const allowed = surface === "trading" ? isTradingApiPath(pathname) : isMarketingApiPath(pathname);
@@ -952,7 +961,7 @@ export default {
         return surfaceRouteError;
       }
 
-      if (url.pathname === "/mcp") {
+      if (isMcpAuthPath(url.pathname)) {
         return handleMcpRequest(request, env, ctx);
       }
 
@@ -1981,9 +1990,10 @@ export default {
       const platform = (url.searchParams.get("platform") ?? "threads").trim().toLowerCase();
       const postId = url.searchParams.get("post_id");
       const limit = url.searchParams.get("limit");
-      if (platform === "threads") return await listThreadsComments(env, postId, limit, activeScopeId(user));
-      if (platform === "twitter" || platform === "x" || platform === "twitter/x") return await listTwitterComments(env, postId, limit);
-      if (platform === "reddit") return await listRedditComments(env, postId, limit);
+      const accountId = url.searchParams.get("account_id");
+      if (platform === "threads") return await listThreadsComments(env, postId, limit, activeScopeId(user), accountId);
+      if (platform === "twitter" || platform === "x" || platform === "twitter/x") return await listTwitterComments(env, postId, limit, accountId, activeScopeId(user));
+      if (platform === "reddit") return await listRedditComments(env, postId, limit, accountId, activeScopeId(user));
       return json({ error: "Unsupported social platform." }, { status: 400 });
     }
 
@@ -2000,15 +2010,15 @@ export default {
     }
 
     if (url.pathname === "/api/social/reddit/search" && request.method === "GET") {
-      const unauthorized = await requireAuth(request, env);
-      if (unauthorized) return unauthorized;
-      return await searchRedditPosts(env, url);
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      return await searchRedditPosts(env, url, activeScopeId(user));
     }
 
     if (url.pathname === "/api/social/reddit/replies" && request.method === "POST") {
-      const unauthorized = await requireAuth(request, env);
-      if (unauthorized) return unauthorized;
-      return await createRedditReply(env, request);
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      return await createRedditReply(env, request, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/social/threads/posts/") && url.pathname.endsWith("/publish") && request.method === "POST") {

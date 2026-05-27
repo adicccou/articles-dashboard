@@ -27,6 +27,18 @@ function readAuthNotice(): string | null {
   return null;
 }
 
+function readReturnTo(): string {
+  if (typeof window === "undefined") return "";
+  const raw = new URLSearchParams(window.location.search).get("return_to") ?? "";
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "";
+  try {
+    const parsed = new URL(raw, window.location.origin);
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return "";
+  }
+}
+
 function readStoredView(surface: DashboardSurface): NavView {
   if (typeof window === "undefined") return getDefaultView(surface);
 
@@ -65,6 +77,7 @@ export function App() {
     typeof window !== "undefined" && window.location.pathname === FALLBACK_SIGN_PATH
       ? "fallback"
       : "google";
+  const [returnTo] = useState<string>(() => readReturnTo());
   const [authNotice] = useState<string | null>(() => readAuthNotice());
   const [auth, setAuth] = useState<AuthState>({ authenticated: false });
   const [sites, setSites] = useState<Site[]>([]);
@@ -160,6 +173,10 @@ export function App() {
 
   async function handlePasswordLogin(username: string, password: string, remember: boolean) {
     const nextAuth = await api.login(username, password, remember);
+    if (returnTo && typeof window !== "undefined") {
+      window.location.href = returnTo;
+      return;
+    }
     if (loginMode === "fallback" && typeof window !== "undefined") {
       window.history.replaceState(window.history.state, "", "/");
     }

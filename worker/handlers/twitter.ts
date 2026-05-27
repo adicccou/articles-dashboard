@@ -963,17 +963,6 @@ async function fetchTwitterProfile(credentials: TwitterCredentials): Promise<Twi
   };
 }
 
-async function fetchTwitterMe(env: Env): Promise<{ id: string; username: string; name?: string }> {
-  const credentials = await getTwitterCredentials(env);
-  if (!credentials) throw new Error("No active Twitter/X account with API credentials was found.");
-  const profile = await fetchTwitterProfile(credentials);
-  return {
-    id: profile.user_id,
-    username: profile.username,
-    name: profile.display_name || undefined,
-  };
-}
-
 function selectLatestTwitterReply(
   current: TwitterConversationReply | undefined,
   candidate: TwitterConversationReply,
@@ -1027,17 +1016,32 @@ async function loadOwnedTwitterRepliesByParent(
   return repliesByParent;
 }
 
-export async function listTwitterComments(env: Env, postId?: string | null, limit?: string | null): Promise<Response> {
+export async function listTwitterComments(env: Env, postId?: string | null, limit?: string | null, accountId?: string | null, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
-    const me = await fetchTwitterMe(env);
+    const requestedAccountId = Number(accountId || 0) || undefined;
+    const credentials = await getTwitterCredentials(env, requestedAccountId, userId);
+    if (!credentials) throw new Error("No active Twitter/X account with API credentials was found.");
+    const profile = await fetchTwitterProfile(credentials);
+    const me = {
+      id: profile.user_id,
+      username: profile.username,
+      name: profile.display_name || undefined,
+    };
     const requestedLimit = Math.max(1, Math.min(Number(limit || 100) || 100, 100));
-    const targets = postId
-      ? await env.DB.prepare(
-        "SELECT id, external_id, content, image_url FROM social_posts WHERE id = ? AND platform = 'twitter' AND status = 'posted'",
-      ).bind(Number(postId)).all<{ id: number; external_id: string | null; content: string; image_url: string | null }>()
-      : await env.DB.prepare(
-        "SELECT id, external_id, content, image_url FROM social_posts WHERE platform = 'twitter' AND status = 'posted' ORDER BY posted_at DESC, updated_at DESC",
-      ).all<{ id: number; external_id: string | null; content: string; image_url: string | null }>();
+    const filters = ["platform = 'twitter'", "status = 'posted'"];
+    const values: unknown[] = [];
+    if (postId) {
+      filters.unshift("id = ?");
+      values.unshift(Number(postId));
+    }
+    if (requestedAccountId) {
+      filters.push("account_id = ?");
+      values.push(requestedAccountId);
+    }
+    await appendScopedFilter(env, "social_posts", filters, values, userId);
+    const targets = await env.DB.prepare(
+      `SELECT id, external_id, content, image_url, account_id FROM social_posts WHERE ${filters.join(" AND ")} ORDER BY posted_at DESC, updated_at DESC`,
+    ).bind(...values).all<{ id: number; external_id: string | null; content: string; image_url: string | null; account_id: number | null }>();
     const targetRows = (targets.results ?? []).filter((row) => row.external_id?.trim());
     const targetMap = new Map(targetRows.map((row) => [String(row.external_id).trim(), row]));
     if (!targetMap.size) return jsonResponse({ data: [] });
@@ -1054,8 +1058,6 @@ export async function listTwitterComments(env: Env, postId?: string | null, limi
       expansions: "author_id",
       "user.fields": "username,name",
     };
-    const credentials = await getTwitterCredentials(env);
-    if (!credentials) throw new Error("No active Twitter/X account with API credentials was found.");
     const response = await fetch(endpoint.toString(), {
       headers: {
         Authorization: await buildTwitterOAuthHeader("GET", baseEndpoint, credentials, mentionsQueryParams),
@@ -1086,6 +1088,7 @@ export async function listTwitterComments(env: Env, postId?: string | null, limi
         const ownerReply = tweet.id ? repliesByParent.get(String(tweet.id)) : undefined;
         return {
           platform: "twitter",
+          account_id: requestedAccountId ?? target?.account_id ?? null,
           post_id: target?.id ?? null,
           post_external_id: tweet.conversation_id ?? null,
           post_preview: target?.content?.slice(0, 120) ?? null,

@@ -6,6 +6,7 @@ import {
   createSocialPost,
   deleteSocialPost,
   listSocialPosts,
+  publishTwitterPost,
   updateSocialPost,
 } from "./twitter";
 import {
@@ -36,8 +37,27 @@ import {
   updateStudioCampaign,
   updateStudioStrategistPost,
 } from "./studio";
+import { publishThreadsPost } from "./threads";
+import { publishRedditPost } from "./reddit";
+import { publishExtraSocialPost } from "./social-accounts";
+import { DEFAULT_USER_ID, appendScopedFilter } from "../lib/ownership";
+import {
+  CHATGPT_OAUTH_SCOPES,
+  chatGptMcpResource,
+  chatGptOAuthChallenge,
+  handleChatGptOAuthRequest,
+  validateChatGptAccessToken,
+} from "./chatgpt-oauth";
+import { requireMcpScopes } from "./mcp-scopes";
 
 type JsonValue = null | string | number | boolean | JsonValue[] | { [key: string]: JsonValue };
+type McpAuthContext = {
+  authMode: "internal" | "oauth";
+  userId: number;
+  scopeId: number;
+  workspaceId: number;
+  scopes: string[];
+};
 
 const SOCIAL_PLATFORMS = ["threads", "twitter", "reddit", "instagram"] as const;
 const STUDIO_CAMPAIGN_TYPES = ["post", "reply"] as const;
@@ -55,7 +75,7 @@ const READ_ONLY_TOOL_ANNOTATIONS = {
   openWorldHint: false,
 } as const;
 const PLANNING_TOOL_ANNOTATIONS = {
-  readOnlyHint: true,
+  readOnlyHint: false,
   destructiveHint: false,
   idempotentHint: false,
   openWorldHint: false,
@@ -65,6 +85,28 @@ const DESTRUCTIVE_TOOL_ANNOTATIONS = {
   destructiveHint: true,
   idempotentHint: false,
   openWorldHint: false,
+} as const;
+const EXTERNAL_DESTRUCTIVE_TOOL_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+  openWorldHint: true,
+} as const;
+const OAUTH_SECURITY_SCHEMES = [{ type: "oauth2", scopes: [...CHATGPT_OAUTH_SCOPES] }] as const;
+const OAUTH_TOOL_META = {
+  securitySchemes: OAUTH_SECURITY_SCHEMES,
+} as const;
+
+const SOCIAL_POST_UPDATE_INPUT_SCHEMA = {
+  post_id: z.number().int().positive(),
+  content: z.string().optional(),
+  scheduled_at: z.string().nullable().optional(),
+  status: z.string().optional(),
+  image_url: z.union([z.string(), z.array(z.string()), z.null()]).optional(),
+  title: z.string().nullable().optional(),
+  subreddit: z.string().nullable().optional(),
+  account_id: z.number().int().positive().nullable().optional(),
+  reply_to_id: z.string().nullable().optional(),
 } as const;
 
 function normalizePlatform(platform: string): (typeof SOCIAL_PLATFORMS)[number] {
@@ -128,8 +170,51 @@ function toolText(value: unknown) {
   };
 }
 
-async function configuredMcpToken(env: Env): Promise<string> {
-  if (env.MCP_CONNECTOR_TOKEN) return env.MCP_CONNECTOR_TOKEN;
+function presentSocialPost(post: Record<string, unknown>, fallbackPlatform?: string) {
+  return {
+    id: post.id ?? null,
+    post_id: post.id ?? null,
+    platform: post.platform ?? fallbackPlatform ?? null,
+    status: post.status ?? null,
+    content: post.content ?? "",
+    title: post.title ?? null,
+    subreddit: post.subreddit ? `r/${String(post.subreddit).replace(/^r\//i, "")}` : null,
+    image_url: post.image_url ?? null,
+    scheduled_at: post.scheduled_at ?? null,
+    posted_at: post.posted_at ?? null,
+    last_error: post.last_error ?? null,
+    created_at: post.created_at ?? null,
+    updated_at: post.updated_at ?? null,
+  };
+}
+
+function presentSocialPostsByPlatform(posts: Record<string, Record<string, unknown>[]>) {
+  return Object.fromEntries(
+    Object.entries(posts).map(([platform, values]) => [
+      platform,
+      values.map((post) => presentSocialPost(post, platform)),
+    ]),
+  );
+}
+
+function presentPlannerItem(item: Record<string, unknown> | null) {
+  if (!item) return null;
+  return {
+    id: item.id ?? null,
+    planner_item_id: item.id ?? null,
+    social_post_id: item.social_post_id ?? null,
+    title: item.title ?? null,
+    description: item.description ?? null,
+    item_type: item.item_type ?? null,
+    platform: item.platform ?? null,
+    status: item.status ?? null,
+    scheduled_for: item.scheduled_for ?? null,
+    created_at: item.created_at ?? null,
+    updated_at: item.updated_at ?? null,
+  };
+}
+
+async function configuredAgentToken(env: Env): Promise<string> {
   if (env.TRADING_AGENT_SYNC_SECRET) return env.TRADING_AGENT_SYNC_SECRET;
 
   const row = await env.DB.prepare(
@@ -138,50 +223,81 @@ async function configuredMcpToken(env: Env): Promise<string> {
   return row?.value ?? "";
 }
 
-async function requireMcpAuth(request: Request, env: Env): Promise<Response | null> {
-  const configuredToken = await configuredMcpToken(env);
+async function configuredMcpToken(env: Env): Promise<string> {
+  if (env.MCP_CONNECTOR_TOKEN) return env.MCP_CONNECTOR_TOKEN;
+  return configuredAgentToken(env);
+}
+
+function timingSafeEqual(left: string, right: string): boolean {
+  const maxLength = Math.max(left.length, right.length);
+  let diff = left.length ^ right.length;
+  for (let index = 0; index < maxLength; index += 1) {
+    diff |= (left.charCodeAt(index) || 0) ^ (right.charCodeAt(index) || 0);
+  }
+  return diff === 0;
+}
+
+async function hasSharedMcpToken(request: Request, env: Env): Promise<boolean> {
+  const acceptedTokens = new Set(
+    [await configuredMcpToken(env), await configuredAgentToken(env)].map((value) => value.trim()).filter(Boolean),
+  );
   const authHeader = request.headers.get("Authorization") ?? "";
   const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length).trim() : "";
   const urlToken = new URL(request.url).searchParams.get("token")?.trim() ?? "";
 
-  if (!configuredToken) {
-    return new Response("MCP connector token is not configured", { status: 503 });
+  for (const token of acceptedTokens) {
+    if ((bearerToken && timingSafeEqual(bearerToken, token)) || (urlToken && timingSafeEqual(urlToken, token))) {
+      return true;
+    }
   }
-
-  if (bearerToken !== configuredToken && urlToken !== configuredToken) {
-    return new Response("Unauthorized", { status: 401 });
-  }
-
-  return null;
+  return false;
 }
 
-async function callDashboardInternalApi(env: Env, path: string, init?: RequestInit) {
-  const baseUrl = (env.DASHBOARD_API_URL || "https://marketing-dashboard.adilet-melisov.workers.dev").replace(/\/$/, "");
-  const token = await configuredMcpToken(env);
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...init,
+async function resolveMcpAuthContext(request: Request, env: Env): Promise<McpAuthContext | Response> {
+  if (await hasSharedMcpToken(request, env)) {
+    return {
+      authMode: "internal",
+      userId: DEFAULT_USER_ID,
+      scopeId: DEFAULT_USER_ID,
+      workspaceId: DEFAULT_USER_ID,
+      scopes: [...CHATGPT_OAUTH_SCOPES],
+    };
+  }
+
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length).trim() : "";
+  const tokenValidation = await validateChatGptAccessToken(env, bearerToken, chatGptMcpResource(request), []);
+  if (tokenValidation.ok) {
+    return {
+      authMode: "oauth",
+      userId: tokenValidation.context.userId,
+      scopeId: tokenValidation.context.scopeId,
+      workspaceId: tokenValidation.context.workspaceId,
+      scopes: tokenValidation.context.scopes,
+    };
+  }
+
+  return new Response("Unauthorized", {
+    status: 401,
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...(init?.headers ?? {}),
+      "WWW-Authenticate": chatGptOAuthChallenge(request, tokenValidation.error, tokenValidation.description),
     },
   });
-  return responseJson(response);
 }
 
 async function readJsonFromHandler<T>(handlerResponse: Promise<Response>): Promise<T> {
   return responseJson<T>(await handlerResponse);
 }
 
-async function listPostsForPlatform(env: Env, platform: string) {
+async function listPostsForPlatform(env: Env, platform: string, scopeId = DEFAULT_USER_ID) {
   return readJsonFromHandler<Record<string, unknown>[]>(
-    listSocialPosts(env, normalizePlatform(platform)),
+    listSocialPosts(env, normalizePlatform(platform), scopeId),
   );
 }
 
-async function allSocialPosts(env: Env) {
+async function allSocialPosts(env: Env, scopeId = DEFAULT_USER_ID) {
   const entries = await Promise.all(
-    SOCIAL_PLATFORMS.map(async (platform) => [platform, await listPostsForPlatform(env, platform)] as const),
+    SOCIAL_PLATFORMS.map(async (platform) => [platform, await listPostsForPlatform(env, platform, scopeId)] as const),
   );
   return Object.fromEntries(entries);
 }
@@ -193,21 +309,23 @@ function dateKey(value: string): string | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
 }
 
-async function occupiedSocialDates(env: Env): Promise<Set<string>> {
+async function occupiedSocialDates(env: Env, scopeId = DEFAULT_USER_ID): Promise<Set<string>> {
   const occupied = new Set<string>();
-  const socialPosts = await allSocialPosts(env);
+  const socialPosts = await allSocialPosts(env, scopeId);
 
   for (const posts of Object.values(socialPosts)) {
     for (const post of posts) {
       const status = String(post.status ?? "").toLowerCase();
       const scheduledAt = typeof post.scheduled_at === "string" ? post.scheduled_at : "";
-      const key = scheduledAt && ACTIVE_SOCIAL_STATUSES.has(status) ? dateKey(scheduledAt) : null;
+      const postedAt = typeof post.posted_at === "string" ? post.posted_at : "";
+      const dateSource = status === "posted" ? postedAt || scheduledAt : scheduledAt;
+      const key = dateSource && (ACTIVE_SOCIAL_STATUSES.has(status) || status === "posted") ? dateKey(dateSource) : null;
       if (key) occupied.add(key);
     }
   }
 
   const plannerItems = await readJsonFromHandler<Record<string, unknown>[]>(
-    listPlannerItems(env),
+    listPlannerItems(env, scopeId),
   );
   for (const item of plannerItems) {
     const itemType = String(item.item_type ?? "");
@@ -259,11 +377,12 @@ function formatDate(parts: { year: number; month: number; day: number }) {
 
 async function findNextFreeSlot(
   env: Env,
+  scopeId = DEFAULT_USER_ID,
   startDate?: string | null,
   preferredTime = "09:00",
   timezoneOffset = KL_OFFSET,
 ) {
-  const occupied = await occupiedSocialDates(env);
+  const occupied = await occupiedSocialDates(env, scopeId);
   const normalizedStart = startDate?.trim()
     ? dateKey(startDate.trim()) ?? startDate.trim().slice(0, 10)
     : formatDate(localDateParts(new Date()));
@@ -274,9 +393,10 @@ async function findNextFreeSlot(
   for (let offset = 0; offset < 60; offset += 1) {
     const candidate = addDays({ year, month, day }, offset);
     const candidateDate = formatDate(candidate);
-    if (!occupied.has(candidateDate)) {
+    const scheduledAt = `${candidateDate}T${cleanTime}:00${cleanOffset}`;
+    if (!occupied.has(candidateDate) && new Date(scheduledAt).getTime() > Date.now()) {
       return {
-        scheduled_at: `${candidateDate}T${cleanTime}:00${cleanOffset}`,
+        scheduled_at: scheduledAt,
         date: candidateDate,
         skipped_dates: Array.from(occupied).sort().filter((value) => value >= normalizedStart && value < candidateDate),
       };
@@ -291,6 +411,7 @@ async function createLinkedPlannerItem(
   requestUrl: string,
   post: Record<string, unknown>,
   scheduledAt: string,
+  scopeId = DEFAULT_USER_ID,
 ) {
   const socialPostId = Number(post.id ?? 0);
   if (!scheduledAt || !socialPostId || !(await plannerHasSocialPostLinks(env))) return null;
@@ -310,18 +431,19 @@ async function createLinkedPlannerItem(
         scheduled_for: scheduledAt,
         social_post_id: socialPostId,
       }),
+      scopeId,
     ),
   );
 }
 
-async function plannerItemForPost(env: Env, postId: number) {
-  const items = await readJsonFromHandler<Record<string, unknown>[]>(listPlannerItems(env));
+async function plannerItemForPost(env: Env, postId: number, scopeId = DEFAULT_USER_ID) {
+  const items = await readJsonFromHandler<Record<string, unknown>[]>(listPlannerItems(env, scopeId));
   return items.find((item) => Number(item.social_post_id ?? 0) === postId) ?? null;
 }
 
-async function syncPlannerSchedule(env: Env, requestUrl: string, postId: number, scheduledAt: string, status = "approved") {
-  const post = await getPostById(env, postId);
-  const existing = await plannerItemForPost(env, postId);
+async function syncPlannerSchedule(env: Env, requestUrl: string, postId: number, scheduledAt: string, status = "approved", scopeId = DEFAULT_USER_ID) {
+  const post = await getPostById(env, postId, scopeId);
+  const existing = await plannerItemForPost(env, postId, scopeId);
   if (existing?.id) {
     return readJsonFromHandler<Record<string, unknown>>(
       updatePlannerItem(
@@ -335,41 +457,48 @@ async function syncPlannerSchedule(env: Env, requestUrl: string, postId: number,
           description: post.content || null,
           social_post_id: postId,
         }),
+        scopeId,
       ),
     );
   }
-  return createLinkedPlannerItem(env, requestUrl, post, scheduledAt);
+  return createLinkedPlannerItem(env, requestUrl, post, scheduledAt, scopeId);
 }
 
-async function getPostById(env: Env, id: number): Promise<Record<string, unknown>> {
-  for (const [platform, posts] of Object.entries(await allSocialPosts(env))) {
+async function getPostById(env: Env, id: number, scopeId = DEFAULT_USER_ID): Promise<Record<string, unknown>> {
+  for (const [platform, posts] of Object.entries(await allSocialPosts(env, scopeId))) {
     const post = posts.find((item) => Number(item.id ?? 0) === id);
     if (post) return { ...post, platform };
   }
   throw new Error(`Social post #${id} was not found.`);
 }
 
-async function getStudioStrategistPostById(env: Env, id: number): Promise<Record<string, unknown>> {
-  const post = await env.DB.prepare("SELECT * FROM studio_strategist_posts WHERE id = ?")
-    .bind(id)
+async function getStudioStrategistPostById(env: Env, id: number, scopeId = DEFAULT_USER_ID): Promise<Record<string, unknown>> {
+  const filters = ["id = ?"];
+  const values: unknown[] = [id];
+  await appendScopedFilter(env, "studio_strategist_posts", filters, values, scopeId);
+  const post = await env.DB.prepare(`SELECT * FROM studio_strategist_posts WHERE ${filters.join(" AND ")}`)
+    .bind(...values)
     .first<Record<string, unknown>>();
   if (!post) throw new Error(`Studio strategist post #${id} was not found.`);
   return post;
 }
 
-async function deleteStudioStrategistPost(env: Env, postId: number, deleteLinkedSocialPost: boolean) {
-  const post = await getStudioStrategistPostById(env, postId);
+async function deleteStudioStrategistPost(env: Env, postId: number, deleteLinkedSocialPost: boolean, scopeId = DEFAULT_USER_ID) {
+  const post = await getStudioStrategistPostById(env, postId, scopeId);
   const socialPostId = Number(post.social_post_id ?? 0);
   const plannerItemId = Number(post.planner_item_id ?? 0);
   if (socialPostId && !deleteLinkedSocialPost) {
     throw new Error("This Studio post is already linked to a social post. Set delete_linked_social_post=true to delete both.");
   }
   if (socialPostId) {
-    await readJsonFromHandler(deleteSocialPost(env, String(socialPostId)));
+    await readJsonFromHandler(deleteSocialPost(env, String(socialPostId), scopeId));
   } else if (plannerItemId) {
-    await readJsonFromHandler(deletePlannerItem(env, String(plannerItemId)));
+    await readJsonFromHandler(deletePlannerItem(env, String(plannerItemId), scopeId));
   }
-  await env.DB.prepare("DELETE FROM studio_strategist_posts WHERE id = ?").bind(postId).run();
+  const filters = ["id = ?"];
+  const values: unknown[] = [postId];
+  await appendScopedFilter(env, "studio_strategist_posts", filters, values, scopeId);
+  await env.DB.prepare(`DELETE FROM studio_strategist_posts WHERE ${filters.join(" AND ")}`).bind(...values).run();
   return {
     success: true,
     deleted_studio_post_id: postId,
@@ -378,12 +507,13 @@ async function deleteStudioStrategistPost(env: Env, postId: number, deleteLinked
   };
 }
 
-function createBlogposterMcpServer(env: Env, requestUrl: string) {
+function createBlogposterMcpServer(env: Env, requestUrl: string, auth: McpAuthContext) {
   const server = new McpServer({
     name: "blogposter-dashboard",
     version: "1.0.0",
   });
 
+  if (auth.authMode === "internal") {
   server.registerTool(
     "get_marketing_studio_summary",
     {
@@ -392,7 +522,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
       inputSchema: {},
     },
-    async () => toolText(await readJsonFromHandler(getStudioSummary(env))),
+    async () => toolText(await readJsonFromHandler(getStudioSummary(env, auth.scopeId))),
   );
 
   server.registerTool(
@@ -403,7 +533,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
       inputSchema: {},
     },
-    async () => toolText(await readJsonFromHandler(listStudioAccounts(env))),
+    async () => toolText(await readJsonFromHandler(listStudioAccounts(env, auth.scopeId))),
   );
 
   server.registerTool(
@@ -414,7 +544,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
       inputSchema: {},
     },
-    async () => toolText(await readJsonFromHandler(listStudioApps(env))),
+    async () => toolText(await readJsonFromHandler(listStudioApps(env, auth.scopeId))),
   );
 
   server.registerTool(
@@ -434,7 +564,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       },
     },
     async (input) => toolText(await readJsonFromHandler(
-      createStudioApp(env, jsonRequest(requestUrl, input)),
+      createStudioApp(env, jsonRequest(requestUrl, input), auth.scopeId),
     )),
   );
 
@@ -456,7 +586,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       },
     },
     async ({ app_id, ...changes }) => toolText(await readJsonFromHandler(
-      updateStudioApp(env, String(app_id), jsonRequest(requestUrl, changes)),
+      updateStudioApp(env, String(app_id), jsonRequest(requestUrl, changes), auth.scopeId),
     )),
   );
 
@@ -470,7 +600,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
         app_id: z.number().int().positive(),
       },
     },
-    async ({ app_id }) => toolText(await readJsonFromHandler(deleteStudioApp(env, String(app_id)))),
+    async ({ app_id }) => toolText(await readJsonFromHandler(deleteStudioApp(env, String(app_id), auth.scopeId))),
   );
 
   server.registerTool(
@@ -481,7 +611,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
       inputSchema: {},
     },
-    async () => toolText(await readJsonFromHandler(listStudioCampaigns(env))),
+    async () => toolText(await readJsonFromHandler(listStudioCampaigns(env, auth.scopeId))),
   );
 
   server.registerTool(
@@ -502,7 +632,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       },
     },
     async (input) => toolText(await readJsonFromHandler(
-      createStudioCampaign(env, jsonRequest(requestUrl, input)),
+      createStudioCampaign(env, jsonRequest(requestUrl, input), auth.scopeId),
     )),
   );
 
@@ -525,7 +655,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       },
     },
     async ({ campaign_id, ...changes }) => toolText(await readJsonFromHandler(
-      updateStudioCampaign(env, String(campaign_id), jsonRequest(requestUrl, changes)),
+      updateStudioCampaign(env, String(campaign_id), jsonRequest(requestUrl, changes), auth.scopeId),
     )),
   );
 
@@ -539,7 +669,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
         campaign_id: z.number().int().positive(),
       },
     },
-    async ({ campaign_id }) => toolText(await readJsonFromHandler(deleteStudioCampaign(env, String(campaign_id)))),
+    async ({ campaign_id }) => toolText(await readJsonFromHandler(deleteStudioCampaign(env, String(campaign_id), auth.scopeId))),
   );
 
   server.registerTool(
@@ -554,7 +684,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       },
     },
     async ({ status, limit }) => toolText(await readJsonFromHandler(
-      listStudioCrawlerRuns(env, urlWithParams(requestUrl, { status, limit })),
+      listStudioCrawlerRuns(env, urlWithParams(requestUrl, { status, limit }), auth.scopeId),
     )),
   );
 
@@ -575,7 +705,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       },
     },
     async (input) => toolText(await readJsonFromHandler(
-      createStudioCrawlerRun(env, jsonRequest(requestUrl, input)),
+      createStudioCrawlerRun(env, jsonRequest(requestUrl, input), auth.scopeId),
     )),
   );
 
@@ -592,7 +722,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       },
     },
     async ({ crawler_run_id, campaign_id, status }) => toolText(await readJsonFromHandler(
-      listStudioSignals(env, urlWithParams(requestUrl, { crawler_run_id, campaign_id, status })),
+      listStudioSignals(env, urlWithParams(requestUrl, { crawler_run_id, campaign_id, status }), auth.scopeId),
     )),
   );
 
@@ -606,7 +736,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
         signal_id: z.number().int().positive(),
       },
     },
-    async ({ signal_id }) => toolText(await readJsonFromHandler(deleteStudioSignal(env, String(signal_id)))),
+    async ({ signal_id }) => toolText(await readJsonFromHandler(deleteStudioSignal(env, String(signal_id), auth.scopeId))),
   );
 
   server.registerTool(
@@ -621,7 +751,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       },
     },
     async ({ crawler_run_id, campaign_id }) => toolText(await readJsonFromHandler(
-      listStudioStrategistPosts(env, urlWithParams(requestUrl, { crawler_run_id, campaign_id })),
+      listStudioStrategistPosts(env, urlWithParams(requestUrl, { crawler_run_id, campaign_id }), auth.scopeId),
     )),
   );
 
@@ -648,7 +778,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       },
     },
     async (input) => toolText(await readJsonFromHandler(
-      createStudioStrategistPosts(env, jsonRequest(requestUrl, input)),
+      createStudioStrategistPosts(env, jsonRequest(requestUrl, input), auth.scopeId),
     )),
   );
 
@@ -673,7 +803,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       },
     },
     async ({ post_id, ...changes }) => toolText(await readJsonFromHandler(
-      updateStudioStrategistPost(env, String(post_id), jsonRequest(requestUrl, changes)),
+      updateStudioStrategistPost(env, String(post_id), jsonRequest(requestUrl, changes), auth.scopeId),
     )),
   );
 
@@ -687,7 +817,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
         post_id: z.number().int().positive(),
       },
     },
-    async ({ post_id }) => toolText(await readJsonFromHandler(regenerateStudioStrategistPost(env, String(post_id)))),
+    async ({ post_id }) => toolText(await readJsonFromHandler(regenerateStudioStrategistPost(env, String(post_id), auth.scopeId))),
   );
 
   server.registerTool(
@@ -703,7 +833,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       },
     },
     async ({ post_id, scheduled_at, media_url }) => toolText(await readJsonFromHandler(
-      scheduleStudioStrategistPost(env, String(post_id), jsonRequest(requestUrl, { scheduled_at, media_url })),
+      scheduleStudioStrategistPost(env, String(post_id), jsonRequest(requestUrl, { scheduled_at, media_url }), auth.scopeId),
     )),
   );
 
@@ -712,16 +842,17 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
     {
       title: "Delete marketing post idea",
       description: "Delete a Studio strategist post idea. If it already created a linked social post, set delete_linked_social_post=true to delete that queued social post too.",
-      annotations: DESTRUCTIVE_TOOL_ANNOTATIONS,
+      annotations: EXTERNAL_DESTRUCTIVE_TOOL_ANNOTATIONS,
       inputSchema: {
         post_id: z.number().int().positive(),
         delete_linked_social_post: z.boolean().default(false),
       },
     },
     async ({ post_id, delete_linked_social_post }) => toolText(
-      await deleteStudioStrategistPost(env, post_id, delete_linked_social_post),
+      await deleteStudioStrategistPost(env, post_id, delete_linked_social_post, auth.scopeId),
     ),
   );
+  }
 
   server.registerTool(
     "list_social_posts",
@@ -729,23 +860,25 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       title: "List social posts",
       description: "List Oilor Studio social posts for one platform or all platforms.",
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
+      _meta: OAUTH_TOOL_META,
       inputSchema: {
         platform: z.enum(["threads", "twitter", "reddit", "instagram", "all"]).default("all"),
         status: z.string().optional().describe("Optional status filter such as draft, scheduled, approved, posted, or failed."),
       },
     },
     async ({ platform, status }) => {
+      requireMcpScopes(auth, "posts.read");
       const posts = platform === "all"
-        ? await allSocialPosts(env)
-        : { [platform]: await listPostsForPlatform(env, platform) };
-      if (!status) return toolText(posts);
+        ? await allSocialPosts(env, auth.scopeId)
+        : { [platform]: await listPostsForPlatform(env, platform, auth.scopeId) };
+      if (!status) return toolText(presentSocialPostsByPlatform(posts));
       const normalizedStatus = status.trim().toLowerCase();
-      return toolText(Object.fromEntries(
+      return toolText(presentSocialPostsByPlatform(Object.fromEntries(
         Object.entries(posts).map(([key, values]) => [
           key,
           values.filter((post) => String(post.status ?? "").toLowerCase() === normalizedStatus),
         ]),
-      ));
+      )));
     },
   );
 
@@ -755,15 +888,17 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       title: "Find next free social slot",
       description: "Find the next available social posting day across Threads, Twitter/X, Reddit, and Instagram.",
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
+      _meta: OAUTH_TOOL_META,
       inputSchema: {
         start_date: z.string().optional().describe("Optional YYYY-MM-DD or ISO date to start searching from."),
         preferred_time: z.string().default("09:00").describe("Preferred local HH:mm time."),
         timezone_offset: z.string().default(KL_OFFSET).describe("Timezone offset for scheduled_at, default +08:00."),
       },
     },
-    async ({ start_date, preferred_time, timezone_offset }) => toolText(
-      await findNextFreeSlot(env, start_date, preferred_time, timezone_offset),
-    ),
+    async ({ start_date, preferred_time, timezone_offset }) => {
+      requireMcpScopes(auth, "posts.read");
+      return toolText(await findNextFreeSlot(env, auth.scopeId, start_date, preferred_time, timezone_offset));
+    },
   );
 
   server.registerTool(
@@ -772,6 +907,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       title: "Create social post",
       description: "Create a queued Oilor Studio social post. If autoschedule is true, the server selects the next free cross-platform slot. This only saves or schedules inside the dashboard; it does not publish externally.",
       annotations: PLANNING_TOOL_ANNOTATIONS,
+      _meta: OAUTH_TOOL_META,
       inputSchema: {
         platform: z.enum(SOCIAL_PLATFORMS),
         content: z.string().optional(),
@@ -785,8 +921,9 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       },
     },
     async (input) => {
+      requireMcpScopes(auth, "posts.write");
       const scheduledAt = input.autoschedule
-        ? (await findNextFreeSlot(env)).scheduled_at
+        ? (await findNextFreeSlot(env, auth.scopeId)).scheduled_at
         : input.scheduled_at;
       const post = await readJsonFromHandler<Record<string, unknown>>(
         createSocialPost(
@@ -796,12 +933,16 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
             ...input,
             scheduled_at: scheduledAt,
           }),
+          auth.scopeId,
         ),
       );
       const plannerItem = scheduledAt
-        ? await createLinkedPlannerItem(env, requestUrl, post, scheduledAt)
+        ? await createLinkedPlannerItem(env, requestUrl, post, scheduledAt, auth.scopeId)
         : null;
-      return toolText({ post, planner_item: plannerItem });
+      return toolText({
+        post: presentSocialPost(post, input.platform),
+        planner_item: presentPlannerItem(plannerItem),
+      });
     },
   );
 
@@ -811,6 +952,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       title: "Schedule social post",
       description: "Schedule an existing social post and sync the linked dashboard planner item. This only schedules inside the dashboard; it does not publish externally.",
       annotations: PLANNING_TOOL_ANNOTATIONS,
+      _meta: OAUTH_TOOL_META,
       inputSchema: {
         post_id: z.number().int().positive(),
         scheduled_at: z.string().optional(),
@@ -818,19 +960,25 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       },
     },
     async ({ post_id, scheduled_at, autoschedule }) => {
+      requireMcpScopes(auth, "posts.write");
       const scheduledAt = autoschedule
-        ? (await findNextFreeSlot(env)).scheduled_at
+        ? (await findNextFreeSlot(env, auth.scopeId)).scheduled_at
         : scheduled_at;
       if (!scheduledAt) throw new Error("scheduled_at is required unless autoschedule is true.");
-      const postUpdate = await readJsonFromHandler<Record<string, unknown>>(
+      await readJsonFromHandler<Record<string, unknown>>(
         updateSocialPost(
           env,
           String(post_id),
           jsonRequest(requestUrl, { scheduled_at: scheduledAt, status: "scheduled" }),
+          auth.scopeId,
         ),
       );
-      const plannerItem = await syncPlannerSchedule(env, requestUrl, post_id, scheduledAt);
-      return toolText({ post: { id: post_id, ...postUpdate }, planner_item: plannerItem });
+      const plannerItem = await syncPlannerSchedule(env, requestUrl, post_id, scheduledAt, "approved", auth.scopeId);
+      const post = await getPostById(env, post_id, auth.scopeId);
+      return toolText({
+        post: presentSocialPost(post),
+        planner_item: presentPlannerItem(plannerItem),
+      });
     },
   );
 
@@ -840,26 +988,47 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
       title: "Update social post",
       description: "Update editable fields on an existing social post. Planner schedule is synced when scheduled_at is supplied. This only updates the dashboard; it does not publish externally.",
       annotations: PLANNING_TOOL_ANNOTATIONS,
-      inputSchema: {
-        post_id: z.number().int().positive(),
-        content: z.string().optional(),
-        scheduled_at: z.string().nullable().optional(),
-        status: z.string().optional(),
-        image_url: z.union([z.string(), z.array(z.string()), z.null()]).optional(),
-        title: z.string().nullable().optional(),
-        subreddit: z.string().nullable().optional(),
-        account_id: z.number().int().positive().nullable().optional(),
-        reply_to_id: z.string().nullable().optional(),
-      },
+      _meta: OAUTH_TOOL_META,
+      inputSchema: SOCIAL_POST_UPDATE_INPUT_SCHEMA,
     },
     async ({ post_id, ...changes }) => {
-      const result = await readJsonFromHandler<Record<string, unknown>>(
-        updateSocialPost(env, String(post_id), jsonRequest(requestUrl, changes)),
+      requireMcpScopes(auth, "posts.write");
+      await readJsonFromHandler<Record<string, unknown>>(
+        updateSocialPost(env, String(post_id), jsonRequest(requestUrl, changes), auth.scopeId),
       );
       const plannerItem = typeof changes.scheduled_at === "string"
-        ? await syncPlannerSchedule(env, requestUrl, post_id, changes.scheduled_at, changes.status ?? "approved")
+        ? await syncPlannerSchedule(env, requestUrl, post_id, changes.scheduled_at, changes.status ?? "approved", auth.scopeId)
         : null;
-      return toolText({ post: { id: post_id, ...result }, planner_item: plannerItem });
+      const post = await getPostById(env, post_id, auth.scopeId);
+      return toolText({
+        post: presentSocialPost(post),
+        planner_item: presentPlannerItem(plannerItem),
+      });
+    },
+  );
+
+  server.registerTool(
+    "edit_social_post",
+    {
+      title: "Edit social post",
+      description: "Alias for update_social_post. Edit dashboard fields on an existing social post; this does not publish externally.",
+      annotations: PLANNING_TOOL_ANNOTATIONS,
+      _meta: OAUTH_TOOL_META,
+      inputSchema: SOCIAL_POST_UPDATE_INPUT_SCHEMA,
+    },
+    async ({ post_id, ...changes }) => {
+      requireMcpScopes(auth, "posts.write");
+      await readJsonFromHandler<Record<string, unknown>>(
+        updateSocialPost(env, String(post_id), jsonRequest(requestUrl, changes), auth.scopeId),
+      );
+      const plannerItem = typeof changes.scheduled_at === "string"
+        ? await syncPlannerSchedule(env, requestUrl, post_id, changes.scheduled_at, changes.status ?? "approved", auth.scopeId)
+        : null;
+      const post = await getPostById(env, post_id, auth.scopeId);
+      return toolText({
+        post: presentSocialPost(post),
+        planner_item: presentPlannerItem(plannerItem),
+      });
     },
   );
 
@@ -867,15 +1036,29 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
     "delete_social_post",
     {
       title: "Delete social post",
-      description: "Delete an Oilor Studio social post and its linked planner item.",
-      annotations: DESTRUCTIVE_TOOL_ANNOTATIONS,
+      description: "Delete an Oilor Studio social post and its linked planner item. If a Twitter/X post was already published, this can also delete the external public post after explicit confirmation.",
+      annotations: EXTERNAL_DESTRUCTIVE_TOOL_ANNOTATIONS,
+      _meta: OAUTH_TOOL_META,
       inputSchema: {
         post_id: z.number().int().positive(),
+        confirm_external_delete: z.boolean().default(false).describe("Set true only after the user explicitly confirms deleting an already-published external post."),
       },
     },
-    async ({ post_id }) => toolText(await readJsonFromHandler(
-      deleteSocialPost(env, String(post_id)),
-    )),
+    async ({ post_id, confirm_external_delete }) => {
+      requireMcpScopes(auth, "posts.write");
+      const post = await getPostById(env, post_id, auth.scopeId);
+      const platform = normalizePlatform(String(post.platform));
+      const externalId = String(post.external_id ?? "").trim();
+      if (platform === "twitter" && String(post.status ?? "") === "posted" && externalId) {
+        requireMcpScopes(auth, "posts.publish");
+      }
+      if (platform === "twitter" && String(post.status ?? "") === "posted" && externalId && !confirm_external_delete) {
+        throw new Error("This post is already published on Twitter/X. Ask the user to confirm external deletion, then call delete_social_post with confirm_external_delete=true.");
+      }
+      return toolText(await readJsonFromHandler(
+        deleteSocialPost(env, String(post_id), auth.scopeId),
+      ));
+    },
   );
 
   server.registerTool(
@@ -883,18 +1066,28 @@ function createBlogposterMcpServer(env: Env, requestUrl: string) {
     {
       title: "Publish social post",
       description: "Publish a queued Oilor Studio social post immediately through its platform publisher.",
-      annotations: DESTRUCTIVE_TOOL_ANNOTATIONS,
+      annotations: EXTERNAL_DESTRUCTIVE_TOOL_ANNOTATIONS,
+      _meta: OAUTH_TOOL_META,
       inputSchema: {
         post_id: z.number().int().positive(),
+        confirm_publish: z.boolean().default(false).describe("Set true only after the user explicitly confirms publishing this post to the external social platform."),
       },
     },
-    async ({ post_id }) => {
-      const post = await getPostById(env, post_id);
+    async ({ post_id, confirm_publish }) => {
+      requireMcpScopes(auth, "posts.publish");
+      const post = await getPostById(env, post_id, auth.scopeId);
       const platform = normalizePlatform(String(post.platform));
-      const result = await callDashboardInternalApi(
-        env,
-        `/api/internal/social/posts/${post_id}/publish`,
-        { method: "POST", body: JSON.stringify({}) },
+      if (!confirm_publish) {
+        throw new Error(`Publishing will post this ${platform} content to the external social platform. Ask the user to confirm, then call publish_social_post with confirm_publish=true.`);
+      }
+      const result = await readJsonFromHandler(
+        platform === "threads"
+          ? publishThreadsPost(env, String(post_id), auth.scopeId)
+          : platform === "twitter"
+          ? publishTwitterPost(env, String(post_id), auth.scopeId)
+          : platform === "reddit"
+          ? publishRedditPost(env, String(post_id), auth.scopeId, auth.userId)
+          : publishExtraSocialPost(env, String(post_id), auth.scopeId, auth.userId),
       );
       return toolText({ post_id, platform, result });
     },
@@ -909,9 +1102,19 @@ export async function handleMcpRequest(
   ctx: ExecutionContext,
 ): Promise<Response> {
   const url = new URL(request.url);
-  if (url.pathname !== "/mcp") {
+  const oauthResponse = await handleChatGptOAuthRequest(request, env);
+  if (oauthResponse) {
+    return oauthResponse;
+  }
+
+  const isMcpEndpoint = url.pathname === "/mcp" || url.pathname === "/mcp/" || url.pathname === "/api/mcp" || url.pathname === "/api/mcp/";
+  if (!isMcpEndpoint) {
     return new Response("Not found", { status: 404 });
   }
+
+  const normalizedUrl = new URL(request.url);
+  normalizedUrl.pathname = "/mcp";
+  const handlerRequest = url.pathname === "/mcp" ? request : new Request(normalizedUrl.toString(), request);
 
   if (request.method === "OPTIONS") {
     return new Response(null, {
@@ -924,13 +1127,13 @@ export async function handleMcpRequest(
     });
   }
 
-  const unauthorized = await requireMcpAuth(request, env);
-  if (unauthorized) return unauthorized;
+  const auth = await resolveMcpAuthContext(handlerRequest, env);
+  if (auth instanceof Response) return auth;
 
-  const handler = createMcpHandler(createBlogposterMcpServer(env, request.url), {
+  const handler = createMcpHandler(createBlogposterMcpServer(env, request.url, auth), {
     route: "/mcp",
   });
-  const response = await handler(request, env, ctx);
+  const response = await handler(handlerRequest, env, ctx);
   const headers = new Headers(response.headers);
   headers.set("Access-Control-Allow-Origin", "*");
   headers.set("Access-Control-Allow-Headers", "Authorization, Content-Type, Mcp-Session-Id, MCP-Protocol-Version");

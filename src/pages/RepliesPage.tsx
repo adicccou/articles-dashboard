@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import { ArrowPathIcon, ChevronDownIcon, ChevronUpIcon } from "@heroicons/react/24/solid";
 import type { IconType } from "react-icons";
-import { SiReddit, SiThreads, SiX } from "react-icons/si";
+import { FaFacebookF, FaLinkedinIn } from "react-icons/fa6";
+import { SiInstagram, SiReddit, SiThreads, SiX, SiYoutube } from "react-icons/si";
 import { api } from "../lib/api";
 import { ModalCloseButton } from "../components/ModalCloseButton";
-import type { SocialComment, StudioAccount } from "../lib/types";
+import type { RedditAccount, SocialAccount, SocialComment } from "../lib/types";
 import { formatDisplayDateTime } from "../lib/datetime";
 import { getDisplayPostImageUrls, isVideoMediaUrl } from "../lib/socialPostMedia";
 import { normalizeDashboardMediaUrl } from "../lib/mediaUrl";
 import "../styles/replies-page.css";
 
-type Platform = "reddit" | "twitter" | "threads";
+type Platform = SocialAccount["platform"];
+type CommentPlatform = SocialComment["platform"];
+type ReplyAccount = Pick<SocialAccount, "id" | "platform" | "username" | "status" | "tags">;
 type ReplyFilter = "all" | "new" | "replied";
 type ReplyThread = {
   key: string;
@@ -28,7 +31,7 @@ const REPLIES_PLATFORM_STORAGE_KEY = "dashboard:replies-platform";
 const REPLIES_REQUEST_TIMEOUT_MS = 20000;
 const REPLIES_COMMENT_LIMIT = 100;
 const REPLIES_THREADS_PER_PAGE = 10;
-const REPLY_LIMITS: Record<Platform, number> = {
+const REPLY_LIMITS: Record<CommentPlatform, number> = {
   reddit: 1000,
   twitter: 280,
   threads: 500,
@@ -37,12 +40,50 @@ const PLATFORMS: Array<{ id: Platform; label: string; Icon: IconType }> = [
   { id: "reddit", label: "Reddit", Icon: SiReddit },
   { id: "twitter", label: "Twitter", Icon: SiX },
   { id: "threads", label: "Threads", Icon: SiThreads },
+  { id: "facebook", label: "Facebook", Icon: FaFacebookF },
+  { id: "linkedin", label: "LinkedIn", Icon: FaLinkedinIn },
+  { id: "instagram", label: "Instagram", Icon: SiInstagram },
+  { id: "youtube", label: "YouTube", Icon: SiYoutube },
 ];
+
+const COMMENT_PLATFORMS = new Set<Platform>(["reddit", "twitter", "threads"]);
 
 function readStoredPlatform(): Platform {
   if (typeof window === "undefined") return "threads";
   const stored = window.localStorage.getItem(REPLIES_PLATFORM_STORAGE_KEY);
   return PLATFORMS.some((platform) => platform.id === stored) ? (stored as Platform) : "threads";
+}
+
+function isCommentPlatform(value: Platform): value is CommentPlatform {
+  return COMMENT_PLATFORMS.has(value);
+}
+
+function accountLabel(account: ReplyAccount): string {
+  const username = account.username ? `@${account.username}` : `Account ${account.id}`;
+  const tags = account.tags?.length ? ` (${account.tags.join(", ")})` : "";
+  return `${username}${tags}`;
+}
+
+function normalizeRedditAccounts(accounts: RedditAccount[]): ReplyAccount[] {
+  return accounts.map((account) => ({
+    id: account.id,
+    platform: "reddit",
+    username: account.name,
+    status: account.status,
+    tags: account.tags,
+  }));
+}
+
+function uniqueAccounts(accounts: ReplyAccount[]): ReplyAccount[] {
+  const seen = new Set<string>();
+  const result: ReplyAccount[] = [];
+  for (const account of accounts) {
+    const key = `${account.platform}:${account.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(account);
+  }
+  return result;
 }
 
 function getCommentAuthor(comment: SocialComment): string {
@@ -125,11 +166,11 @@ function buildDiscussionTree(comments: SocialComment[]): DiscussionNode[] {
   return sortDiscussionNodes(roots);
 }
 
-function attachmentSupported(platform: Platform): boolean {
+function attachmentSupported(platform: CommentPlatform): boolean {
   return platform === "threads";
 }
 
-function isActiveConfigAccount(account: StudioAccount): boolean {
+function isActiveConfigAccount(account: ReplyAccount): boolean {
   return account.status === "active";
 }
 
@@ -153,8 +194,9 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 
 export function RepliesPage() {
   const [platform, setPlatform] = useState<Platform>(readStoredPlatform);
-  const [configuredAccounts, setConfiguredAccounts] = useState<StudioAccount[]>([]);
-  const [commentsByPlatform, setCommentsByPlatform] = useState<Record<Platform, SocialComment[]>>({
+  const [configuredAccounts, setConfiguredAccounts] = useState<ReplyAccount[]>([]);
+  const [selectedAccountByPlatform, setSelectedAccountByPlatform] = useState<Record<string, string>>({});
+  const [commentsByPlatform, setCommentsByPlatform] = useState<Record<CommentPlatform, SocialComment[]>>({
     reddit: [],
     twitter: [],
     threads: [],
@@ -176,11 +218,25 @@ export function RepliesPage() {
   const [collapsedThreads, setCollapsedThreads] = useState<Record<string, boolean>>({});
   const replyRequestIdRef = useRef(0);
 
-  async function load() {
+  async function load(accountSelection = selectedAccountByPlatform) {
     try {
       setError(null);
-      const loadedAccounts = await withTimeout(api.listStudioAccounts(), REPLIES_REQUEST_TIMEOUT_MS, "Config accounts");
-      const activeAccounts = Array.isArray(loadedAccounts) ? loadedAccounts.filter(isActiveConfigAccount) : [];
+      const [twitterAccounts, threadsAccounts, redditAccounts, socialAccounts] = await withTimeout(
+        Promise.all([
+          api.listTwitterAccounts().catch(() => []),
+          api.listThreadsAccounts().catch(() => []),
+          api.listRedditAccounts().catch(() => []),
+          api.listSocialAccounts().catch(() => []),
+        ]),
+        REPLIES_REQUEST_TIMEOUT_MS,
+        "Config accounts",
+      );
+      const activeAccounts = uniqueAccounts([
+        ...twitterAccounts,
+        ...threadsAccounts,
+        ...normalizeRedditAccounts(redditAccounts),
+        ...socialAccounts,
+      ]).filter(isActiveConfigAccount);
       const nextVisiblePlatforms = PLATFORMS.filter(({ id }) => activeAccounts.some((account) => account.platform === id));
       setConfiguredAccounts(activeAccounts);
 
@@ -197,14 +253,26 @@ export function RepliesPage() {
       if (nextPlatform !== platform) {
         setPlatform(nextPlatform);
       }
+      const commentPlatforms = nextVisiblePlatforms.filter((item): item is { id: CommentPlatform; label: string; Icon: IconType } => isCommentPlatform(item.id));
       const results = await Promise.allSettled(
-        nextVisiblePlatforms.map(async ({ id }) => [
-          id,
-          await withTimeout(api.listSocialComments(id, undefined, REPLIES_COMMENT_LIMIT), REPLIES_REQUEST_TIMEOUT_MS, `${id} comments`),
-        ] as const),
+        commentPlatforms.map(async ({ id }) => {
+          const selectedAccountId = Number(accountSelection[id] || 0) || undefined;
+          const platformAccounts = activeAccounts.filter((account) => account.platform === id);
+          const accountIds = selectedAccountId ? [selectedAccountId] : platformAccounts.map((account) => account.id);
+          const responses = await Promise.all(
+            (accountIds.length ? accountIds : [undefined]).map((accountId) =>
+              withTimeout(
+                api.listSocialComments(id, undefined, REPLIES_COMMENT_LIMIT, accountId),
+                REPLIES_REQUEST_TIMEOUT_MS,
+                `${id} comments`,
+              ),
+            ),
+          );
+          return [id, responses.flatMap((response) => response.data ?? [])] as const;
+        }),
       );
 
-      const nextComments: Record<Platform, SocialComment[]> = {
+      const nextComments: Record<CommentPlatform, SocialComment[]> = {
         reddit: [],
         twitter: [],
         threads: [],
@@ -212,9 +280,9 @@ export function RepliesPage() {
       const failedPlatforms: string[] = [];
 
       results.forEach((result, index) => {
-        const { id, label } = nextVisiblePlatforms[index];
+        const { id, label } = commentPlatforms[index];
         if (result.status === "fulfilled") {
-          nextComments[id] = result.value[1].data ?? [];
+          nextComments[id] = result.value[1];
           return;
         }
         failedPlatforms.push(label);
@@ -254,7 +322,11 @@ export function RepliesPage() {
     () => PLATFORMS.filter(({ id }) => configuredAccounts.some((account) => account.platform === id)),
     [configuredAccounts],
   );
-  const comments = useMemo(() => commentsByPlatform[platform] ?? [], [commentsByPlatform, platform]);
+  const platformAccounts = useMemo(
+    () => configuredAccounts.filter((account) => account.platform === platform),
+    [configuredAccounts, platform],
+  );
+  const comments = useMemo(() => (isCommentPlatform(platform) ? commentsByPlatform[platform] ?? [] : []), [commentsByPlatform, platform]);
   const replyFilterCounts = useMemo(() => {
     return comments.reduce(
       (counts, comment) => {
@@ -288,7 +360,7 @@ export function RepliesPage() {
     const start = (currentReplyPage - 1) * REPLIES_THREADS_PER_PAGE;
     return visibleThreads.slice(start, start + REPLIES_THREADS_PER_PAGE);
   }, [currentReplyPage, visibleThreads]);
-  const composerPlatform = composerComment?.platform ?? platform;
+  const composerPlatform = composerComment?.platform ?? (isCommentPlatform(platform) ? platform : "threads");
   const composerReplyLimit = REPLY_LIMITS[composerPlatform];
   const composerContext = composerComment ? getCommentContext(composerComment) : null;
   const composerPlatformLabel = PLATFORMS.find((item) => item.id === composerPlatform)?.label ?? composerPlatform;
@@ -403,11 +475,11 @@ export function RepliesPage() {
         | null = null;
 
       if (composerComment.platform === "threads") {
-        publishedReply = await api.createThreadsReply(targetId, replyText, composerAttachmentUrl ?? undefined);
+        publishedReply = await api.createThreadsReply(targetId, replyText, composerAttachmentUrl ?? undefined, composerComment.account_id);
       } else if (composerComment.platform === "twitter") {
-        publishedReply = await api.createTwitterReply(targetId, replyText);
+        publishedReply = await api.createTwitterReply(targetId, replyText, composerComment.account_id);
       } else {
-        publishedReply = await api.createRedditReply(targetId, replyText);
+        publishedReply = await api.createRedditReply(targetId, replyText, composerComment.account_id);
       }
 
       const commentToUpdate = composerComment;
@@ -535,12 +607,37 @@ export function RepliesPage() {
                 >
                   <item.Icon className={`social-tab__icon social-tab__icon--${item.id}`} aria-hidden="true" />
                   {item.label}
-                  <span className="ui-tab__badge replies-tab__badge">{commentsByPlatform[item.id].length}</span>
+                  <span className="ui-tab__badge replies-tab__badge">{isCommentPlatform(item.id) ? commentsByPlatform[item.id].length : 0}</span>
                 </button>
               ))}
             </div>
 
             <div className="social-platform-actions">
+              <label className="replies-account-select">
+                <span>Account</span>
+                <select
+                  value={selectedAccountByPlatform[platform] ?? ""}
+                  onChange={(event) => {
+                    const nextSelection = {
+                      ...selectedAccountByPlatform,
+                      [platform]: event.target.value,
+                    };
+                    setSelectedAccountByPlatform(nextSelection);
+                    if (isCommentPlatform(platform)) {
+                      setRefreshing(true);
+                      void load(nextSelection);
+                    }
+                  }}
+                  disabled={platformAccounts.length === 0 || !isCommentPlatform(platform)}
+                >
+                  <option value="">All connected accounts</option>
+                  {platformAccounts.map((account) => (
+                    <option key={`${account.platform}:${account.id}`} value={String(account.id)}>
+                      {accountLabel(account)}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <button
                 type="button"
                 className="button-secondary dashboard-icon-button"
@@ -585,6 +682,11 @@ export function RepliesPage() {
             <div className="social-empty-card">
               <p className="social-empty-card__title">No social accounts in Config yet.</p>
               <p className="social-empty-card__copy">Connect an active social account in Config and replies will start showing here by platform.</p>
+            </div>
+          ) : !isCommentPlatform(platform) ? (
+            <div className="social-empty-card">
+              <p className="social-empty-card__title">Comments are not available for this platform yet.</p>
+              <p className="social-empty-card__copy">The connected accounts are shown here, but reply inbox support is currently available for Twitter/X, Threads, and Reddit.</p>
             </div>
           ) : comments.length === 0 ? (
             <div className="social-empty-card">

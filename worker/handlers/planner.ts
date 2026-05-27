@@ -117,7 +117,7 @@ export async function createPlannerItem(env: Env, request: Request, userId = DEF
       ? await env.DB.prepare(
         `
         INSERT INTO planner_items (
-          ${scoped.columns.length ? "user_id," : ""}
+          ${scoped.columns.length ? `${scoped.columns.join(", ")},` : ""}
           title,
           description,
           ${hasImageUrl ? "image_url," : ""}
@@ -163,7 +163,7 @@ export async function createPlannerItem(env: Env, request: Request, userId = DEF
       : await env.DB.prepare(
         `
         INSERT INTO planner_items (
-          ${scoped.columns.length ? "user_id," : ""}
+          ${scoped.columns.length ? `${scoped.columns.join(", ")},` : ""}
           title,
           description,
           ${hasImageUrl ? "image_url," : ""}

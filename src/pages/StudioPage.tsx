@@ -13,7 +13,7 @@ import { formatDisplayDateTime } from "../lib/datetime";
 import { normalizeDashboardMediaUrl } from "../lib/mediaUrl";
 import "../styles/studio-page.css";
 
-type Platform = "twitter" | "threads" | "reddit";
+type Platform = "twitter" | "threads" | "reddit" | "instagram" | "linkedin";
 
 type StudioPageProps = {
   onUpload: (file: File) => Promise<{ key: string; url: string }>;
@@ -34,7 +34,11 @@ const PLATFORMS: Array<{ id: Platform; label: string }> = [
   { id: "twitter", label: "Twitter/X" },
   { id: "threads", label: "Threads" },
   { id: "reddit", label: "Reddit" },
+  { id: "instagram", label: "Instagram" },
+  { id: "linkedin", label: "LinkedIn" },
 ];
+
+const REPLY_CAPABLE_PLATFORMS = new Set<Platform>(["twitter", "threads", "reddit"]);
 
 const DEFAULT_CAMPAIGN_RESULT_LIMIT = 10;
 
@@ -100,10 +104,6 @@ function getCampaignDisplayStatus(
 function formatScheduledLabel(value: string | null | undefined) {
   const formatted = formatDisplayDateTime(value);
   return formatted ? `Scheduled on ${formatted}` : "Scheduled";
-}
-
-function accountMatchesPlatforms(account: StudioAccount, platforms: Platform[]) {
-  return platforms.length === 0 || platforms.includes(account.platform);
 }
 
 function normalizeExternalUrl(value: unknown) {
@@ -302,14 +302,14 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     [availableAccounts],
   );
 
-  const campaignAccounts = useMemo(
-    () => availableAccounts.filter((account) => accountMatchesPlatforms(account, campaignForm.platforms)),
-    [availableAccounts, campaignForm.platforms],
-  );
-
   const accountLabelByRef = useMemo(
     () => new Map(summary.accounts.map((account) => [account.ref, account.label])),
     [summary.accounts],
+  );
+
+  const selectedCampaignAccount = useMemo(
+    () => availableAccounts.find((account) => account.ref === campaignForm.account_refs[0]) ?? null,
+    [availableAccounts, campaignForm.account_refs],
   );
 
   const campaignResultsById = useMemo(() => {
@@ -475,6 +475,10 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     }
     if (campaignForm.account_refs.length === 0) {
       setError("Select a connected account.");
+      return;
+    }
+    if (campaignForm.campaign_type === "reply" && campaignForm.platforms.some((platform) => !REPLY_CAPABLE_PLATFORMS.has(platform))) {
+      setError("Reply campaigns are available for Twitter/X, Threads, and Reddit only.");
       return;
     }
     if (!campaignForm.instructions.trim()) {
@@ -1439,57 +1443,32 @@ export function StudioPage({ onUpload }: StudioPageProps) {
                   key={mode}
                   type="button"
                   className={`studio-choice ${campaignForm.campaign_type === mode ? "studio-choice--active" : ""}`}
+                  disabled={mode === "reply" && selectedCampaignAccount ? !REPLY_CAPABLE_PLATFORMS.has(selectedCampaignAccount.platform) : false}
                   onClick={() => setCampaignForm((current) => ({ ...current, campaign_type: mode }))}
                 >
                   {mode === "post" ? "Post" : "Reply"}
                 </button>
               ))}
             </div>
-            {availablePlatforms.length > 0 ? (
-              <>
-                <div className="studio-check-grid">
-                  {availablePlatforms.map((platform) => (
-                    <label className="studio-check" key={platform.id}>
-                      <input
-                        type="radio"
-                        name="campaign-platform"
-                        checked={campaignForm.platforms[0] === platform.id}
-                        onChange={() => setCampaignForm((current) => {
-                          const platforms: Platform[] = [platform.id];
-                          const matchingAccounts = availableAccounts.filter((item) => item.platform === platform.id);
-                          const nextSelectedRef = current.account_refs.find((ref) => matchingAccounts.some((item) => item.ref === ref))
-                            ?? matchingAccounts[0]?.ref
-                            ?? "";
-                          return {
-                            ...current,
-                            platforms,
-                            account_refs: nextSelectedRef ? [nextSelectedRef] : [],
-                          };
-                        })}
-                      />
-                      <span>{platform.label}</span>
-                    </label>
-                  ))}
-                </div>
-                <div className="studio-check-list">
-                  {campaignAccounts.length === 0 ? (
-                    <p className="studio-muted">No matching connected accounts in Config.</p>
-                  ) : campaignAccounts.map((account) => (
-                    <label className="studio-check" key={account.ref}>
-                      <input
-                        type="radio"
-                        name="campaign-account"
-                        checked={campaignForm.account_refs[0] === account.ref}
-                        onChange={() => setCampaignForm((current) => ({
-                          ...current,
-                          account_refs: [account.ref],
-                        }))}
-                      />
-                      <span>{account.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </>
+            {availableAccounts.length > 0 ? (
+              <div className="studio-check-grid" role="group" aria-label="Campaign account">
+                {availableAccounts.map((account) => (
+                  <label className="studio-check" key={account.ref}>
+                    <input
+                      type="radio"
+                      name="campaign-account"
+                      checked={campaignForm.account_refs[0] === account.ref}
+                      onChange={() => setCampaignForm((current) => ({
+                        ...current,
+                        campaign_type: REPLY_CAPABLE_PLATFORMS.has(account.platform) ? current.campaign_type : "post",
+                        account_refs: [account.ref],
+                        platforms: [account.platform],
+                      }))}
+                    />
+                    <span>{account.label}</span>
+                  </label>
+                ))}
+              </div>
             ) : (
               <p className="studio-muted">Social platform options come from Config. No active accounts are connected yet.</p>
             )}

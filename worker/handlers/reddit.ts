@@ -387,7 +387,7 @@ export async function createCampaign(env: Env, request: Request, userId = DEFAUL
     const scoped = await scopedInsertColumns(env, "reddit_campaigns", userId);
     const result = await env.DB.prepare(
       `INSERT INTO reddit_campaigns (
-        ${scoped.columns.length ? "user_id," : ""}
+        ${scoped.columns.length ? `${scoped.columns.join(", ")},` : ""}
         reddit_account_id,
         name,
         description,
@@ -632,10 +632,11 @@ export async function publishRedditPost(
   }
 }
 
-export async function listRedditComments(env: Env, postId?: string | null, limit?: string | null): Promise<Response> {
+export async function listRedditComments(env: Env, postId?: string | null, limit?: string | null, accountId?: string | null, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const requestedLimit = Math.max(1, Math.min(Number(limit || 100) || 100, 100));
-    const account = await getActiveRedditAccount(env);
+    const requestedAccountId = Number(accountId || 0) || undefined;
+    const account = await getActiveRedditAccount(env, requestedAccountId, userId);
     if (!account) return jsonResponse({ data: [] });
     const readyAccount = await ensureRedditAccessToken(env, account);
     if (!hasUsableRedditAccessToken(readyAccount)) {
@@ -645,13 +646,20 @@ export async function listRedditComments(env: Env, postId?: string | null, limit
       });
     }
 
-    const targets = postId
-      ? await env.DB.prepare(
-        "SELECT id, title, subreddit, external_id, account_id, image_url FROM social_posts WHERE id = ? AND platform = 'reddit' AND status = 'posted'",
-      ).bind(Number(postId)).all<{ id: number; title: string | null; subreddit: string | null; external_id: string | null; account_id: number | null; image_url: string | null }>()
-      : await env.DB.prepare(
-        "SELECT id, title, subreddit, external_id, account_id, image_url FROM social_posts WHERE platform = 'reddit' AND status = 'posted' ORDER BY posted_at DESC, updated_at DESC",
-      ).all<{ id: number; title: string | null; subreddit: string | null; external_id: string | null; account_id: number | null; image_url: string | null }>();
+    const filters = ["platform = 'reddit'", "status = 'posted'"];
+    const values: unknown[] = [];
+    if (postId) {
+      filters.unshift("id = ?");
+      values.unshift(Number(postId));
+    }
+    if (requestedAccountId) {
+      filters.push("account_id = ?");
+      values.push(requestedAccountId);
+    }
+    await appendScopedFilter(env, "social_posts", filters, values, userId);
+    const targets = await env.DB.prepare(
+      `SELECT id, title, subreddit, external_id, account_id, image_url FROM social_posts WHERE ${filters.join(" AND ")} ORDER BY posted_at DESC, updated_at DESC`,
+    ).bind(...values).all<{ id: number; title: string | null; subreddit: string | null; external_id: string | null; account_id: number | null; image_url: string | null }>();
     const targetRows = (targets.results ?? []).filter((row) => row.external_id?.trim());
 
     let effectiveTargets = targetRows;
@@ -690,6 +698,7 @@ export async function listRedditComments(env: Env, postId?: string | null, limit
             const ownerReply = findLatestOwnedRedditReply(comment, readyAccount.name.trim().toLowerCase());
             return {
             platform: "reddit",
+            account_id: requestedAccountId ?? target.account_id ?? readyAccount.id,
             post_id: target.id,
             post_external_id: target.external_id,
             post_title: target.title,
@@ -786,7 +795,7 @@ export async function listRedditSubscribedSubreddits(
   }
 }
 
-export async function searchRedditPosts(env: Env, url: URL): Promise<Response> {
+export async function searchRedditPosts(env: Env, url: URL, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const rawQuery = url.searchParams.get("q")?.trim();
     const subreddit = url.searchParams.get("subreddit")?.trim().replace(/^r\//i, "") || "";
@@ -794,7 +803,7 @@ export async function searchRedditPosts(env: Env, url: URL): Promise<Response> {
     if (!subreddit) return errorResponse("Subreddit is required", 400);
     const limit = Math.max(1, Math.min(Number(url.searchParams.get("limit") || 10) || 10, 25));
     const requestedAccountId = Number(url.searchParams.get("account_id") || 0) || undefined;
-    const account = await getActiveRedditAccount(env, requestedAccountId);
+    const account = await getActiveRedditAccount(env, requestedAccountId, userId);
     if (!account) return errorResponse("No active Reddit account is connected.", 400);
     const readyAccount = await ensureRedditAccessToken(env, account);
     const results = await searchRedditSubmissions(readyAccount, subreddit, rawQuery, limit);
@@ -816,7 +825,7 @@ export async function searchRedditPosts(env: Env, url: URL): Promise<Response> {
   }
 }
 
-export async function createRedditReply(env: Env, request: Request): Promise<Response> {
+export async function createRedditReply(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const payload = await parseJson<{ reply_to_id?: string; text?: string; account_id?: number | null }>(request);
     const replyToId = payload.reply_to_id?.trim() || "";
@@ -824,7 +833,7 @@ export async function createRedditReply(env: Env, request: Request): Promise<Res
     if (!replyToId || !text) {
       return errorResponse("reply_to_id and text are required", 400);
     }
-    const account = await getActiveRedditAccount(env, payload.account_id ? Number(payload.account_id) : undefined);
+    const account = await getActiveRedditAccount(env, payload.account_id ? Number(payload.account_id) : undefined, userId);
     if (!account) return errorResponse("No active Reddit account is connected.", 400);
     const readyAccount = await ensureRedditAccessToken(env, account);
     const externalId = await submitRedditReply(readyAccount, replyToId, text);

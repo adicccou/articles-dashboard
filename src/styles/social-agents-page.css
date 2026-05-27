@@ -97,6 +97,18 @@
   color: #0a66c2;
 }
 
+.social-tab__icon--facebook {
+  color: #1877f2;
+}
+
+.social-tab__icon--instagram {
+  color: #c13584;
+}
+
+.social-tab__icon--youtube {
+  color: #ff0000;
+}
+
 .social-tab__badge {
   font-size: 0.62rem;
   font-weight: 700;
