@@ -104,6 +104,7 @@ function statusTone(status: SocialPost["status"] | SocialAccount["status"]) {
       return "success";
     case "scheduled":
     case "approved":
+    case "publishing":
       return "info";
     case "failed":
     case "inactive":

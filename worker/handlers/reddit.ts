@@ -3,7 +3,7 @@ import type { RedditCampaign } from "../../src/lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 import { getSocialPostSchemaCapabilities } from "./twitter";
 import { DEFAULT_USER_ID, appendScopedFilter, scopedInsertColumns } from "../lib/ownership";
-import { markLinkedPlannerItemsPublished, markSocialPostsFailed, socialPublishErrorMessage } from "../lib/social-publish";
+import { claimSocialPostForPublishing, markLinkedPlannerItemsPublished, markSocialPostsFailed, socialPublishErrorMessage } from "../lib/social-publish";
 
 interface CreateCampaignPayload {
   name: string;
@@ -588,6 +588,15 @@ export async function publishRedditPost(
     const account = await getActiveRedditAccount(env, post.account_id ?? undefined, userId);
     if (!account) return errorResponse("No active Reddit account is connected.", 400);
     const readyAccount = await ensureRedditAccessToken(env, account);
+
+    const now = new Date().toISOString();
+    const claim = await claimSocialPostForPublishing(env, filters, values, now);
+    if (claim.status === "already_posted") {
+      return jsonResponse({ success: true, external_id: claim.externalId, already_posted: true, account_id: claim.accountId });
+    }
+    if (claim.status === "in_progress") return errorResponse("Post is already publishing.", 409);
+    if (claim.status !== "claimed") return errorResponse(claim.message, 400);
+
     const externalId = isReply
       ? await submitRedditReply(readyAccount, post.reply_to_id?.trim() || "", post.content?.trim() || "")
       : (await submitRedditSelfPost(env, {
@@ -596,7 +605,6 @@ export async function publishRedditPost(
         text: post.content?.trim() || "",
         accountId: readyAccount.id,
       })).externalId;
-    const now = new Date().toISOString();
     await env.DB.prepare(
       `UPDATE social_posts
        SET status = 'posted', posted_at = ?, external_id = ?, account_id = ?, updated_at = ?${capabilities.hasLastError ? ", last_error = NULL" : ""}

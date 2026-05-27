@@ -1,7 +1,7 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
-import { markLinkedPlannerItemsPublished, markSocialPostFailed, socialPostsHaveLastError, socialPublishErrorMessage } from "../lib/social-publish";
+import { claimSocialPostForPublishing, markLinkedPlannerItemsPublished, markSocialPostFailed, socialPostsHaveLastError, socialPublishErrorMessage } from "../lib/social-publish";
 import { listSocialPosts, createSocialPost, updateSocialPost, deleteSocialPost, getSocialPostSchemaCapabilities } from "./twitter";
 import { normalizeAccountTags, readAccountTags, upsertAccountTags } from "../lib/account-tags";
 
@@ -648,6 +648,13 @@ export async function publishThreadsPost(env: Env, postId: string, userId = DEFA
     }
     if (post.status === "posted") return errorResponse("Post is already published", 400);
     const now = new Date().toISOString();
+    const claim = await claimSocialPostForPublishing(env, filters, values, now);
+    if (claim.status === "already_posted") {
+      return jsonResponse({ success: true, external_id: claim.externalId, already_posted: true });
+    }
+    if (claim.status === "in_progress") return errorResponse("Post is already publishing.", 409);
+    if (claim.status !== "claimed") return errorResponse(claim.message, 400);
+
     const published = await publishThreadsText(env, {
       text: post.content.trim(),
       imageUrls: selectThreadsImageUrls(post.image_url),

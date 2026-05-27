@@ -1,7 +1,7 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
-import { markLinkedPlannerItemsPublished, markSocialPostsFailed, socialPostsHaveLastError, socialPublishErrorMessage } from "../lib/social-publish";
+import { claimSocialPostForPublishing, markLinkedPlannerItemsPublished, markSocialPostsFailed, socialPostsHaveLastError, socialPublishErrorMessage } from "../lib/social-publish";
 import { normalizeAccountTags, readAccountTags, upsertAccountTags } from "../lib/account-tags";
 
 const IMAGE_URL_ALIASES = ["image_url", "imageUrl", "imageURL", "image", "photo", "picture", "media", "media_url", "mediaUrl", "media_urls", "mediaUrls", "url"] as const;
@@ -1245,6 +1245,15 @@ export async function publishTwitterPost(env: Env, postId: string, userId = DEFA
     if (post.status === "posted") return errorResponse("Post is already published", 400);
     const credentials = await getTwitterCredentials(env, post.account_id ?? undefined, userId);
     if (!credentials) return errorResponse("No active Twitter/X account with API credentials was found.", 400);
+
+    const now = new Date().toISOString();
+    const claim = await claimSocialPostForPublishing(env, filters, values, now);
+    if (claim.status === "already_posted") {
+      return jsonResponse({ success: true, external_id: claim.externalId, already_posted: true });
+    }
+    if (claim.status === "in_progress") return errorResponse("Post is already publishing.", 409);
+    if (claim.status !== "claimed") return errorResponse(claim.message, 400);
+
     const mediaIds = await uploadTwitterPostMedia(credentials, imageUrls);
 
     const endpoint = "https://api.twitter.com/2/tweets";
@@ -1272,7 +1281,6 @@ export async function publishTwitterPost(env: Env, postId: string, userId = DEFA
     }
     publishedExternalId = payload.data.id;
 
-    const now = new Date().toISOString();
     await env.DB.prepare(
       `UPDATE social_posts
        SET status = 'posted', posted_at = ?, external_id = ?, updated_at = ?${capabilities.hasLastError ? ", last_error = NULL" : ""}

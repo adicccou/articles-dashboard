@@ -719,7 +719,7 @@ export type SocialPost = {
   reply_to_id?: string | null;
   content: string;
   image_url?: string | null;
-  status: "draft" | "approved" | "scheduled" | "posted" | "failed";
+  status: "draft" | "approved" | "scheduled" | "publishing" | "posted" | "failed";
   scheduled_at: string | null;
   posted_at: string | null;
   external_id: string | null;

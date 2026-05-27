@@ -1,7 +1,7 @@
 import type { Env } from "../lib/types";
 import { errorResponse, jsonResponse, parseJson } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
-import { markLinkedPlannerItemsPublished, markSocialPostsFailed, socialPostsHaveLastError, socialPublishErrorMessage } from "../lib/social-publish";
+import { claimSocialPostForPublishing, markLinkedPlannerItemsPublished, markSocialPostsFailed, socialPostsHaveLastError, socialPublishErrorMessage } from "../lib/social-publish";
 import { normalizeAccountTags, readAccountTags, upsertAccountTags } from "../lib/account-tags";
 
 type ExtraSocialPlatform = "facebook" | "linkedin" | "instagram" | "youtube";
@@ -2134,6 +2134,14 @@ export async function publishExtraSocialPost(
     const account = await resolveExtraAccountForPost(env, post, scopeId);
     if (!account) return errorResponse(`No active ${post.platform} account is connected.`, 400);
 
+    const now = new Date().toISOString();
+    const claim = await claimSocialPostForPublishing(env, filters, values, now);
+    if (claim.status === "already_posted") {
+      return jsonResponse({ success: true, external_id: claim.externalId, already_posted: true, account_id: claim.accountId });
+    }
+    if (claim.status === "in_progress") return errorResponse("Post is already publishing.", 409);
+    if (claim.status !== "claimed") return errorResponse(claim.message, 400);
+
     let externalId = "";
     if (post.platform === "instagram") {
       externalId = await publishInstagramOfficial(env, post, account.id, scopeId);
@@ -2146,7 +2154,6 @@ export async function publishExtraSocialPost(
     }
     publishedExternalId = externalId;
 
-    const now = new Date().toISOString();
     const lastErrorAssignment = await socialPostsHaveLastError(env) ? ", last_error = NULL" : "";
     await env.DB.prepare(
       `UPDATE social_posts

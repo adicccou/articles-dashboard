@@ -575,7 +575,7 @@ export function PlannerPage() {
         accounts.some((account) => String(account.id) === id),
       );
       selections[platform] = selectedIds.length > 0
-        ? selectedIds
+        ? selectedIds.slice(0, 1)
         : accounts[0]
         ? [String(accounts[0].id)]
         : [];
@@ -643,7 +643,7 @@ export function PlannerPage() {
           accounts.some((account) => String(account.id) === id),
         );
         const nextIds = validIds.length > 0
-          ? validIds
+          ? validIds.slice(0, 1)
           : accounts[0]
           ? [String(accounts[0].id)]
           : [];
@@ -832,18 +832,15 @@ export function PlannerPage() {
     const selectedIds = selectedPlannerAccountIds(state, platform);
     const selectedIdSet = new Set(selectedIds);
     const selectedAccounts = accounts.filter((account) => selectedIdSet.has(String(account.id)));
-    return selectedAccounts.length > 0 ? selectedAccounts : accounts.slice(0, 1);
+    return selectedAccounts.length > 0 ? selectedAccounts.slice(0, 1) : accounts.slice(0, 1);
   }
 
   function setPlatformAccountSelection(platform: SocialAccount["platform"], accountId: string, selected: boolean) {
+    if (!selected) return;
     setForm((current) => {
       const currentPlatforms = selectedPlannerPlatforms(current);
       const nextPlatforms = currentPlatforms.includes(platform) ? currentPlatforms : [...currentPlatforms, platform];
-      const currentIds = selectedPlannerAccountIds(current, platform);
-      const nextIds = selected
-        ? Array.from(new Set([...currentIds, accountId]))
-        : currentIds.filter((id) => id !== accountId);
-      if (nextIds.length === 0) return current;
+      const nextIds = [accountId];
       const accountIds = { ...current.account_ids, [platform]: nextIds };
       const primaryPlatform = nextPlatforms[0] ?? platform;
       return {
@@ -870,7 +867,7 @@ export function PlannerPage() {
       nextPlatforms.forEach((nextPlatform) => {
         const existingIds = selectedPlannerAccountIds(current, nextPlatform);
         accountIds[nextPlatform] = existingIds.length > 0
-          ? existingIds
+          ? existingIds.slice(0, 1)
           : defaultAccountIdsForPlatforms([nextPlatform])[nextPlatform] ?? [];
       });
       const primaryPlatform = nextPlatforms[0] ?? platform;
@@ -1902,7 +1899,7 @@ export function PlannerPage() {
                         <div className="scheduler-account-target" key={platform}>
                           <div className="scheduler-account-target__header">
                             <strong>{plannerPlatformLabel(platform)}</strong>
-                            <small>{selectedIds.length} selected</small>
+                            <small>{selectedIds.length > 0 ? "1 selected" : "Choose account"}</small>
                           </div>
                           {accounts.length > 0 ? (
                             <div className="scheduler-account-target__options">
@@ -1916,7 +1913,8 @@ export function PlannerPage() {
                                     title={plannerAccountLabel(account)}
                                   >
                                     <input
-                                      type="checkbox"
+                                      type="radio"
+                                      name={`scheduler-account-${platform}`}
                                       checked={checked}
                                       disabled={!canSelectModalPlatform}
                                       onChange={(event) => setPlatformAccountSelection(platform, accountId, event.target.checked)}

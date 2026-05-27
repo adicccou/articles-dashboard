@@ -22,6 +22,49 @@ export async function markLinkedPlannerItemsPublished(env: Env, socialPostId: nu
     .run();
 }
 
+export type SocialPostPublishClaim =
+  | { status: "claimed" }
+  | { status: "already_posted"; externalId: string; accountId: number | null }
+  | { status: "in_progress" }
+  | { status: "unavailable"; message: string };
+
+export async function claimSocialPostForPublishing(
+  env: Env,
+  filters: string[],
+  filterValues: unknown[],
+  updatedAt: string,
+): Promise<SocialPostPublishClaim> {
+  if (filters.length === 0) throw new Error("Refusing to claim all social posts without a WHERE clause.");
+
+  const claim = await env.DB.prepare(
+    `UPDATE social_posts
+     SET status = 'publishing', updated_at = ?
+     WHERE ${filters.join(" AND ")}
+       AND status NOT IN ('posted', 'publishing')`,
+  )
+    .bind(updatedAt, ...filterValues)
+    .run() as { meta?: { changes?: number } };
+
+  if (Number(claim.meta?.changes ?? 0) > 0) return { status: "claimed" };
+
+  const current = await env.DB.prepare(
+    `SELECT status, external_id, account_id
+     FROM social_posts
+     WHERE ${filters.join(" AND ")}
+     LIMIT 1`,
+  )
+    .bind(...filterValues)
+    .first<{ status: string; external_id: string | null; account_id: number | null }>();
+
+  if (!current) return { status: "unavailable", message: "Social post not found." };
+  if (current.status === "posted" && current.external_id?.trim()) {
+    return { status: "already_posted", externalId: current.external_id.trim(), accountId: current.account_id ?? null };
+  }
+  if (current.status === "posted") return { status: "unavailable", message: "Post is already published." };
+  if (current.status === "publishing") return { status: "in_progress" };
+  return { status: "unavailable", message: `Post is not publishable from status "${current.status}".` };
+}
+
 export async function markSocialPostsFailed(
   env: Env,
   filters: string[],
