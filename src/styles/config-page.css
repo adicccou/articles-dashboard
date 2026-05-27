@@ -242,19 +242,26 @@
 
 .config-account-platform {
   align-items: center;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  color: #0f172a;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  color: #020617;
   display: inline-flex;
-  height: 34px;
+  height: 42px;
   justify-content: center;
-  width: 34px;
+  width: 42px;
 }
 
 .config-account-platform svg {
-  height: 16px;
-  width: 16px;
+  display: block;
+  height: 22px;
+  width: 22px;
+}
+
+.config-account-platform svg path {
+  stroke: currentColor;
+  stroke-linejoin: round;
+  stroke-width: 0.55px;
 }
 
 .config-account-avatar {
