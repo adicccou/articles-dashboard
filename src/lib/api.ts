@@ -1,4 +1,4 @@
-import type { ArticleAssistPayload, ArticleCoverPayload, ArticleCoverResponse, ArticleInput, ArticleRecord, ArticleStylePayload, ArticleStyleResponse, AuthState, DashboardBootstrap, DashboardUser, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, RedditSubscribedSubreddit, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, Site, SocialAccount, SocialAccountInput, SocialComment, SocialPost, SocialReplySuggestion, StudioAccount, StudioApp, StudioCampaign, StudioCrawlerRun, StudioSignal, StudioStrategistPost, StudioSummary, ThreadsCampaignResult, ThreadsInsightsResponse, ThreadsMediaResponse, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorkersResponse, MlTradingAssetsResponse, MlTradingDiagnostics, MlTradingSettings } from "./types";
+import type { ArticleAssistPayload, ArticleCoverPayload, ArticleCoverResponse, ArticleInput, ArticleRecord, ArticleStylePayload, ArticleStyleResponse, AuthState, DashboardBootstrap, DashboardUser, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, RedditSubscribedSubreddit, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, Site, SocialAccount, SocialAccountInput, SocialComment, SocialPost, SocialReplySuggestion, StudioAccount, StudioApp, StudioCampaign, StudioCrawlerRun, StudioSignal, StudioStrategistPost, StudioSummary, ThreadsCampaignResult, ThreadsInsightsResponse, ThreadsMediaResponse, TwitterInsightsResponse, InstagramInsightsResponse, LinkedInInsightsResponse, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorkersResponse, MlTradingAssetsResponse, MlTradingDiagnostics, MlTradingSettings } from "./types";
 
 type SocialReplyPublishResponse = {
   success: boolean;
@@ -502,6 +502,24 @@ export const api = {
     request<{ success: boolean }>(`/api/social/twitter/accounts/${id}`, {
       method: "DELETE",
     }),
+  getTwitterInsights: (accountId?: number | null) => {
+    const params = new URLSearchParams();
+    if (accountId) params.set("account_id", String(accountId));
+    const query = params.toString();
+    return request<TwitterInsightsResponse>(`/api/social/twitter/insights${query ? `?${query}` : ""}`);
+  },
+  getInstagramInsights: (accountId?: number | null) => {
+    const params = new URLSearchParams();
+    if (accountId) params.set("account_id", String(accountId));
+    const query = params.toString();
+    return request<InstagramInsightsResponse>(`/api/social/instagram/insights${query ? `?${query}` : ""}`);
+  },
+  getLinkedInInsights: (accountId?: number | null) => {
+    const params = new URLSearchParams();
+    if (accountId) params.set("account_id", String(accountId));
+    const query = params.toString();
+    return request<LinkedInInsightsResponse>(`/api/social/linkedin/insights${query ? `?${query}` : ""}`);
+  },
   listSocialComments: (platform: "twitter" | "threads" | "reddit", postId?: number, limit?: number, accountId?: number) => {
     const params = new URLSearchParams({ platform });
     if (postId) params.set("post_id", String(postId));

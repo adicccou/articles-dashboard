@@ -136,6 +136,13 @@
   gap: 16px;
 }
 
+.stats-performance-panel {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+
 .stats-section__header {
   display: flex;
   justify-content: space-between;
@@ -154,7 +161,7 @@
 
 .stats-account-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 16px;
 }
 
@@ -164,7 +171,7 @@
   padding: 18px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: #fff;
+  background: #f8fafc;
 }
 
 .stats-account-card__header {
@@ -298,20 +305,52 @@
 }
 
 .stats-recent-post {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+  display: block;
   padding: 14px 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: #fff;
 }
 
+.stats-recent-post__main {
+  display: grid;
+  gap: 12px;
+}
+
+.stats-recent-post__topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .stats-recent-post p {
-  margin: 8px 0 0;
+  margin: 0;
   color: var(--accent);
   line-height: 1.45;
+}
+
+.stats-post-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stats-post-metrics span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.stats-post-metrics strong {
+  color: var(--accent);
+  font-size: 0.86rem;
 }
 
 .stats-post-status--scheduled {
@@ -358,8 +397,7 @@
 }
 
 @media (max-width: 1100px) {
-  .stats-grid,
-  .stats-account-grid {
+  .stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

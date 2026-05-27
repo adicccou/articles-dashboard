@@ -35,6 +35,8 @@ import {
   handleMetaDeauthorizeCallback,
   handleInstagramOAuthCallback,
   handleLinkedInOAuthCallback,
+  listInstagramPostInsights,
+  listLinkedInPostInsights,
   listExtraSocialAccounts,
   listInternalExtraSocialAccounts,
   proxySocialAccountAvatar,
@@ -71,6 +73,7 @@ import {
   handleTwitterOAuthCallback,
   getSocialPostSchemaCapabilities,
   listTwitterComments,
+  listTwitterPostInsights,
   searchTwitterPosts,
 } from "./handlers/twitter";
 import {
@@ -2055,6 +2058,12 @@ export default {
       return await handleInstagramOAuthCallback(env, url);
     }
 
+    if (url.pathname === "/api/social/instagram/insights" && request.method === "GET") {
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      return await listInstagramPostInsights(env, url, activeScopeId(user));
+    }
+
     if (url.pathname === "/api/meta/deauthorize" && request.method === "POST") {
       return await handleMetaDeauthorizeCallback(env, request);
     }
@@ -2071,6 +2080,12 @@ export default {
 
     if (url.pathname === "/api/linkedin/auth/callback" && request.method === "GET") {
       return await handleLinkedInOAuthCallback(env, url);
+    }
+
+    if (url.pathname === "/api/social/linkedin/insights" && request.method === "GET") {
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      return await listLinkedInPostInsights(env, url, activeScopeId(user));
     }
 
     if (url.pathname === "/api/social/accounts" && request.method === "POST") {
@@ -2142,6 +2157,12 @@ export default {
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[5];
       return await deleteTwitterAccount(env, id, activeScopeId(user));
+    }
+
+    if (url.pathname === "/api/social/twitter/insights" && request.method === "GET") {
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      return await listTwitterPostInsights(env, url, activeScopeId(user));
     }
 
     // Threads accounts

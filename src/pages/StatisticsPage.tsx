@@ -4,7 +4,7 @@ import type { IconType } from "react-icons";
 import { FaFacebookF, FaLinkedinIn } from "react-icons/fa6";
 import { SiInstagram, SiReddit, SiThreads, SiX, SiYoutube } from "react-icons/si";
 import { api } from "../lib/api";
-import type { RedditAccount, SocialAccount, SocialComment, SocialPost, ThreadsInsightsResponse } from "../lib/types";
+import type { InstagramInsightsResponse, LinkedInInsightsResponse, RedditAccount, SocialAccount, SocialComment, SocialPost, ThreadsInsightsResponse, TwitterInsightsResponse } from "../lib/types";
 import { formatDisplayDateTime } from "../lib/datetime";
 import "../styles/statistics-page.css";
 
@@ -25,15 +25,18 @@ type AccountStats = {
   lastPostAt: string | null;
 };
 type AccountInsights = {
-  status: ThreadsInsightsResponse["status"] | "not_supported" | "error";
+  status: ThreadsInsightsResponse["status"] | TwitterInsightsResponse["status"] | InstagramInsightsResponse["status"] | LinkedInInsightsResponse["status"] | "not_supported" | "error";
+  data: Array<ThreadsInsightsResponse["data"][number] | TwitterInsightsResponse["data"][number] | InstagramInsightsResponse["data"][number] | LinkedInInsightsResponse["data"][number]>;
   views: number | null;
   likes: number | null;
   shares: number | null;
+  replies: number | null;
   posts: number;
   synced: number;
   message?: string;
 };
 type PlatformSelection = "all" | Platform;
+type PostStatusTab = "posted" | "scheduled";
 
 const PLATFORMS: Platform[] = ["twitter", "threads", "reddit", "instagram", "linkedin", "facebook", "youtube"];
 const COMMENT_PLATFORMS = new Set<Platform>(["twitter", "threads", "reddit"]);
@@ -50,9 +53,11 @@ const platformIcons: Partial<Record<Platform, IconType>> = {
 };
 const EMPTY_INSIGHTS: AccountInsights = {
   status: "not_supported",
+  data: [],
   views: null,
   likes: null,
   shares: null,
+  replies: null,
   posts: 0,
   synced: 0,
 };
@@ -128,12 +133,14 @@ function latestDate(posts: SocialPost[]) {
   return new Date(Math.max(...timestamps)).toISOString();
 }
 
-function insightsFromResponse(response: ThreadsInsightsResponse): AccountInsights {
+function insightsFromResponse(response: ThreadsInsightsResponse | TwitterInsightsResponse | InstagramInsightsResponse | LinkedInInsightsResponse): AccountInsights {
   return {
     status: response.status,
+    data: response.data ?? [],
     views: response.totals.views,
     likes: response.totals.likes,
     shares: response.totals.shares,
+    replies: response.totals.replies ?? null,
     posts: response.totals.posts,
     synced: response.totals.synced,
     message: response.warning,
@@ -143,9 +150,11 @@ function insightsFromResponse(response: ThreadsInsightsResponse): AccountInsight
 function insightError(message: string): AccountInsights {
   return {
     status: "error",
+    data: [],
     views: null,
     likes: null,
     shares: null,
+    replies: null,
     posts: 0,
     synced: 0,
     message,
@@ -165,6 +174,17 @@ function insightCellClass(insights: AccountInsights) {
   return typeof insights.views === "number" || typeof insights.likes === "number" || typeof insights.shares === "number"
     ? ""
     : "stats-unavailable";
+}
+
+function formatPostInsightValue(value: number | null | undefined, fallback = "Not connected") {
+  if (typeof value === "number" && Number.isFinite(value)) return value.toLocaleString();
+  return fallback;
+}
+
+function postInsightFallback(post: SocialPost) {
+  if (post.platform !== "threads" && post.platform !== "twitter" && post.platform !== "instagram" && post.platform !== "linkedin") return "Not connected";
+  if (post.status !== "posted") return "No data";
+  return "No data";
 }
 
 function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
@@ -189,6 +209,7 @@ export function StatisticsPage() {
   const [insightsByAccount, setInsightsByAccount] = useState<Record<string, AccountInsights>>({});
   const [selectedPlatform, setSelectedPlatform] = useState<PlatformSelection>("all");
   const [selectedAccountKey, setSelectedAccountKey] = useState("all");
+  const [selectedPostStatus, setSelectedPostStatus] = useState<PostStatusTab>("posted");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -234,12 +255,19 @@ export function StatisticsPage() {
 
       const insightEntries = await Promise.all(
         activeAccounts
-          .filter((account) => account.platform === "threads")
+          .filter((account) => account.platform === "threads" || account.platform === "twitter" || account.platform === "instagram" || account.platform === "linkedin")
           .map(async (account) => {
-            const response = await api
-              .getThreadsInsights(account.id)
+            const response = await (
+              account.platform === "twitter"
+                ? api.getTwitterInsights(account.id)
+                : account.platform === "instagram"
+                ? api.getInstagramInsights(account.id)
+                : account.platform === "linkedin"
+                ? api.getLinkedInInsights(account.id)
+                : api.getThreadsInsights(account.id)
+            )
               .then(insightsFromResponse)
-              .catch((err) => insightError(err instanceof Error ? err.message : "Failed to load Threads insights"));
+              .catch((err) => insightError(err instanceof Error ? err.message : `Failed to load ${platformLabel(account.platform)} insights`));
             return [accountKey(account), response] as const;
           }),
       );
@@ -266,6 +294,7 @@ export function StatisticsPage() {
       const accountPosts = posts.filter((post) => postBelongsToAccount(post, account, platformAccounts));
       const accountComments = commentsByAccount[accountKey(account)] ?? [];
       const insights = insightsByAccount[accountKey(account)] ?? EMPTY_INSIGHTS;
+      const insightReplies = typeof insights.replies === "number" && Number.isFinite(insights.replies) ? insights.replies : 0;
       return {
         account,
         posts: accountPosts,
@@ -276,7 +305,7 @@ export function StatisticsPage() {
         scheduledPosts: accountPosts.filter((post) => post.status === "scheduled").length,
         draftPosts: accountPosts.filter((post) => post.status === "draft" || post.status === "approved").length,
         failedPosts: accountPosts.filter((post) => post.status === "failed").length,
-        commentsCount: accountComments.length,
+        commentsCount: accountComments.length || insightReplies,
         repliesSent: accountComments.filter((comment) => comment.reply_status === "replied" || comment.owner_reply_text).length,
         lastPostAt: latestDate(accountPosts),
       };
@@ -322,13 +351,58 @@ export function StatisticsPage() {
     replies: visibleStats.reduce((sum, item) => sum + item.repliesSent, 0),
   }), [visibleStats]);
 
-  const recentPosts = useMemo(() => {
+  const visiblePosts = useMemo(() => {
     const visiblePostIds = new Set(visibleStats.flatMap((item) => item.posts.map((post) => post.id)));
-    return posts
-      .filter((post) => visiblePostIds.has(post.id))
-      .sort((left, right) => new Date(right.posted_at || right.scheduled_at || right.updated_at || right.created_at).getTime() - new Date(left.posted_at || left.scheduled_at || left.updated_at || left.created_at).getTime())
-      .slice(0, 8);
+    return posts.filter((post) => visiblePostIds.has(post.id));
   }, [posts, visibleStats]);
+
+  const postStatusCounts = useMemo(() => ({
+    posted: visiblePosts.filter((post) => post.status === "posted").length,
+    scheduled: visiblePosts.filter((post) => post.status === "scheduled").length,
+  }), [visiblePosts]);
+
+  useEffect(() => {
+    if (selectedPostStatus === "posted" && postStatusCounts.posted === 0 && postStatusCounts.scheduled > 0) {
+      setSelectedPostStatus("scheduled");
+    }
+    if (selectedPostStatus === "scheduled" && postStatusCounts.scheduled === 0 && postStatusCounts.posted > 0) {
+      setSelectedPostStatus("posted");
+    }
+  }, [postStatusCounts, selectedPostStatus]);
+
+  const recentPosts = useMemo(() => {
+    return visiblePosts
+      .filter((post) => post.status === selectedPostStatus)
+      .sort((left, right) => new Date(right.posted_at || right.scheduled_at || right.updated_at || right.created_at).getTime() - new Date(left.posted_at || left.scheduled_at || left.updated_at || left.created_at).getTime())
+      .slice(0, 20);
+  }, [selectedPostStatus, visiblePosts]);
+
+  const postInsightsById = useMemo(() => {
+    const values = new Map<number, AccountInsights["data"][number]>();
+    visibleStats.forEach((item) => {
+      item.insights.data.forEach((insight) => values.set(insight.post_id, insight));
+    });
+    return values;
+  }, [visibleStats]);
+
+  const postCommentsById = useMemo(() => {
+    const values = new Map<number, number>();
+    visibleStats.forEach((item) => {
+      item.comments.forEach((comment) => {
+        if (!comment.post_id) return;
+        values.set(comment.post_id, (values.get(comment.post_id) ?? 0) + 1);
+      });
+    });
+    return values;
+  }, [visibleStats]);
+
+  const postAccountLabelsById = useMemo(() => {
+    const values = new Map<number, string>();
+    visibleStats.forEach((item) => {
+      item.posts.forEach((post) => values.set(post.id, accountLabel(item.account)));
+    });
+    return values;
+  }, [visibleStats]);
 
   const selectedAccount = selectedAccountKey === "all"
     ? null
@@ -434,19 +508,18 @@ export function StatisticsPage() {
               ) : null}
             </section>
 
-            <div className="stats-grid stats-grid--summary">
-              <StatCard label="Accounts" value={totals.accounts} sub={`visible in ${selectedScopeLabel}`} accent="blue" />
-              <StatCard label="Published Posts" value={totals.published} sub={`${totals.posts} total created`} accent="green" />
-              <StatCard label="Scheduled" value={totals.scheduled} sub="waiting to publish" accent="amber" />
-              <StatCard label="Comments" value={totals.comments} sub={`${totals.replies} replied`} accent="purple" />
-            </div>
-
-            <section className="stats-section">
+            <section className="stats-section stats-performance-panel">
               <div className="stats-section__header">
                 <div>
-                  <h3>Account Performance</h3>
-                  <p>Showing publishing health and available engagement for {selectedScopeLabel}.</p>
+                  <h3>Performance Overview</h3>
+                  <p>Unified publishing health and available engagement for {selectedScopeLabel}.</p>
                 </div>
+              </div>
+              <div className="stats-grid stats-grid--summary">
+                <StatCard label="Accounts" value={totals.accounts} sub={`visible in ${selectedScopeLabel}`} accent="blue" />
+                <StatCard label="Published Posts" value={totals.published} sub={`${totals.posts} total created`} accent="green" />
+                <StatCard label="Scheduled" value={totals.scheduled} sub="waiting to publish" accent="amber" />
+                <StatCard label="Comments" value={totals.comments} sub={`${totals.replies} replied`} accent="purple" />
               </div>
               <div className="stats-account-grid">
                 {visibleStats.map((item) => (
@@ -489,7 +562,7 @@ export function StatisticsPage() {
               <div className="stats-section__header">
                 <div>
                   <h3>Post Performance By Account</h3>
-                  <p>Filtered to {selectedScopeLabel}. Threads views, likes, and shares sync from the Threads insights API after the account is reconnected with insights permission.</p>
+                  <p>Filtered to {selectedScopeLabel}. Threads, Twitter/X, Instagram, and LinkedIn views, likes, and shares sync from the official platform APIs where metrics are available.</p>
                 </div>
               </div>
               <div className="stats-table-wrap">
@@ -536,26 +609,69 @@ export function StatisticsPage() {
             <section className="stats-section stats-recent-section">
               <div className="stats-section__header">
                 <div>
-                  <h3>Recent Social Posts</h3>
-                  <p>Latest created, scheduled, and published posts for {selectedScopeLabel}.</p>
+                  <h3>Social Posts</h3>
+                  <p>{selectedPostStatus === "posted" ? "Published posts with per-post engagement metrics" : "Scheduled posts waiting to publish"} for {selectedScopeLabel}.</p>
                 </div>
               </div>
+              <div className="ui-tabs__list social-platform-tabs stats-tabs-list" role="tablist" aria-label="Post status statistics">
+                <button
+                  type="button"
+                  className={`ui-tab social-tab ${selectedPostStatus === "posted" ? "ui-tab--active social-tab--active" : ""}`}
+                  onClick={() => setSelectedPostStatus("posted")}
+                >
+                  Published
+                  <span className="ui-tab__badge">{postStatusCounts.posted}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`ui-tab social-tab ${selectedPostStatus === "scheduled" ? "ui-tab--active social-tab--active" : ""}`}
+                  onClick={() => setSelectedPostStatus("scheduled")}
+                >
+                  Scheduled
+                  <span className="ui-tab__badge">{postStatusCounts.scheduled}</span>
+                </button>
+              </div>
               {recentPosts.length === 0 ? (
-                <p className="stats-empty">No social posts yet.</p>
+                <p className="stats-empty">No {selectedPostStatus === "posted" ? "published" : "scheduled"} posts yet.</p>
               ) : (
                 <div className="stats-recent-list">
-                  {recentPosts.map((post) => (
-                    <article className="stats-recent-post" key={`${post.platform}:${post.id}`}>
-                      <div>
-                        <span className="stats-platform-chip">
-                          <PlatformIcon platform={post.platform} />
-                          {platformLabel(post.platform)}
-                        </span>
-                        <p>{post.content || post.title || "Untitled post"}</p>
-                      </div>
-                      <span className={`stats-post-status stats-post-status--${post.status}`}>{post.status}</span>
-                    </article>
-                  ))}
+                  {recentPosts.map((post) => {
+                    const insight = postInsightsById.get(post.id);
+                    const fallback = postInsightFallback(post);
+                    const comments = postCommentsById.get(post.id) ?? 0;
+                    const insightComments = typeof insight?.replies === "number" && Number.isFinite(insight.replies) ? insight.replies : comments;
+                    const postAccountLabel = postAccountLabelsById.get(post.id) ?? platformLabel(post.platform);
+                    return (
+                      <article className="stats-recent-post" key={`${post.platform}:${post.id}`}>
+                        <div className="stats-recent-post__main">
+                          <div className="stats-recent-post__topline">
+                            <span className="stats-platform-chip">
+                              <PlatformIcon platform={post.platform} />
+                              {platformLabel(post.platform)}
+                            </span>
+                            <span className={`stats-post-status stats-post-status--${post.status}`}>{post.status}</span>
+                          </div>
+                          <p>{post.content || post.title || "Untitled post"}</p>
+                          {selectedPostStatus === "posted" ? (
+                            <div className="stats-post-metrics" aria-label="Post performance metrics">
+                              <span><strong>{formatPostInsightValue(insight?.views, fallback)}</strong>Views</span>
+                              <span><strong>{formatPostInsightValue(insight?.likes, fallback)}</strong>Likes</span>
+                              <span><strong>{insightComments.toLocaleString()}</strong>Comments</span>
+                              <span><strong>{formatPostInsightValue(insight?.shares, fallback)}</strong>Shares</span>
+                              <span><strong>{formatPostInsightValue(insight?.replies, fallback)}</strong>Replies</span>
+                              <span><strong>{formatPostInsightValue(insight?.reposts, fallback)}</strong>Reposts</span>
+                              <span><strong>{formatPostInsightValue(insight?.quotes, fallback)}</strong>Quotes</span>
+                            </div>
+                          ) : (
+                            <div className="stats-post-metrics" aria-label="Scheduled post details">
+                              <span><strong>{post.scheduled_at ? formatDisplayDateTime(post.scheduled_at) : "No date"}</strong>Scheduled for</span>
+                              <span><strong>{postAccountLabel}</strong>Account</span>
+                            </div>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  })}
                 </div>
               )}
             </section>

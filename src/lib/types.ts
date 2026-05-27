@@ -753,7 +753,7 @@ export type SocialComment = {
 };
 
 export type ThreadsPostInsight = {
-  platform: "threads";
+  platform: "threads" | "twitter" | "instagram" | "linkedin";
   account_id: number | null;
   post_id: number;
   external_id: string;
@@ -783,7 +783,35 @@ export type ThreadsInsightsResponse = {
     replies?: number | null;
     reposts?: number | null;
     quotes?: number | null;
+    saved?: number | null;
+    total_interactions?: number | null;
   };
+};
+
+export type TwitterPostInsight = ThreadsPostInsight & {
+  platform: "twitter";
+};
+
+export type TwitterInsightsResponse = Omit<ThreadsInsightsResponse, "data"> & {
+  data: TwitterPostInsight[];
+};
+
+export type InstagramPostInsight = ThreadsPostInsight & {
+  platform: "instagram";
+  saved?: number | null;
+  total_interactions?: number | null;
+};
+
+export type InstagramInsightsResponse = Omit<ThreadsInsightsResponse, "data"> & {
+  data: InstagramPostInsight[];
+};
+
+export type LinkedInPostInsight = ThreadsPostInsight & {
+  platform: "linkedin";
+};
+
+export type LinkedInInsightsResponse = Omit<ThreadsInsightsResponse, "data"> & {
+  data: LinkedInPostInsight[];
 };
 
 export type SocialReplySuggestion = {

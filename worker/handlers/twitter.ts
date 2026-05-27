@@ -10,6 +10,7 @@ const TWITTER_OAUTH_AUTHORIZE_URL = "https://api.twitter.com/oauth/authorize";
 const TWITTER_OAUTH_ACCESS_TOKEN_URL = "https://api.twitter.com/oauth/access_token";
 const TWITTER_X_OAUTH_ACCESS_TOKEN_URL = "https://api.x.com/oauth/access_token";
 const TWITTER_MEDIA_UPLOAD_URL = "https://upload.twitter.com/1.1/media/upload.json";
+const TWITTER_TWEET_LOOKUP_URL = "https://api.twitter.com/2/tweets";
 const TWITTER_MAX_IMAGES_PER_POST = 4;
 const TWITTER_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -36,6 +37,7 @@ type PendingTwitterOAuth = {
 };
 
 type TwitterCredentials = {
+  accountId: number | null;
   apiKey: string;
   apiSecret: string;
   accessToken: string;
@@ -521,6 +523,7 @@ async function getTwitterCredentials(
   ]);
 
   const credentials = {
+    accountId: account?.id ?? null,
     apiKey: apiKey || fallback[0] || "",
     apiSecret: apiSecret || fallback[1] || "",
     accessToken: accessToken || fallback[2] || "",
@@ -1168,6 +1171,33 @@ type TwitterSearchResponse = {
   };
 };
 
+type TwitterPublicMetrics = {
+  impression_count?: number;
+  like_count?: number;
+  quote_count?: number;
+  reply_count?: number;
+  retweet_count?: number;
+  bookmark_count?: number;
+};
+
+type TwitterTweetLookupResponse = {
+  data?: Array<{
+    id?: string;
+    public_metrics?: TwitterPublicMetrics;
+  }>;
+  errors?: Array<{
+    value?: string;
+    resource_id?: string;
+    parameter?: string;
+    title?: string;
+    detail?: string;
+    message?: string;
+  }>;
+  detail?: string;
+  title?: string;
+};
+type TwitterTweetLookupError = NonNullable<TwitterTweetLookupResponse["errors"]>[number];
+
 export async function searchTwitterPosts(env: Env, url: URL): Promise<Response> {
   try {
     const rawQuery = url.searchParams.get("q")?.trim();
@@ -1219,6 +1249,175 @@ export async function searchTwitterPosts(env: Env, url: URL): Promise<Response> 
     return jsonResponse({ data: results });
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Failed to search Twitter/X", 500);
+  }
+}
+
+function readTwitterMetric(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function twitterLookupFailureMessage(error: TwitterTweetLookupError | undefined) {
+  return error?.detail || error?.message || error?.title || "Twitter/X did not return this post.";
+}
+
+function twitterInsightFailureMessage(error: unknown) {
+  return error instanceof Error && error.message.trim() ? error.message.trim() : "Twitter/X insights lookup failed.";
+}
+
+function twitterInsightFromTweet(
+  credentials: TwitterCredentials,
+  target: { id: number; external_id: string; account_id: number | null },
+  tweet: NonNullable<TwitterTweetLookupResponse["data"]>[number],
+) {
+  const metrics = tweet.public_metrics ?? {};
+  const retweets = readTwitterMetric(metrics.retweet_count);
+  const quotes = readTwitterMetric(metrics.quote_count);
+  const shares = (retweets ?? 0) + (quotes ?? 0);
+  return {
+    platform: "twitter" as const,
+    account_id: target.account_id ?? credentials.accountId,
+    post_id: target.id,
+    external_id: target.external_id,
+    views: readTwitterMetric(metrics.impression_count),
+    likes: readTwitterMetric(metrics.like_count),
+    shares,
+    replies: readTwitterMetric(metrics.reply_count),
+    reposts: retweets,
+    quotes,
+  };
+}
+
+async function fetchTwitterPostInsightsBatch(
+  credentials: TwitterCredentials,
+  targets: Array<{ id: number; external_id: string; account_id: number | null }>,
+) {
+  if (targets.length === 0) return { insights: [], failures: [] };
+  const ids = targets.map((target) => target.external_id).join(",");
+  const endpoint = new URL(TWITTER_TWEET_LOOKUP_URL);
+  endpoint.searchParams.set("ids", ids);
+  endpoint.searchParams.set("tweet.fields", "public_metrics");
+  const queryParams = {
+    ids,
+    "tweet.fields": "public_metrics",
+  };
+
+  const response = await fetch(endpoint.toString(), {
+    headers: {
+      Authorization: await buildTwitterOAuthHeader("GET", TWITTER_TWEET_LOOKUP_URL, credentials, queryParams),
+    },
+  });
+  const payload = await response.json() as TwitterTweetLookupResponse;
+  if (!response.ok) {
+    throw new Error(extractTwitterErrorMessage(payload, "Twitter/X insights lookup failed."));
+  }
+
+  const tweetsById = new Map((payload.data ?? []).filter((tweet) => tweet.id).map((tweet) => [String(tweet.id), tweet]));
+  const errorsById = new Map(
+    (payload.errors ?? [])
+      .map((error) => [String(error.value || error.resource_id || "").trim(), error] as const)
+      .filter(([id]) => id),
+  );
+  const insights = [];
+  const failures = [];
+  for (const target of targets) {
+    const tweet = tweetsById.get(target.external_id);
+    if (tweet) {
+      insights.push(twitterInsightFromTweet(credentials, target, tweet));
+      continue;
+    }
+    failures.push({
+      post_id: target.id,
+      external_id: target.external_id,
+      message: twitterLookupFailureMessage(errorsById.get(target.external_id)),
+    });
+  }
+  return { insights, failures };
+}
+
+function sumNullableMetric(items: Array<Record<string, unknown>>, key: string): number | null {
+  let found = false;
+  let total = 0;
+  for (const item of items) {
+    const value = item[key];
+    if (typeof value !== "number" || !Number.isFinite(value)) continue;
+    found = true;
+    total += value;
+  }
+  return found ? total : null;
+}
+
+export async function listTwitterPostInsights(env: Env, url: URL, userId = DEFAULT_USER_ID): Promise<Response> {
+  try {
+    const requestedAccountId = Number(url.searchParams.get("account_id") || 0) || undefined;
+    const requestedLimit = Math.max(1, Math.min(Number(url.searchParams.get("limit") || 100) || 100, 200));
+    const credentials = await getTwitterCredentials(env, requestedAccountId, userId);
+    if (!credentials) {
+      return jsonResponse({
+        data: [],
+        status: "not_connected",
+        warning: "No active Twitter/X account with API credentials was found.",
+        totals: { posts: 0, synced: 0, views: null, likes: null, shares: null, replies: null, reposts: null, quotes: null },
+      });
+    }
+
+    const filters = ["platform = 'twitter'", "status = 'posted'", "external_id IS NOT NULL", "TRIM(external_id) != ''"];
+    const values: unknown[] = [];
+    if (requestedAccountId) {
+      filters.push("(account_id = ? OR account_id IS NULL)");
+      values.push(requestedAccountId);
+    }
+    await appendScopedFilter(env, "social_posts", filters, values, userId);
+    const rows = await env.DB.prepare(
+      `SELECT id, external_id, account_id FROM social_posts WHERE ${filters.join(" AND ")} ORDER BY posted_at DESC, updated_at DESC LIMIT ?`,
+    )
+      .bind(...values, requestedLimit)
+      .all<{ id: number; external_id: string | null; account_id: number | null }>();
+    const targets = (rows.results ?? [])
+      .map((row) => ({
+        id: row.id,
+        external_id: row.external_id?.trim() || "",
+        account_id: row.account_id,
+      }))
+      .filter((row) => row.external_id);
+
+    const results = [];
+    for (let index = 0; index < targets.length; index += 100) {
+      try {
+        results.push(await fetchTwitterPostInsightsBatch(credentials, targets.slice(index, index + 100)));
+      } catch (error) {
+        const message = twitterInsightFailureMessage(error);
+        results.push({
+          insights: [],
+          failures: targets.slice(index, index + 100).map((target) => ({
+            post_id: target.id,
+            external_id: target.external_id,
+            message,
+          })),
+        });
+      }
+    }
+    const insights = results.flatMap((result) => result.insights);
+    const failures = results.flatMap((result) => result.failures);
+    return jsonResponse({
+      data: insights,
+      status: "connected",
+      warning: failures.length
+        ? `Skipped ${failures.length} Twitter/X post${failures.length === 1 ? "" : "s"} because X did not return metrics for ${failures.length === 1 ? "it" : "them"}.`
+        : undefined,
+      failures,
+      totals: {
+        posts: targets.length,
+        synced: insights.length,
+        views: sumNullableMetric(insights, "views"),
+        likes: sumNullableMetric(insights, "likes"),
+        shares: sumNullableMetric(insights, "shares"),
+        replies: sumNullableMetric(insights, "replies"),
+        reposts: sumNullableMetric(insights, "reposts"),
+        quotes: sumNullableMetric(insights, "quotes"),
+      },
+    });
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Failed to load Twitter/X insights", 500);
   }
 }
 
@@ -1638,6 +1837,7 @@ export async function handleTwitterOAuthCallback(env: Env, url: URL): Promise<Re
     }
 
     const credentials: TwitterCredentials = {
+      accountId: null,
       apiKey: pending.api_key,
       apiSecret: pending.api_secret,
       accessToken,

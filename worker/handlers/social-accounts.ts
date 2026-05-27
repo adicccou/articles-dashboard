@@ -66,6 +66,22 @@ type InstagramProfileResponse = {
   }>;
 };
 
+type InstagramInsightsGraphResponse = {
+  data?: Array<{
+    name?: string;
+    values?: Array<{ value?: unknown }>;
+  }>;
+  error?: { message?: string };
+  error_message?: string;
+};
+
+type InstagramMediaCountsResponse = {
+  like_count?: number;
+  comments_count?: number;
+  error?: { message?: string };
+  error_message?: string;
+};
+
 type LinkedInUserInfo = {
   sub?: string;
   name?: string;
@@ -79,6 +95,17 @@ type LinkedInTokenResponse = {
   scope?: string;
   error?: string;
   error_description?: string;
+};
+
+type LinkedInAnalyticsResponse = {
+  elements?: Array<{
+    count?: number | string;
+    metricType?: string;
+    targetEntity?: string;
+  }>;
+  message?: string;
+  serviceErrorCode?: number;
+  status?: number;
 };
 
 type FacebookGraphErrorPayload = {
@@ -144,8 +171,16 @@ const DEFAULT_FACEBOOK_OAUTH_SCOPES = [
 const DEFAULT_INSTAGRAM_OAUTH_SCOPES = [
   "instagram_business_basic",
   "instagram_business_content_publish",
+  "instagram_business_manage_insights",
 ].join(",");
-const DEFAULT_LINKEDIN_OAUTH_SCOPES = ["openid", "profile", "w_member_social"].join(" ");
+const REQUIRED_INSTAGRAM_OAUTH_SCOPES = DEFAULT_INSTAGRAM_OAUTH_SCOPES.split(",");
+const INSTAGRAM_INSIGHT_METRICS = ["views", "likes", "comments", "shares", "saved", "total_interactions"] as const;
+type InstagramInsightMetric = typeof INSTAGRAM_INSIGHT_METRICS[number];
+const LINKEDIN_BASE_OAUTH_SCOPES = ["openid", "profile", "w_member_social"];
+const LINKEDIN_MEMBER_ANALYTICS_SCOPE = "r_member_postAnalytics";
+const DEFAULT_LINKEDIN_OAUTH_SCOPES = LINKEDIN_BASE_OAUTH_SCOPES.join(" ");
+const LINKEDIN_ANALYTICS_METRICS = ["IMPRESSION", "REACTION", "RESHARE", "COMMENT"] as const;
+type LinkedInAnalyticsMetric = typeof LINKEDIN_ANALYTICS_METRICS[number];
 const FACEBOOK_AUTHORIZE_BASE_URL = "https://www.facebook.com";
 const FACEBOOK_GRAPH_BASE_URL = "https://graph.facebook.com";
 const INSTAGRAM_AUTHORIZE_URL = "https://www.instagram.com/oauth/authorize";
@@ -157,6 +192,7 @@ const LINKEDIN_AUTHORIZE_URL = "https://www.linkedin.com/oauth/v2/authorization"
 const LINKEDIN_TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken";
 const LINKEDIN_USERINFO_URL = "https://api.linkedin.com/v2/userinfo";
 const LINKEDIN_POSTS_URL = "https://api.linkedin.com/rest/posts";
+const LINKEDIN_MEMBER_POST_ANALYTICS_URL = "https://api.linkedin.com/rest/memberCreatorPostAnalytics";
 const LINKEDIN_IMAGES_URL = "https://api.linkedin.com/rest/images?action=initializeUpload";
 
 const OFFICIAL_FIELD_SETTINGS: Record<ExtraSocialPlatform, Record<FieldName, string>> = {
@@ -295,6 +331,18 @@ function normalizeInstagramProfileResponse(payload: InstagramProfileResponse): I
   return payload;
 }
 
+function normalizeInstagramScopes(scopes: string): string {
+  const seen = new Set<string>();
+  for (const scope of scopes.split(/[,\s]+/)) {
+    const normalized = scope.trim();
+    if (normalized) seen.add(normalized);
+  }
+  for (const scope of REQUIRED_INSTAGRAM_OAUTH_SCOPES) {
+    seen.add(scope);
+  }
+  return Array.from(seen).join(",");
+}
+
 async function readStoredInstagramOAuthConfig(env: Env, userId = DEFAULT_USER_ID) {
   const filters = ["platform = 'instagram'", "status = 'active'"];
   const values: unknown[] = [];
@@ -415,7 +463,7 @@ async function instagramOAuthConfig(env: Env, requestUrl: string, userId = DEFAU
     appId,
     appSecret: instagramAppSecretForAppId(env, appId, stored, metaFromThreads),
     redirectUri: env.INSTAGRAM_REDIRECT_URI?.trim() || stored?.redirectUri || `${requestOrigin}/api/instagram/auth/callback`,
-    scopes: env.INSTAGRAM_OAUTH_SCOPES?.trim() || stored?.scopes || DEFAULT_INSTAGRAM_OAUTH_SCOPES,
+    scopes: normalizeInstagramScopes(env.INSTAGRAM_OAUTH_SCOPES?.trim() || stored?.scopes || DEFAULT_INSTAGRAM_OAUTH_SCOPES),
   };
 }
 
@@ -470,6 +518,18 @@ async function readStoredLinkedInOAuthConfig(env: Env, userId = DEFAULT_USER_ID)
   return { clientId, clientSecret, redirectUri, scopes };
 }
 
+function normalizeLinkedInScopes(scopes: string): string {
+  const seen = new Set<string>();
+  for (const scope of scopes.split(/[,\s]+/)) {
+    const normalized = scope.trim();
+    if (normalized) seen.add(normalized);
+  }
+  for (const scope of LINKEDIN_BASE_OAUTH_SCOPES) {
+    seen.add(scope);
+  }
+  return Array.from(seen).join(" ");
+}
+
 async function linkedInOAuthConfig(env: Env, requestUrl: string, userId = DEFAULT_USER_ID) {
   const requestOrigin = new URL(requestUrl).origin;
   const stored = await readStoredLinkedInOAuthConfig(env, userId);
@@ -477,7 +537,7 @@ async function linkedInOAuthConfig(env: Env, requestUrl: string, userId = DEFAUL
     clientId: env.LINKEDIN_CLIENT_ID?.trim() || stored?.clientId || "",
     clientSecret: env.LINKEDIN_CLIENT_SECRET?.trim() || stored?.clientSecret || "",
     redirectUri: env.LINKEDIN_REDIRECT_URI?.trim() || stored?.redirectUri || `${requestOrigin}/api/linkedin/auth/callback`,
-    scopes: env.LINKEDIN_SCOPES?.trim() || stored?.scopes || DEFAULT_LINKEDIN_OAUTH_SCOPES,
+    scopes: normalizeLinkedInScopes(env.LINKEDIN_SCOPES?.trim() || stored?.scopes || DEFAULT_LINKEDIN_OAUTH_SCOPES),
   };
 }
 
@@ -976,6 +1036,229 @@ async function publishInstagramOfficial(
   return publishPayload.id;
 }
 
+function parseInstagramMetricValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
+  return null;
+}
+
+function readInstagramMetricValue(metrics: Map<string, number>, name: string): number | null {
+  return metrics.has(name) ? metrics.get(name) ?? null : null;
+}
+
+function instagramInsightFailureMessage(error: unknown) {
+  return error instanceof Error && error.message.trim() ? error.message.trim() : "Instagram insights lookup failed.";
+}
+
+function sumNullableMetric(items: Array<Record<string, unknown>>, key: string): number | null {
+  let found = false;
+  let total = 0;
+  for (const item of items) {
+    const value = item[key];
+    if (typeof value !== "number" || !Number.isFinite(value)) continue;
+    found = true;
+    total += value;
+  }
+  return found ? total : null;
+}
+
+async function fetchInstagramInsightMetrics(
+  accessToken: string,
+  externalId: string,
+  metrics: readonly InstagramInsightMetric[],
+): Promise<Map<string, number>> {
+  const insightsUrl = new URL(`${INSTAGRAM_GRAPH_BASE_URL}/${graphApiVersion()}/${encodeURIComponent(externalId)}/insights`);
+  insightsUrl.searchParams.set("metric", metrics.join(","));
+  insightsUrl.searchParams.set("access_token", accessToken);
+
+  const response = await fetch(insightsUrl.toString());
+  const payload = await response.json().catch(() => ({})) as InstagramInsightsGraphResponse;
+  if (!response.ok || payload.error || payload.error_message) {
+    throw new Error(instagramPayloadError(payload) || "Instagram insights lookup failed.");
+  }
+
+  const values = new Map<string, number>();
+  for (const metric of payload.data ?? []) {
+    const name = metric.name?.trim();
+    const value = parseInstagramMetricValue(metric.values?.[0]?.value);
+    if (name && value !== null) values.set(name, value);
+  }
+  return values;
+}
+
+async function fetchAvailableInstagramInsightMetrics(
+  accessToken: string,
+  externalId: string,
+): Promise<Map<string, number>> {
+  try {
+    return await fetchInstagramInsightMetrics(accessToken, externalId, INSTAGRAM_INSIGHT_METRICS);
+  } catch (batchError) {
+    const merged = new Map<string, number>();
+    for (const metric of INSTAGRAM_INSIGHT_METRICS) {
+      try {
+        const values = await fetchInstagramInsightMetrics(accessToken, externalId, [metric]);
+        for (const [name, value] of values) merged.set(name, value);
+      } catch {
+        // Some Instagram metrics are unavailable for specific media types; keep the metrics that do resolve.
+      }
+    }
+    if (merged.size === 0) throw batchError;
+    return merged;
+  }
+}
+
+async function fetchInstagramMediaCounts(accessToken: string, externalId: string): Promise<InstagramMediaCountsResponse | null> {
+  const mediaUrl = new URL(`${INSTAGRAM_GRAPH_BASE_URL}/${graphApiVersion()}/${encodeURIComponent(externalId)}`);
+  mediaUrl.searchParams.set("fields", "like_count,comments_count");
+  mediaUrl.searchParams.set("access_token", accessToken);
+
+  const response = await fetch(mediaUrl.toString());
+  const payload = await response.json().catch(() => ({})) as InstagramMediaCountsResponse;
+  if (!response.ok || payload.error || payload.error_message) return null;
+  return payload;
+}
+
+async function fetchInstagramPostInsights(
+  accessToken: string,
+  accountId: number,
+  target: { id: number; external_id: string; account_id: number | null },
+) {
+  let metrics = new Map<string, number>();
+  let insightError: unknown = null;
+  try {
+    metrics = await fetchAvailableInstagramInsightMetrics(accessToken, target.external_id);
+  } catch (error) {
+    insightError = error;
+  }
+  const counts = await fetchInstagramMediaCounts(accessToken, target.external_id);
+  if (metrics.size === 0 && !counts) throw insightError ?? new Error("Instagram did not return metrics for this post.");
+
+  return {
+    platform: "instagram" as const,
+    account_id: target.account_id ?? accountId,
+    post_id: target.id,
+    external_id: target.external_id,
+    views: readInstagramMetricValue(metrics, "views"),
+    likes: readInstagramMetricValue(metrics, "likes") ?? parseInstagramMetricValue(counts?.like_count),
+    shares: readInstagramMetricValue(metrics, "shares"),
+    replies: readInstagramMetricValue(metrics, "comments") ?? parseInstagramMetricValue(counts?.comments_count),
+    reposts: null,
+    quotes: null,
+    saved: readInstagramMetricValue(metrics, "saved"),
+    total_interactions: readInstagramMetricValue(metrics, "total_interactions"),
+  };
+}
+
+export async function listInstagramPostInsights(env: Env, url: URL, userId = DEFAULT_USER_ID): Promise<Response> {
+  try {
+    const requestedAccountId = Number(url.searchParams.get("account_id") || 0) || undefined;
+    const requestedLimit = Math.max(1, Math.min(Number(url.searchParams.get("limit") || 100) || 100, 200));
+    const accountFilters = ["platform = 'instagram'", "status = 'active'"];
+    const accountValues: unknown[] = [];
+    if (requestedAccountId) {
+      accountFilters.push("id = ?");
+      accountValues.push(requestedAccountId);
+    }
+    await appendScopedFilter(env, "social_accounts", accountFilters, accountValues, userId);
+    const account = await env.DB.prepare(
+      `SELECT id FROM social_accounts WHERE ${accountFilters.join(" AND ")} ORDER BY updated_at DESC, id DESC LIMIT 1`,
+    )
+      .bind(...accountValues)
+      .first<{ id: number }>();
+    if (!account?.id) {
+      return jsonResponse({
+        data: [],
+        status: "not_connected",
+        warning: "No active Instagram account with official API credentials was found.",
+        totals: { posts: 0, synced: 0, views: null, likes: null, shares: null, replies: null, reposts: null, quotes: null, saved: null, total_interactions: null },
+      });
+    }
+
+    const credentials = await readOfficialAccountFields(env, "instagram", account.id, userId);
+    const accessToken = credentials.access_token.trim();
+    const instagramUserId = credentials.user_id.trim();
+    if (!accessToken || !instagramUserId) {
+      return jsonResponse({
+        data: [],
+        status: "not_connected",
+        warning: "No active Instagram account with official API credentials was found.",
+        totals: { posts: 0, synced: 0, views: null, likes: null, shares: null, replies: null, reposts: null, quotes: null, saved: null, total_interactions: null },
+      });
+    }
+
+    const scopeSet = new Set(credentials.scopes.split(/[,\s]+/).map((scope) => scope.trim()).filter(Boolean));
+    if (!scopeSet.has("instagram_business_manage_insights")) {
+      return jsonResponse({
+        data: [],
+        status: "needs_reconnect",
+        warning: "Reconnect this Instagram account so Oilor can request instagram_business_manage_insights.",
+        totals: { posts: 0, synced: 0, views: null, likes: null, shares: null, replies: null, reposts: null, quotes: null, saved: null, total_interactions: null },
+      });
+    }
+
+    const postFilters = ["platform = 'instagram'", "status = 'posted'", "external_id IS NOT NULL", "TRIM(external_id) != ''"];
+    const postValues: unknown[] = [];
+    if (requestedAccountId) {
+      postFilters.push("(account_id = ? OR account_id IS NULL)");
+      postValues.push(requestedAccountId);
+    }
+    await appendScopedFilter(env, "social_posts", postFilters, postValues, userId);
+    const rows = await env.DB.prepare(
+      `SELECT id, external_id, account_id FROM social_posts WHERE ${postFilters.join(" AND ")} ORDER BY posted_at DESC, updated_at DESC LIMIT ?`,
+    )
+      .bind(...postValues, requestedLimit)
+      .all<{ id: number; external_id: string | null; account_id: number | null }>();
+    const targets = (rows.results ?? [])
+      .map((row) => ({
+        id: row.id,
+        external_id: row.external_id?.trim() || "",
+        account_id: row.account_id,
+      }))
+      .filter((row) => row.external_id);
+
+    const results = await Promise.all(
+      targets.map(async (target) => {
+        try {
+          return { insight: await fetchInstagramPostInsights(accessToken, account.id, target), failure: null };
+        } catch (error) {
+          return {
+            insight: null,
+            failure: {
+              post_id: target.id,
+              external_id: target.external_id,
+              message: instagramInsightFailureMessage(error),
+            },
+          };
+        }
+      }),
+    );
+    const insights = results.flatMap((result) => (result.insight ? [result.insight] : []));
+    const failures = results.flatMap((result) => (result.failure ? [result.failure] : []));
+    return jsonResponse({
+      data: insights,
+      status: "connected",
+      warning: failures.length
+        ? `Skipped ${failures.length} Instagram post${failures.length === 1 ? "" : "s"} because Meta did not return insights for ${failures.length === 1 ? "it" : "them"}.`
+        : undefined,
+      failures,
+      totals: {
+        posts: targets.length,
+        synced: insights.length,
+        views: sumNullableMetric(insights, "views"),
+        likes: sumNullableMetric(insights, "likes"),
+        shares: sumNullableMetric(insights, "shares"),
+        replies: sumNullableMetric(insights, "replies"),
+        reposts: sumNullableMetric(insights, "reposts"),
+        quotes: sumNullableMetric(insights, "quotes"),
+        saved: sumNullableMetric(insights, "saved"),
+        total_interactions: sumNullableMetric(insights, "total_interactions"),
+      },
+    });
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Failed to load Instagram insights", 500);
+  }
+}
+
 async function publishLinkedInOfficial(
   env: Env,
   post: ExtraSocialPostRow,
@@ -1025,6 +1308,198 @@ async function publishLinkedInOfficial(
     throw new Error(responseText || "LinkedIn publish failed.");
   }
   return response.headers.get("x-restli-id") || responseText || `linkedin:${Date.now()}`;
+}
+
+function parseLinkedInMetricValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
+  return null;
+}
+
+function linkedInAnalyticsFailureMessage(error: unknown) {
+  return error instanceof Error && error.message.trim() ? error.message.trim() : "LinkedIn analytics lookup failed.";
+}
+
+function linkedInEntityParam(externalId: string): string | null {
+  const value = externalId.trim();
+  if (!value || value.startsWith("linkedin:")) return null;
+  if (value.startsWith("urn:li:ugcPost:")) return `(ugc:${encodeURIComponent(value)})`;
+  if (value.startsWith("urn:li:share:")) return `(share:${encodeURIComponent(value)})`;
+  if (value.startsWith("ugcPost:")) return `(ugc:${encodeURIComponent(`urn:li:${value}`)})`;
+  if (value.startsWith("share:")) return `(share:${encodeURIComponent(`urn:li:${value}`)})`;
+  if (/^\d+$/.test(value)) return `(share:${encodeURIComponent(`urn:li:share:${value}`)})`;
+  return `(share:${encodeURIComponent(value)})`;
+}
+
+async function fetchLinkedInAnalyticsMetric(
+  env: Env,
+  accessToken: string,
+  entityParam: string,
+  metric: LinkedInAnalyticsMetric,
+): Promise<number | null> {
+  const analyticsUrl = new URL(LINKEDIN_MEMBER_POST_ANALYTICS_URL);
+  analyticsUrl.searchParams.set("q", "entity");
+  analyticsUrl.searchParams.set("entity", entityParam);
+  analyticsUrl.searchParams.set("queryType", metric);
+  analyticsUrl.searchParams.set("aggregation", "TOTAL");
+
+  const response = await fetch(analyticsUrl.toString(), {
+    headers: linkedInRestHeaders(env, accessToken),
+  });
+  const payload = await response.json().catch(() => ({})) as LinkedInAnalyticsResponse;
+  if (!response.ok) {
+    throw new Error(payload.message || "LinkedIn analytics lookup failed.");
+  }
+  for (const element of payload.elements ?? []) {
+    if (element.metricType === metric || !element.metricType) {
+      return parseLinkedInMetricValue(element.count);
+    }
+  }
+  return null;
+}
+
+async function fetchLinkedInPostInsights(
+  env: Env,
+  accessToken: string,
+  accountId: number,
+  target: { id: number; external_id: string; account_id: number | null },
+) {
+  const entityParam = linkedInEntityParam(target.external_id);
+  if (!entityParam) throw new Error("LinkedIn post ID is not an analytics URN.");
+
+  const metrics = new Map<LinkedInAnalyticsMetric, number | null>();
+  const failures: string[] = [];
+  await Promise.all(LINKEDIN_ANALYTICS_METRICS.map(async (metric) => {
+    try {
+      metrics.set(metric, await fetchLinkedInAnalyticsMetric(env, accessToken, entityParam, metric));
+    } catch (error) {
+      failures.push(linkedInAnalyticsFailureMessage(error));
+    }
+  }));
+  if (metrics.size === 0) {
+    throw new Error(failures[0] || "LinkedIn did not return analytics for this post.");
+  }
+
+  const reposts = metrics.get("RESHARE") ?? null;
+  return {
+    platform: "linkedin" as const,
+    account_id: target.account_id ?? accountId,
+    post_id: target.id,
+    external_id: target.external_id,
+    views: metrics.get("IMPRESSION") ?? null,
+    likes: metrics.get("REACTION") ?? null,
+    shares: reposts,
+    replies: metrics.get("COMMENT") ?? null,
+    reposts,
+    quotes: null,
+  };
+}
+
+export async function listLinkedInPostInsights(env: Env, url: URL, userId = DEFAULT_USER_ID): Promise<Response> {
+  try {
+    const requestedAccountId = Number(url.searchParams.get("account_id") || 0) || undefined;
+    const requestedLimit = Math.max(1, Math.min(Number(url.searchParams.get("limit") || 100) || 100, 200));
+    const accountFilters = ["platform = 'linkedin'", "status = 'active'"];
+    const accountValues: unknown[] = [];
+    if (requestedAccountId) {
+      accountFilters.push("id = ?");
+      accountValues.push(requestedAccountId);
+    }
+    await appendScopedFilter(env, "social_accounts", accountFilters, accountValues, userId);
+    const account = await env.DB.prepare(
+      `SELECT id FROM social_accounts WHERE ${accountFilters.join(" AND ")} ORDER BY updated_at DESC, id DESC LIMIT 1`,
+    )
+      .bind(...accountValues)
+      .first<{ id: number }>();
+    if (!account?.id) {
+      return jsonResponse({
+        data: [],
+        status: "not_connected",
+        warning: "No active LinkedIn account with official API credentials was found.",
+        totals: { posts: 0, synced: 0, views: null, likes: null, shares: null, replies: null, reposts: null, quotes: null },
+      });
+    }
+
+    const credentials = await readOfficialAccountFields(env, "linkedin", account.id, userId);
+    const accessToken = credentials.access_token.trim();
+    if (!accessToken || !credentials.user_id.trim()) {
+      return jsonResponse({
+        data: [],
+        status: "not_connected",
+        warning: "No active LinkedIn account with official API credentials was found.",
+        totals: { posts: 0, synced: 0, views: null, likes: null, shares: null, replies: null, reposts: null, quotes: null },
+      });
+    }
+
+    const scopeSet = new Set(credentials.scopes.split(/[,\s]+/).map((scope) => scope.trim()).filter(Boolean));
+    if (!scopeSet.has(LINKEDIN_MEMBER_ANALYTICS_SCOPE)) {
+      return jsonResponse({
+        data: [],
+        status: "not_connected",
+        warning: "LinkedIn analytics need a separate developer app or product approval for r_member_postAnalytics before this account can sync post metrics.",
+        totals: { posts: 0, synced: 0, views: null, likes: null, shares: null, replies: null, reposts: null, quotes: null },
+      });
+    }
+
+    const postFilters = ["platform = 'linkedin'", "status = 'posted'", "external_id IS NOT NULL", "TRIM(external_id) != ''"];
+    const postValues: unknown[] = [];
+    if (requestedAccountId) {
+      postFilters.push("(account_id = ? OR account_id IS NULL)");
+      postValues.push(requestedAccountId);
+    }
+    await appendScopedFilter(env, "social_posts", postFilters, postValues, userId);
+    const rows = await env.DB.prepare(
+      `SELECT id, external_id, account_id FROM social_posts WHERE ${postFilters.join(" AND ")} ORDER BY posted_at DESC, updated_at DESC LIMIT ?`,
+    )
+      .bind(...postValues, requestedLimit)
+      .all<{ id: number; external_id: string | null; account_id: number | null }>();
+    const targets = (rows.results ?? [])
+      .map((row) => ({
+        id: row.id,
+        external_id: row.external_id?.trim() || "",
+        account_id: row.account_id,
+      }))
+      .filter((row) => row.external_id);
+
+    const results = await Promise.all(
+      targets.map(async (target) => {
+        try {
+          return { insight: await fetchLinkedInPostInsights(env, accessToken, account.id, target), failure: null };
+        } catch (error) {
+          return {
+            insight: null,
+            failure: {
+              post_id: target.id,
+              external_id: target.external_id,
+              message: linkedInAnalyticsFailureMessage(error),
+            },
+          };
+        }
+      }),
+    );
+    const insights = results.flatMap((result) => (result.insight ? [result.insight] : []));
+    const failures = results.flatMap((result) => (result.failure ? [result.failure] : []));
+    return jsonResponse({
+      data: insights,
+      status: "connected",
+      warning: failures.length
+        ? `Skipped ${failures.length} LinkedIn post${failures.length === 1 ? "" : "s"} because LinkedIn did not return analytics for ${failures.length === 1 ? "it" : "them"}.`
+        : undefined,
+      failures,
+      totals: {
+        posts: targets.length,
+        synced: insights.length,
+        views: sumNullableMetric(insights, "views"),
+        likes: sumNullableMetric(insights, "likes"),
+        shares: sumNullableMetric(insights, "shares"),
+        replies: sumNullableMetric(insights, "replies"),
+        reposts: sumNullableMetric(insights, "reposts"),
+        quotes: sumNullableMetric(insights, "quotes"),
+      },
+    });
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Failed to load LinkedIn insights", 500);
+  }
 }
 
 async function uploadLinkedInImage(env: Env, accessToken: string, owner: string, imageUrl: string): Promise<string> {

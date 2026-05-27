@@ -92,6 +92,7 @@ const THREADS_FULL_SCOPES = [
 const INSTAGRAM_SCOPES = [
   "instagram_business_basic",
   "instagram_business_content_publish",
+  "instagram_business_manage_insights",
 ].join(",");
 
 const LINKEDIN_SCOPES = [
