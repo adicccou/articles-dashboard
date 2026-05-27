@@ -362,6 +362,7 @@ function facebookAppSecretForAppId(
   const metaAppId = env.META_APP_ID?.trim();
   if (metaAppId && normalizedAppId === metaAppId) {
     return env.META_APP_SECRET?.trim()
+      || env.INSTAGRAM_APP_SECRET?.trim()
       || (stored?.appId === normalizedAppId ? stored.appSecret : "")
       || "";
   }
@@ -437,6 +438,7 @@ function instagramAppSecretForAppId(
   const metaAppId = env.META_APP_ID?.trim();
   if (metaAppId && normalizedAppId === metaAppId) {
     return env.META_APP_SECRET?.trim()
+      || env.INSTAGRAM_APP_SECRET?.trim()
       || (stored?.appId === normalizedAppId ? stored.appSecret : "")
       || "";
   }
@@ -1306,7 +1308,7 @@ export async function handleFacebookOAuthCallback(env: Env, url: URL): Promise<R
     const config = await facebookOAuthConfig(env, url.toString(), pendingUserId);
 
     if (!config.appSecret) {
-      return new Response("<html><body><h1>Facebook OAuth is not configured</h1><p>FACEBOOK_APP_SECRET or META_APP_SECRET is missing on the Worker, so the authorization code cannot be exchanged yet.</p></body></html>", {
+      return new Response("<html><body><h1>Facebook OAuth is not configured</h1><p>FACEBOOK_APP_SECRET, META_APP_SECRET, or INSTAGRAM_APP_SECRET is missing on the Worker, so the authorization code cannot be exchanged yet.</p></body></html>", {
         status: 500,
         headers: { "Content-Type": "text/html" },
       });
