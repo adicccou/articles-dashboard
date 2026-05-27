@@ -86,6 +86,7 @@ const THREADS_FULL_SCOPES = [
   "threads_read_replies",
   "threads_manage_replies",
   "threads_keyword_search",
+  "threads_manage_insights",
 ].join(",");
 
 const INSTAGRAM_SCOPES = [
@@ -548,7 +549,7 @@ function usesHostedOAuth(form: AccountForm) {
 }
 
 async function startHostedOAuth(platform: AccountPlatform, username: string, tags: string[]) {
-  if (platform === "threads") return api.startThreadsOAuth({ tags });
+  if (platform === "threads") return api.startThreadsOAuth({ username, scopes: THREADS_FULL_SCOPES, tags });
   if (platform === "twitter") return api.startTwitterOAuth({ tags });
   if (platform === "facebook") return api.startFacebookOAuth({ tags });
   if (platform === "linkedin") return api.startLinkedInOAuth({ tags });

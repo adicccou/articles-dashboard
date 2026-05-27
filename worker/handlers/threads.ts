@@ -41,6 +41,7 @@ const DEFAULT_THREADS_SCOPES = [
   "threads_read_replies",
   "threads_manage_replies",
   "threads_keyword_search",
+  "threads_manage_insights",
 ].join(",");
 const THREADS_MEDIA_FIELDS = [
   "id",
@@ -76,6 +77,17 @@ type ThreadsGraphError = {
     error_subcode?: number;
     fbtrace_id?: string;
   };
+};
+
+type ThreadsInsightMetric = "views" | "likes" | "shares" | "replies" | "reposts" | "quotes";
+
+type ThreadsInsightMetricResponse = {
+  name?: string;
+  values?: Array<{ value?: unknown }>;
+};
+
+type ThreadsInsightsResponse = ThreadsGraphError & {
+  data?: ThreadsInsightMetricResponse[];
 };
 
 type ThreadsProfileResponse = ThreadsGraphError & {
@@ -205,6 +217,15 @@ async function upsertSetting(env: Env, key: string, value: string, updatedAt: st
 function getGraphErrorMessage(payload: unknown, fallback: string): string {
   const graphError = payload as ThreadsGraphError;
   return graphError.error?.message || fallback;
+}
+
+function normalizeThreadsScopes(scopes: string): string {
+  const requiredScopes = DEFAULT_THREADS_SCOPES.split(",").filter(Boolean);
+  const currentScopes = scopes
+    .split(/[,\s]+/)
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+  return Array.from(new Set([...currentScopes, ...requiredScopes])).join(",");
 }
 
 async function readSetting(env: Env, key: string, userId = DEFAULT_USER_ID): Promise<string> {
@@ -455,7 +476,7 @@ async function createThreadsAccount(
     upsertSetting(env, `social_account:${accountId}:threads_client_id`, payload.client_id.trim(), now, scopeId),
     upsertSetting(env, `social_account:${accountId}:threads_client_secret`, payload.client_secret.trim(), now, scopeId),
     upsertSetting(env, `social_account:${accountId}:threads_redirect_uri`, payload.redirect_uri.trim(), now, scopeId),
-    upsertSetting(env, `social_account:${accountId}:threads_scopes`, payload.scopes.trim(), now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:threads_scopes`, normalizeThreadsScopes(payload.scopes.trim()), now, scopeId),
     upsertSetting(env, `social_account:${accountId}:threads_access_token`, payload.access_token.trim(), now, scopeId),
     upsertSetting(env, `social_account:${accountId}:threads_user_id`, payload.user_id.trim(), now, scopeId),
     upsertSetting(env, "threads_access_token", payload.access_token.trim(), now, scopeId),
@@ -520,12 +541,13 @@ async function readStoredThreadsOAuthConfig(env: Env, userId = DEFAULT_USER_ID) 
 async function threadsOAuthConfig(env: Env, requestUrl: string, payload: PendingThreadsOAuth, userId = DEFAULT_USER_ID) {
   const requestOrigin = new URL(requestUrl).origin;
   const stored = await readStoredThreadsOAuthConfig(env, userId);
+  const scopes = payload.scopes?.trim() || env.THREADS_SCOPES?.trim() || stored?.scopes || DEFAULT_THREADS_SCOPES;
   return {
     username: payload.username?.trim().replace(/^@+/, "") || "",
     client_id: payload.client_id?.trim() || env.THREADS_CLIENT_ID?.trim() || stored?.client_id || "",
     client_secret: payload.client_secret?.trim() || env.THREADS_CLIENT_SECRET?.trim() || stored?.client_secret || "",
     redirect_uri: payload.redirect_uri?.trim() || env.THREADS_REDIRECT_URI?.trim() || stored?.redirect_uri || `${requestOrigin}/api/threads/auth/callback`,
-    scopes: payload.scopes?.trim() || env.THREADS_SCOPES?.trim() || stored?.scopes || DEFAULT_THREADS_SCOPES,
+    scopes: normalizeThreadsScopes(scopes),
   };
 }
 
@@ -883,6 +905,159 @@ export async function listThreadsComments(env: Env, postId?: string | null, limi
   }
 }
 
+const THREADS_INSIGHT_METRICS: ThreadsInsightMetric[] = ["views", "likes", "shares", "replies", "reposts", "quotes"];
+
+function readThreadsMetricValue(metrics: Map<string, number>, name: ThreadsInsightMetric): number | null {
+  return metrics.has(name) ? metrics.get(name) ?? null : null;
+}
+
+function parseThreadsMetricValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
+  return null;
+}
+
+async function fetchThreadsPostInsights(
+  credentials: ThreadsCredentials,
+  target: { id: number; external_id: string; account_id: number | null },
+) {
+  const insightsUrl = new URL(`${THREADS_GRAPH_BASE}/${encodeURIComponent(target.external_id)}/insights`);
+  insightsUrl.searchParams.set("metric", THREADS_INSIGHT_METRICS.join(","));
+  insightsUrl.searchParams.set("access_token", credentials.accessToken);
+
+  const response = await fetch(insightsUrl.toString());
+  const payload = await response.json() as ThreadsInsightsResponse;
+  if (!response.ok || payload.error) {
+    throw new Error(getGraphErrorMessage(payload, "Threads insights lookup failed."));
+  }
+
+  const metrics = new Map<string, number>();
+  for (const metric of payload.data ?? []) {
+    const name = metric.name?.trim();
+    const value = parseThreadsMetricValue(metric.values?.[0]?.value);
+    if (name && value !== null) metrics.set(name, value);
+  }
+
+  const reposts = readThreadsMetricValue(metrics, "reposts");
+  const quotes = readThreadsMetricValue(metrics, "quotes");
+  const shares = readThreadsMetricValue(metrics, "shares") ?? ((reposts ?? 0) + (quotes ?? 0));
+
+  return {
+    platform: "threads" as const,
+    account_id: target.account_id ?? credentials.accountId,
+    post_id: target.id,
+    external_id: target.external_id,
+    views: readThreadsMetricValue(metrics, "views"),
+    likes: readThreadsMetricValue(metrics, "likes"),
+    shares,
+    replies: readThreadsMetricValue(metrics, "replies"),
+    reposts,
+    quotes,
+  };
+}
+
+function threadsInsightFailureMessage(error: unknown) {
+  return error instanceof Error && error.message.trim() ? error.message.trim() : "Threads insights lookup failed.";
+}
+
+function sumNullableMetric(items: Array<Record<string, unknown>>, key: string): number | null {
+  let found = false;
+  let total = 0;
+  for (const item of items) {
+    const value = item[key];
+    if (typeof value !== "number" || !Number.isFinite(value)) continue;
+    found = true;
+    total += value;
+  }
+  return found ? total : null;
+}
+
+export async function listThreadsPostInsights(env: Env, url: URL, userId = DEFAULT_USER_ID): Promise<Response> {
+  try {
+    const requestedAccountId = Number(url.searchParams.get("account_id") || 0) || undefined;
+    const requestedLimit = Math.max(1, Math.min(Number(url.searchParams.get("limit") || 100) || 100, 200));
+    const credentials = await getThreadsCredentials(env, requestedAccountId, userId);
+    if (!credentials) {
+      return jsonResponse({
+        data: [],
+        status: "not_connected",
+        warning: "No active Threads account with access token was found.",
+        totals: { posts: 0, synced: 0, views: null, likes: null, shares: null, replies: null, reposts: null, quotes: null },
+      });
+    }
+
+    const storedScopes = await readSetting(env, `social_account:${credentials.accountId}:threads_scopes`, userId);
+    const scopeSet = new Set(storedScopes.split(/[,\s]+/).map((scope) => scope.trim()).filter(Boolean));
+    if (!scopeSet.has("threads_manage_insights")) {
+      return jsonResponse({
+        data: [],
+        status: "needs_reconnect",
+        warning: "Reconnect this Threads account so Oilor can request threads_manage_insights.",
+        totals: { posts: 0, synced: 0, views: null, likes: null, shares: null, replies: null, reposts: null, quotes: null },
+      });
+    }
+
+    const filters = ["platform = 'threads'", "status = 'posted'", "external_id IS NOT NULL", "TRIM(external_id) != ''"];
+    const values: unknown[] = [];
+    if (requestedAccountId) {
+      filters.push("(account_id = ? OR account_id IS NULL)");
+      values.push(requestedAccountId);
+    }
+    await appendScopedFilter(env, "social_posts", filters, values, userId);
+    const rows = await env.DB.prepare(
+      `SELECT id, external_id, account_id FROM social_posts WHERE ${filters.join(" AND ")} ORDER BY posted_at DESC, updated_at DESC LIMIT ?`,
+    )
+      .bind(...values, requestedLimit)
+      .all<{ id: number; external_id: string | null; account_id: number | null }>();
+    const targets = (rows.results ?? [])
+      .map((row) => ({
+        id: row.id,
+        external_id: row.external_id?.trim() || "",
+        account_id: row.account_id,
+      }))
+      .filter((row) => row.external_id);
+
+    const results = await Promise.all(
+      targets.map(async (target) => {
+        try {
+          return { insight: await fetchThreadsPostInsights(credentials, target), failure: null };
+        } catch (error) {
+          return {
+            insight: null,
+            failure: {
+              post_id: target.id,
+              external_id: target.external_id,
+              message: threadsInsightFailureMessage(error),
+            },
+          };
+        }
+      }),
+    );
+    const insights = results.flatMap((result) => (result.insight ? [result.insight] : []));
+    const failures = results.flatMap((result) => (result.failure ? [result.failure] : []));
+    return jsonResponse({
+      data: insights,
+      status: "connected",
+      warning: failures.length
+        ? `Skipped ${failures.length} Threads post${failures.length === 1 ? "" : "s"} because Meta did not return insights for ${failures.length === 1 ? "it" : "them"}.`
+        : undefined,
+      failures,
+      totals: {
+        posts: targets.length,
+        synced: insights.length,
+        views: sumNullableMetric(insights, "views"),
+        likes: sumNullableMetric(insights, "likes"),
+        shares: sumNullableMetric(insights, "shares"),
+        replies: sumNullableMetric(insights, "replies"),
+        reposts: sumNullableMetric(insights, "reposts"),
+        quotes: sumNullableMetric(insights, "quotes"),
+      },
+    });
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Failed to load Threads insights", 500);
+  }
+}
+
 export async function createThreadsReply(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const payload = await parseJson<{ reply_to_id: string; text: string; account_id?: number; image_url?: string | null }>(request);
@@ -1097,7 +1272,7 @@ export async function updateThreadsAccount(
     if (payload.client_id?.trim()) settingUpdates.push(["threads_client_id", payload.client_id.trim()]);
     if (payload.client_secret?.trim()) settingUpdates.push(["threads_client_secret", payload.client_secret.trim()]);
     if (payload.redirect_uri?.trim()) settingUpdates.push(["threads_redirect_uri", payload.redirect_uri.trim()]);
-    if (payload.scopes?.trim()) settingUpdates.push(["threads_scopes", payload.scopes.trim()]);
+    if (payload.scopes?.trim()) settingUpdates.push(["threads_scopes", normalizeThreadsScopes(payload.scopes.trim())]);
     if (payload.access_token?.trim()) settingUpdates.push(["threads_access_token", payload.access_token.trim()]);
     if (payload.user_id?.trim()) settingUpdates.push(["threads_user_id", payload.user_id.trim()]);
     const connectionMode = payload.connection_mode ? "official_api" : null;

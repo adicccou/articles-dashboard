@@ -752,6 +752,40 @@ export type SocialComment = {
   owner_reply_permalink?: string | null;
 };
 
+export type ThreadsPostInsight = {
+  platform: "threads";
+  account_id: number | null;
+  post_id: number;
+  external_id: string;
+  views: number | null;
+  likes: number | null;
+  shares: number | null;
+  replies?: number | null;
+  reposts?: number | null;
+  quotes?: number | null;
+};
+
+export type ThreadsInsightsResponse = {
+  data: ThreadsPostInsight[];
+  status: "connected" | "not_connected" | "needs_reconnect";
+  warning?: string;
+  failures?: Array<{
+    post_id: number;
+    external_id: string;
+    message: string;
+  }>;
+  totals: {
+    posts: number;
+    synced: number;
+    views: number | null;
+    likes: number | null;
+    shares: number | null;
+    replies?: number | null;
+    reposts?: number | null;
+    quotes?: number | null;
+  };
+};
+
 export type SocialReplySuggestion = {
   reply_text: string;
 };

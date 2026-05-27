@@ -1,4 +1,4 @@
-import type { ArticleAssistPayload, ArticleCoverPayload, ArticleCoverResponse, ArticleInput, ArticleRecord, ArticleStylePayload, ArticleStyleResponse, AuthState, DashboardBootstrap, DashboardUser, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, RedditSubscribedSubreddit, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, Site, SocialAccount, SocialAccountInput, SocialComment, SocialPost, SocialReplySuggestion, StudioAccount, StudioApp, StudioCampaign, StudioCrawlerRun, StudioSignal, StudioStrategistPost, StudioSummary, ThreadsCampaignResult, ThreadsMediaResponse, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorkersResponse, MlTradingAssetsResponse, MlTradingDiagnostics, MlTradingSettings } from "./types";
+import type { ArticleAssistPayload, ArticleCoverPayload, ArticleCoverResponse, ArticleInput, ArticleRecord, ArticleStylePayload, ArticleStyleResponse, AuthState, DashboardBootstrap, DashboardUser, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, RedditSubscribedSubreddit, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, Site, SocialAccount, SocialAccountInput, SocialComment, SocialPost, SocialReplySuggestion, StudioAccount, StudioApp, StudioCampaign, StudioCrawlerRun, StudioSignal, StudioStrategistPost, StudioSummary, ThreadsCampaignResult, ThreadsInsightsResponse, ThreadsMediaResponse, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorkersResponse, MlTradingAssetsResponse, MlTradingDiagnostics, MlTradingSettings } from "./types";
 
 type SocialReplyPublishResponse = {
   success: boolean;
@@ -567,6 +567,12 @@ export const api = {
     request<ThreadsMediaResponse>(
       `/api/social/threads/replies${mediaId ? `?media_id=${encodeURIComponent(mediaId)}` : ""}`,
     ),
+  getThreadsInsights: (accountId?: number | null) => {
+    const params = new URLSearchParams();
+    if (accountId) params.set("account_id", String(accountId));
+    const query = params.toString();
+    return request<ThreadsInsightsResponse>(`/api/social/threads/insights${query ? `?${query}` : ""}`);
+  },
   listThreadsCampaignResults: (campaignId?: number) =>
     request<ThreadsCampaignResult[]>(
       `/api/social/threads/campaign-results${campaignId ? `?campaign_id=${encodeURIComponent(String(campaignId))}` : ""}`,

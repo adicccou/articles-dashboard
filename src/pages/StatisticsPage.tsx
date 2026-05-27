@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowPathIcon } from "@heroicons/react/24/solid";
+import type { IconType } from "react-icons";
+import { FaFacebookF, FaLinkedinIn } from "react-icons/fa6";
+import { SiInstagram, SiReddit, SiThreads, SiX, SiYoutube } from "react-icons/si";
 import { api } from "../lib/api";
-import type { RedditAccount, SocialAccount, SocialComment, SocialPost } from "../lib/types";
+import type { RedditAccount, SocialAccount, SocialComment, SocialPost, ThreadsInsightsResponse } from "../lib/types";
 import { formatDisplayDateTime } from "../lib/datetime";
 import "../styles/statistics-page.css";
 
@@ -11,6 +14,7 @@ type AccountStats = {
   account: Account;
   posts: SocialPost[];
   comments: SocialComment[];
+  insights: AccountInsights;
   totalPosts: number;
   publishedPosts: number;
   scheduledPosts: number;
@@ -20,12 +24,38 @@ type AccountStats = {
   repliesSent: number;
   lastPostAt: string | null;
 };
+type AccountInsights = {
+  status: ThreadsInsightsResponse["status"] | "not_supported" | "error";
+  views: number | null;
+  likes: number | null;
+  shares: number | null;
+  posts: number;
+  synced: number;
+  message?: string;
+};
 type PlatformSelection = "all" | Platform;
 
 const PLATFORMS: Platform[] = ["twitter", "threads", "reddit", "instagram", "linkedin", "facebook", "youtube"];
 const COMMENT_PLATFORMS = new Set<Platform>(["twitter", "threads", "reddit"]);
 const INSIGHT_METRICS = ["Views", "Likes", "Shares"];
 const REQUEST_TIMEOUT_MS = 20000;
+const platformIcons: Partial<Record<Platform, IconType>> = {
+  twitter: SiX,
+  threads: SiThreads,
+  reddit: SiReddit,
+  instagram: SiInstagram,
+  linkedin: FaLinkedinIn,
+  facebook: FaFacebookF,
+  youtube: SiYoutube,
+};
+const EMPTY_INSIGHTS: AccountInsights = {
+  status: "not_supported",
+  views: null,
+  likes: null,
+  shares: null,
+  posts: 0,
+  synced: 0,
+};
 
 function StatCard({ label, value, sub, accent }: { label: string; value: string | number; sub?: string; accent?: "green" | "blue" | "amber" | "purple" | "red" }) {
   return (
@@ -46,6 +76,12 @@ function platformLabel(platform: string) {
   if (platform === "facebook") return "Facebook";
   if (platform === "youtube") return "YouTube";
   return platform;
+}
+
+function PlatformIcon({ platform }: { platform: Platform }) {
+  const Icon = platformIcons[platform];
+  if (!Icon) return null;
+  return <Icon className={`stats-platform-icon stats-platform-icon--${platform}`} aria-hidden="true" />;
 }
 
 function normalizeRedditAccounts(accounts: RedditAccount[]): Account[] {
@@ -92,6 +128,45 @@ function latestDate(posts: SocialPost[]) {
   return new Date(Math.max(...timestamps)).toISOString();
 }
 
+function insightsFromResponse(response: ThreadsInsightsResponse): AccountInsights {
+  return {
+    status: response.status,
+    views: response.totals.views,
+    likes: response.totals.likes,
+    shares: response.totals.shares,
+    posts: response.totals.posts,
+    synced: response.totals.synced,
+    message: response.warning,
+  };
+}
+
+function insightError(message: string): AccountInsights {
+  return {
+    status: "error",
+    views: null,
+    likes: null,
+    shares: null,
+    posts: 0,
+    synced: 0,
+    message,
+  };
+}
+
+function formatInsightMetric(insights: AccountInsights, key: "views" | "likes" | "shares") {
+  const value = insights[key];
+  if (typeof value === "number" && Number.isFinite(value)) return value.toLocaleString();
+  if (insights.status === "needs_reconnect") return "Reconnect";
+  if (insights.status === "error") return "Error";
+  if (insights.status === "connected") return "No data";
+  return "Not connected";
+}
+
+function insightCellClass(insights: AccountInsights) {
+  return typeof insights.views === "number" || typeof insights.likes === "number" || typeof insights.shares === "number"
+    ? ""
+    : "stats-unavailable";
+}
+
 function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = window.setTimeout(() => reject(new Error(`${label} timed out.`)), REQUEST_TIMEOUT_MS);
@@ -111,6 +186,7 @@ export function StatisticsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [posts, setPosts] = useState<SocialPost[]>([]);
   const [commentsByAccount, setCommentsByAccount] = useState<Record<string, SocialComment[]>>({});
+  const [insightsByAccount, setInsightsByAccount] = useState<Record<string, AccountInsights>>({});
   const [selectedPlatform, setSelectedPlatform] = useState<PlatformSelection>("all");
   const [selectedAccountKey, setSelectedAccountKey] = useState("all");
   const [loading, setLoading] = useState(true);
@@ -156,9 +232,22 @@ export function StatisticsPage() {
           }),
       );
 
+      const insightEntries = await Promise.all(
+        activeAccounts
+          .filter((account) => account.platform === "threads")
+          .map(async (account) => {
+            const response = await api
+              .getThreadsInsights(account.id)
+              .then(insightsFromResponse)
+              .catch((err) => insightError(err instanceof Error ? err.message : "Failed to load Threads insights"));
+            return [accountKey(account), response] as const;
+          }),
+      );
+
       setAccounts(activeAccounts);
       setPosts(allPosts);
       setCommentsByAccount(Object.fromEntries(commentEntries));
+      setInsightsByAccount(Object.fromEntries(insightEntries));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load social statistics");
     } finally {
@@ -176,10 +265,12 @@ export function StatisticsPage() {
       const platformAccounts = accounts.filter((item) => item.platform === account.platform);
       const accountPosts = posts.filter((post) => postBelongsToAccount(post, account, platformAccounts));
       const accountComments = commentsByAccount[accountKey(account)] ?? [];
+      const insights = insightsByAccount[accountKey(account)] ?? EMPTY_INSIGHTS;
       return {
         account,
         posts: accountPosts,
         comments: accountComments,
+        insights,
         totalPosts: accountPosts.length,
         publishedPosts: accountPosts.filter((post) => post.status === "posted").length,
         scheduledPosts: accountPosts.filter((post) => post.status === "scheduled").length,
@@ -190,7 +281,7 @@ export function StatisticsPage() {
         lastPostAt: latestDate(accountPosts),
       };
     }).sort((left, right) => right.publishedPosts - left.publishedPosts || right.totalPosts - left.totalPosts);
-  }, [accounts, commentsByAccount, posts]);
+  }, [accounts, commentsByAccount, insightsByAccount, posts]);
 
   const platformTabs = useMemo(() => {
     const platforms = Array.from(new Set(statsByAccount.map((item) => item.account.platform)));
@@ -280,32 +371,33 @@ export function StatisticsPage() {
             <section className="stats-tabs-panel" aria-label="Statistics filters">
               <div className="stats-tabs-group">
                 <span className="stats-tabs-label">Platform</span>
-                <div className="stats-tabs-scroll" role="tablist" aria-label="Social platform statistics">
+                <div className="ui-tabs__list social-platform-tabs stats-tabs-list" role="tablist" aria-label="Social platform statistics">
                   <button
                     type="button"
-                    className={`stats-tab ${selectedPlatform === "all" ? "stats-tab--active" : ""}`}
+                    className={`ui-tab social-tab ${selectedPlatform === "all" ? "ui-tab--active social-tab--active" : ""}`}
                     onClick={() => {
                       setSelectedPlatform("all");
                       setSelectedAccountKey("all");
                     }}
                   >
                     All platforms
-                    <span>{statsByAccount.length}</span>
+                    <span className="ui-tab__badge">{statsByAccount.length}</span>
                   </button>
                   {platformTabs.map((platform) => {
                     const count = statsByAccount.filter((item) => item.account.platform === platform).length;
                     return (
                       <button
                         type="button"
-                        className={`stats-tab ${selectedPlatform === platform ? "stats-tab--active" : ""}`}
+                        className={`ui-tab social-tab ${selectedPlatform === platform ? "ui-tab--active social-tab--active" : ""}`}
                         key={platform}
                         onClick={() => {
                           setSelectedPlatform(platform);
                           setSelectedAccountKey("all");
                         }}
                       >
+                        <PlatformIcon platform={platform} />
                         {platformLabel(platform)}
-                        <span>{count}</span>
+                        <span className="ui-tab__badge">{count}</span>
                       </button>
                     );
                   })}
@@ -315,24 +407,26 @@ export function StatisticsPage() {
               {selectedPlatform !== "all" ? (
                 <div className="stats-tabs-group">
                   <span className="stats-tabs-label">Account</span>
-                  <div className="stats-tabs-scroll" role="tablist" aria-label="Social account statistics">
+                  <div className="ui-tabs__list social-platform-tabs stats-tabs-list" role="tablist" aria-label="Social account statistics">
                     <button
                       type="button"
-                      className={`stats-tab ${selectedAccountKey === "all" ? "stats-tab--active" : ""}`}
+                      className={`ui-tab social-tab ${selectedAccountKey === "all" ? "ui-tab--active social-tab--active" : ""}`}
                       onClick={() => setSelectedAccountKey("all")}
                     >
+                      <PlatformIcon platform={selectedPlatform} />
                       All {platformLabel(selectedPlatform)} accounts
-                      <span>{platformStats.length}</span>
+                      <span className="ui-tab__badge">{platformStats.length}</span>
                     </button>
                     {platformStats.map((item) => (
                       <button
                         type="button"
-                        className={`stats-tab ${selectedAccountKey === accountKey(item.account) ? "stats-tab--active" : ""}`}
+                        className={`ui-tab social-tab ${selectedAccountKey === accountKey(item.account) ? "ui-tab--active social-tab--active" : ""}`}
                         key={accountKey(item.account)}
                         onClick={() => setSelectedAccountKey(accountKey(item.account))}
                       >
+                        <PlatformIcon platform={item.account.platform} />
                         {item.account.username ? `@${item.account.username}` : `Account ${item.account.id}`}
-                        <span>{item.totalPosts}</span>
+                        <span className="ui-tab__badge">{item.totalPosts}</span>
                       </button>
                     ))}
                   </div>
@@ -359,7 +453,10 @@ export function StatisticsPage() {
                   <article className="stats-account-card" key={accountKey(item.account)}>
                     <div className="stats-account-card__header">
                       <div>
-                        <span className="stats-platform-chip">{platformLabel(item.account.platform)}</span>
+                        <span className="stats-platform-chip">
+                          <PlatformIcon platform={item.account.platform} />
+                          {platformLabel(item.account.platform)}
+                        </span>
                         <h4>{item.account.username ? `@${item.account.username}` : `Account ${item.account.id}`}</h4>
                       </div>
                       <span className={`stats-status-chip stats-status-chip--${item.account.status}`}>{item.account.status}</span>
@@ -371,9 +468,14 @@ export function StatisticsPage() {
                       <span><strong>{item.repliesSent}</strong> replies sent</span>
                     </div>
                     <div className="stats-insight-row">
-                      {INSIGHT_METRICS.map((metric) => (
-                        <span key={metric}><strong>-</strong>{metric}</span>
-                      ))}
+                      {INSIGHT_METRICS.map((metric) => {
+                        const key = metric.toLowerCase() as "views" | "likes" | "shares";
+                        return (
+                          <span key={metric} title={item.insights.message}>
+                            <strong>{formatInsightMetric(item.insights, key)}</strong>{metric}
+                          </span>
+                        );
+                      })}
                     </div>
                     <p className="stats-account-card__note">
                       {item.lastPostAt ? `Latest activity ${formatDisplayDateTime(item.lastPostAt)}` : "No posts created for this account yet."}
@@ -387,7 +489,7 @@ export function StatisticsPage() {
               <div className="stats-section__header">
                 <div>
                   <h3>Post Performance By Account</h3>
-                  <p>Filtered to {selectedScopeLabel}. Views, likes, and shares need platform insights APIs before exact numbers can be shown.</p>
+                  <p>Filtered to {selectedScopeLabel}. Threads views, likes, and shares sync from the Threads insights API after the account is reconnected with insights permission.</p>
                 </div>
               </div>
               <div className="stats-table-wrap">
@@ -409,16 +511,21 @@ export function StatisticsPage() {
                   <tbody>
                     {visibleStats.map((item) => (
                       <tr key={accountKey(item.account)}>
-                        <td>{accountLabel(item.account)}</td>
+                        <td>
+                          <span className="stats-account-label">
+                            <PlatformIcon platform={item.account.platform} />
+                            {accountLabel(item.account)}
+                          </span>
+                        </td>
                         <td>{item.totalPosts}</td>
                         <td>{item.publishedPosts}</td>
                         <td>{item.scheduledPosts}</td>
                         <td>{item.draftPosts}</td>
                         <td>{item.failedPosts}</td>
                         <td>{item.commentsCount}</td>
-                        <td className="stats-unavailable">Not connected</td>
-                        <td className="stats-unavailable">Not connected</td>
-                        <td className="stats-unavailable">Not connected</td>
+                        <td className={insightCellClass(item.insights)} title={item.insights.message}>{formatInsightMetric(item.insights, "views")}</td>
+                        <td className={insightCellClass(item.insights)} title={item.insights.message}>{formatInsightMetric(item.insights, "likes")}</td>
+                        <td className={insightCellClass(item.insights)} title={item.insights.message}>{formatInsightMetric(item.insights, "shares")}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -440,7 +547,10 @@ export function StatisticsPage() {
                   {recentPosts.map((post) => (
                     <article className="stats-recent-post" key={`${post.platform}:${post.id}`}>
                       <div>
-                        <span className="stats-platform-chip">{platformLabel(post.platform)}</span>
+                        <span className="stats-platform-chip">
+                          <PlatformIcon platform={post.platform} />
+                          {platformLabel(post.platform)}
+                        </span>
                         <p>{post.content || post.title || "Untitled post"}</p>
                       </div>
                       <span className={`stats-post-status stats-post-status--${post.status}`}>{post.status}</span>

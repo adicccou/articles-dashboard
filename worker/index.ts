@@ -86,6 +86,7 @@ import {
   createThreadsReply,
   fetchThreadsRepliesData,
   listThreadsComments,
+  listThreadsPostInsights,
 } from "./handlers/threads";
 import {
   listThreadsCampaignResults,
@@ -2196,6 +2197,12 @@ export default {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       return await createThreadsReply(env, request, activeScopeId(user));
+    }
+
+    if (url.pathname === "/api/social/threads/insights" && request.method === "GET") {
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      return await listThreadsPostInsights(env, url, activeScopeId(user));
     }
 
     if (url.pathname === "/api/social/threads/campaign-results" && request.method === "GET") {
