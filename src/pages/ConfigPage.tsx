@@ -646,6 +646,7 @@ export function ConfigPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [tagDrafts, setTagDrafts] = useState<Record<string, string>>({});
+  const [openTagInputs, setOpenTagInputs] = useState<Record<string, boolean>>({});
   const [savingTags, setSavingTags] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -1070,7 +1071,7 @@ export function ConfigPage() {
     }
   }
 
-  async function saveAccountTags(account: ManagedAccount, nextTags: string[]) {
+  async function saveAccountTags(account: ManagedAccount, nextTags: string[], options: { closeInput?: boolean } = {}) {
     const key = accountTagKey(account);
     try {
       setSavingTags((current) => ({ ...current, [key]: true }));
@@ -1085,6 +1086,9 @@ export function ConfigPage() {
           : item
       )));
       setTagDrafts((current) => ({ ...current, [key]: "" }));
+      if (options.closeInput) {
+        setOpenTagInputs((current) => ({ ...current, [key]: false }));
+      }
       setFeedback("Account tags updated.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update account tags");
@@ -1098,12 +1102,23 @@ export function ConfigPage() {
     const draftedTags = normalizeAccountTags(tagDrafts[key] ?? "");
     if (draftedTags.length === 0) return;
     const nextTags = normalizeAccountTags([...(account.tags ?? []), ...draftedTags]);
-    void saveAccountTags(account, nextTags);
+    void saveAccountTags(account, nextTags, { closeInput: true });
   }
 
   function removeAccountTag(account: ManagedAccount, tag: string) {
     const nextTags = normalizeAccountTags((account.tags ?? []).filter((item) => item !== tag));
     void saveAccountTags(account, nextTags);
+  }
+
+  function openAccountTagInput(account: ManagedAccount) {
+    const key = accountTagKey(account);
+    setOpenTagInputs((current) => ({ ...current, [key]: true }));
+  }
+
+  function closeAccountTagInput(account: ManagedAccount) {
+    const key = accountTagKey(account);
+    setTagDrafts((current) => ({ ...current, [key]: "" }));
+    setOpenTagInputs((current) => ({ ...current, [key]: false }));
   }
 
   function accountSubmitLabel() {
@@ -1281,6 +1296,7 @@ export function ConfigPage() {
                   const key = accountTagKey(account);
                   const draft = tagDrafts[key] ?? "";
                   const isSavingTags = Boolean(savingTags[key]);
+                  const isTagInputOpen = Boolean(openTagInputs[key]);
                   return (
                     <article className="config-table__row" key={`${account.platform}-${account.id}`}>
                       <div className="config-main-cell">
@@ -1304,28 +1320,46 @@ export function ConfigPage() {
                                   </button>
                                 </span>
                               ))}
-                              <input
-                                className="config-account-tag-input"
-                                value={draft}
-                                placeholder="Type tag"
-                                disabled={isSavingTags}
-                                onChange={(event) => setTagDrafts((current) => ({ ...current, [key]: event.target.value }))}
-                                onKeyDown={(event) => {
-                                  if (event.key === "Enter") {
-                                    event.preventDefault();
-                                    addAccountTags(account);
-                                  }
-                                }}
-                                aria-label={`Add tag for ${account.username}`}
-                              />
-                              <button
-                                className="config-account-tag-add"
-                                type="button"
-                                disabled={isSavingTags || normalizeAccountTags(draft).length === 0}
-                                onClick={() => addAccountTags(account)}
-                              >
-                                Add
-                              </button>
+                              {isTagInputOpen ? (
+                                <>
+                                  <input
+                                    className="config-account-tag-input"
+                                    value={draft}
+                                    placeholder="Type tag"
+                                    autoFocus
+                                    disabled={isSavingTags}
+                                    onChange={(event) => setTagDrafts((current) => ({ ...current, [key]: event.target.value }))}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter") {
+                                        event.preventDefault();
+                                        addAccountTags(account);
+                                      }
+                                      if (event.key === "Escape") {
+                                        event.preventDefault();
+                                        closeAccountTagInput(account);
+                                      }
+                                    }}
+                                    aria-label={`Add tag for ${account.username}`}
+                                  />
+                                  <button
+                                    className="config-account-tag-add"
+                                    type="button"
+                                    disabled={isSavingTags || normalizeAccountTags(draft).length === 0}
+                                    onClick={() => addAccountTags(account)}
+                                  >
+                                    Add
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  className="config-account-tag-add config-account-tag-add--trigger"
+                                  type="button"
+                                  disabled={isSavingTags}
+                                  onClick={() => openAccountTagInput(account)}
+                                >
+                                  Add tag
+                                </button>
+                              )}
                             </div>
                           </div>
                         </div>
