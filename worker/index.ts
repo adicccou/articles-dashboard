@@ -34,6 +34,7 @@ import {
   handleLinkedInOAuthCallback,
   listExtraSocialAccounts,
   listInternalExtraSocialAccounts,
+  proxySocialAccountAvatar,
   publishExtraSocialPost,
   updateExtraSocialAccount,
   updatePublishedLinkedInPost,
@@ -2039,6 +2040,13 @@ export default {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       return await addExtraSocialAccount(env, request, activeScopeId(user), user.id);
+    }
+
+    if (url.pathname.match(/^\/api\/social\/accounts\/[^/]+\/avatar$/) && request.method === "GET") {
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      const id = url.pathname.split("/")[4];
+      return await proxySocialAccountAvatar(env, id, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/social/accounts/") && request.method === "PUT") {

@@ -954,6 +954,53 @@ export async function listExtraSocialAccounts(
   }
 }
 
+export async function proxySocialAccountAvatar(
+  env: Env,
+  accountIdRaw: string,
+  scopeId = DEFAULT_USER_ID,
+): Promise<Response> {
+  const accountId = Number(accountIdRaw);
+  if (!Number.isFinite(accountId) || accountId <= 0) return errorResponse("Invalid account ID", 400);
+
+  const filters = ["id = ?"];
+  const values: unknown[] = [accountId];
+  await appendScopedFilter(env, "social_accounts", filters, values, scopeId);
+  const account = await env.DB.prepare(`SELECT id FROM social_accounts WHERE ${filters.join(" AND ")} LIMIT 1`)
+    .bind(...values)
+    .first<{ id: number }>();
+  if (!account) return errorResponse("Social account not found", 404);
+
+  const avatarUrl = (await readSetting(env, `social_account:${accountId}:avatar_url`, scopeId)).trim();
+  if (!avatarUrl) return errorResponse("Social account avatar not found", 404);
+
+  let parsed: URL;
+  try {
+    parsed = new URL(avatarUrl);
+  } catch {
+    return errorResponse("Social account avatar URL is invalid", 400);
+  }
+  if (parsed.protocol !== "https:") return errorResponse("Social account avatar URL must use HTTPS", 400);
+
+  const response = await fetch(parsed.toString(), {
+    headers: {
+      Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+      "User-Agent": "Oilor Studio avatar proxy",
+    },
+  });
+  const contentType = response.headers.get("content-type") || "";
+  if (!response.ok || !contentType.toLowerCase().startsWith("image/")) {
+    return errorResponse("Social account avatar could not be loaded", 502);
+  }
+
+  return new Response(response.body, {
+    status: 200,
+    headers: {
+      "Content-Type": contentType,
+      "Cache-Control": "private, max-age=3600",
+    },
+  });
+}
+
 export async function authorizeInstagramAccount(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const config = await instagramOAuthConfig(env, request.url, userId);
@@ -1373,7 +1420,7 @@ export async function handleLinkedInOAuthCallback(env: Env, url: URL): Promise<R
   }
 }
 
-export async function listInternalExtraSocialAccounts(env: Env) {
+export async function listInternalExtraSocialAccounts(env: Env, scopeId = DEFAULT_USER_ID) {
   const rows = await env.DB.prepare(
     `SELECT id, platform, username, status, created_at, updated_at
      FROM social_accounts
@@ -1389,9 +1436,13 @@ export async function listInternalExtraSocialAccounts(env: Env) {
   }>();
 
   return Promise.all((rows.results ?? []).map(async (row) => {
-    const officialReady = await storedOfficialCredentialsReady(env, row.platform, row.id);
+    const [officialReady, presentation] = await Promise.all([
+      storedOfficialCredentialsReady(env, row.platform, row.id, scopeId),
+      readAccountPresentationSettings(env, row.id, scopeId),
+    ]);
     return {
       ...row,
+      ...presentation,
       connection_mode: "official_api",
       credentials_ready: officialReady,
     };

@@ -208,7 +208,7 @@ function accountSubtitle(account: Pick<ManagedAccount, "platform" | "username" |
   return platformLabel(account.platform);
 }
 
-function accountAvatarCandidates(account: Pick<ManagedAccount, "platform" | "username" | "profile_username" | "avatar_url">) {
+function accountAvatarCandidates(account: Pick<ManagedAccount, "id" | "platform" | "username" | "profile_username" | "avatar_url">) {
   const candidates: string[] = [];
   const addCandidate = (value: string | null | undefined) => {
     const trimmed = String(value ?? "").trim();
@@ -216,7 +216,10 @@ function accountAvatarCandidates(account: Pick<ManagedAccount, "platform" | "use
     candidates.push(trimmed);
   };
 
-  addCandidate(account.avatar_url);
+  if (account.avatar_url) {
+    addCandidate(`/api/social/accounts/${account.id}/avatar`);
+    addCandidate(account.avatar_url);
+  }
 
   const handle = cleanAccountValue(account.profile_username || account.username);
   if (!handle || looksLikeEmail(handle) || /\s/.test(handle)) return candidates;
