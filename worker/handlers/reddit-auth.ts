@@ -1,6 +1,7 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasColumn, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
+import { normalizeAccountTags, readAccountTags, upsertAccountTags } from "../lib/account-tags";
 
 const REDDIT_OAUTH_URL = "https://www.reddit.com/api/v1/authorize";
 const REDDIT_TOKEN_URL = "https://www.reddit.com/api/v1/access_token";
@@ -85,7 +86,7 @@ export async function handleAuthorizeRequest(
   userId = DEFAULT_USER_ID,
 ): Promise<Response> {
   try {
-    const payload = await parseJson<{ account_name?: string }>(request);
+    const payload = await parseJson<{ account_name?: string; tags?: unknown }>(request);
 
     if (!isRedditAuthConfigured(env)) {
       return errorResponse(
@@ -97,6 +98,13 @@ export async function handleAuthorizeRequest(
     const state = crypto.randomUUID();
     const accountName = payload.account_name?.trim() || "Reddit";
     const authUrl = buildRedditAuthorizationUrl(env, request.url, state);
+    const now = new Date().toISOString();
+    await upsertSetting(env, `reddit_oauth_state:${state}`, JSON.stringify({
+      account_name: accountName,
+      tags: normalizeAccountTags(payload.tags),
+      user_id: ownerId(userId),
+      created_at: now,
+    }), now, userId);
 
     return jsonResponse(
       { auth_url: authUrl },
@@ -147,6 +155,14 @@ export async function handleOAuthCallback(
         headers: { "Content-Type": "text/html" },
       });
     }
+    const stateKey = `reddit_oauth_state:${state}`;
+    const pendingRow = await env.DB.prepare("SELECT value FROM app_settings WHERE key = ?")
+      .bind(stateKey)
+      .first<{ value: string }>();
+    const pending = pendingRow?.value
+      ? JSON.parse(pendingRow.value) as { tags?: unknown; user_id?: number }
+      : { tags: [] };
+    const pendingTags = normalizeAccountTags(pending.tags);
 
     if (!isRedditAuthConfigured(env)) {
       return new Response(
@@ -228,7 +244,13 @@ export async function handleOAuthCallback(
       .run();
     const accountId = Number((result as { meta?: { last_row_id?: number } }).meta?.last_row_id ?? 0);
     if (accountId) {
-      await upsertSetting(env, `reddit_account:${accountId}:connection_mode`, "official_api", now, owner);
+      await Promise.all([
+        upsertSetting(env, `reddit_account:${accountId}:connection_mode`, "official_api", now, owner),
+        ...(pendingTags.length > 0
+          ? [upsertAccountTags(env, "reddit_account", accountId, pendingTags, now, owner)]
+          : []),
+        env.DB.prepare("DELETE FROM app_settings WHERE key = ?").bind(stateKey).run(),
+      ]);
     }
 
     const payload = JSON.stringify({
@@ -291,9 +313,13 @@ export async function listRedditAccounts(
       `SELECT id, name, status, created_at, updated_at FROM reddit_accounts ${filters.length ? `WHERE ${filters.join(" AND ")}` : ""} ORDER BY created_at DESC`,
     ).bind(...values).all();
 
-    const results = (accounts.results || []).map((account) => ({
-      ...account,
-      connection_mode: "official_api",
+    const results = await Promise.all((accounts.results || []).map(async (account) => {
+      const id = Number((account as { id: number }).id);
+      return {
+        ...account,
+        tags: await readAccountTags(env, "reddit_account", id, scopeId),
+        connection_mode: "official_api",
+      };
     }));
     return jsonResponse(results);
   } catch (error) {
@@ -317,11 +343,13 @@ export async function listInternalRedditAccounts(env: Env) {
 
   return Promise.all((rows.results ?? []).map(async (row) => {
     const credentialsReady = Boolean(row.access_token?.trim());
+    const tags = await readAccountTags(env, "reddit_account", row.id);
     return {
       id: row.id,
       platform: "reddit",
       username: row.username,
       name: row.username,
+      tags,
       status: row.status === "active" && credentialsReady ? "active" : "inactive",
       connection_mode: "official_api",
       credentials_ready: credentialsReady,
@@ -342,6 +370,7 @@ export async function addRedditAccount(
       name?: string;
       status?: "active" | "inactive";
       connection_mode?: "official_api";
+      tags?: unknown;
     }>(request);
     const name = payload.name?.trim();
     if (!name) return errorResponse("Account name is required", 400);
@@ -356,6 +385,7 @@ export async function addRedditAccount(
       .bind(...scoped.values, name, "", "", null, status, now, now)
       .run() as { meta: { last_row_id: number } };
     const accountId = result.meta.last_row_id;
+    const tags = await upsertAccountTags(env, "reddit_account", accountId, payload.tags, now, scopeId);
     await Promise.all([
       upsertSetting(env, `reddit_account:${accountId}:connection_mode`, connectionMode, now, scopeId),
     ]);
@@ -363,6 +393,7 @@ export async function addRedditAccount(
       id: accountId,
       name,
       status,
+      tags,
       connection_mode: connectionMode,
       created_at: now,
       updated_at: now,
@@ -397,6 +428,7 @@ export async function updateRedditAccount(
       name?: string;
       status?: "active" | "inactive";
       connection_mode?: "official_api";
+      tags?: unknown;
     }>(request);
     const updates: string[] = [];
     const values: unknown[] = [];
@@ -415,7 +447,8 @@ export async function updateRedditAccount(
       values.push(payload.status);
     }
 
-    if (updates.length === 0 && !payload.connection_mode) {
+    const tagUpdate = payload.tags !== undefined;
+    if (updates.length === 0 && !payload.connection_mode && !tagUpdate) {
       return errorResponse("No account fields to update", 400);
     }
 
@@ -429,6 +462,7 @@ export async function updateRedditAccount(
       ...(payload.connection_mode
         ? [upsertSetting(env, `reddit_account:${id}:connection_mode`, "official_api", now, scopeId)]
         : []),
+      ...(tagUpdate ? [upsertAccountTags(env, "reddit_account", id, payload.tags, now, scopeId)] : []),
     ]);
 
     return jsonResponse({ success: true, updated_at: now });

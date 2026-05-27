@@ -2,6 +2,7 @@ import type { Env } from "../lib/types";
 import { errorResponse, jsonResponse, parseJson } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
 import { markLinkedPlannerItemsPublished, markSocialPostsFailed, socialPostsHaveLastError, socialPublishErrorMessage } from "../lib/social-publish";
+import { normalizeAccountTags, readAccountTags, upsertAccountTags } from "../lib/account-tags";
 
 type ExtraSocialPlatform = "linkedin" | "instagram" | "youtube";
 type AccountConnectionMode = "official_api";
@@ -28,6 +29,7 @@ type ExtraSocialAccountPayload = {
   user_id?: string;
   page_id?: string;
   refresh_token?: string;
+  tags?: unknown;
 };
 
 type InstagramTokenResponse = {
@@ -502,6 +504,38 @@ async function readAccountPresentationSettings(
   };
 }
 
+async function refreshLinkedInAccountPresentation(
+  env: Env,
+  accountId: number,
+  current: { display_name: string | null; avatar_url: string | null },
+  scopeId = DEFAULT_USER_ID,
+): Promise<{ display_name: string | null; avatar_url: string | null }> {
+  const token = (await readSetting(env, `social_account:${accountId}:linkedin_access_token`, scopeId)).trim();
+  if (!token) return current;
+
+  try {
+    const response = await fetch(LINKEDIN_USERINFO_URL, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const profile = await response.json() as LinkedInUserInfo;
+    if (!response.ok) return current;
+
+    const displayName = profile.name?.trim() || current.display_name;
+    const avatarUrl = profile.picture?.trim() || current.avatar_url;
+    const now = new Date().toISOString();
+    await Promise.all([
+      ...(displayName ? [upsertSetting(env, `social_account:${accountId}:display_name`, displayName, now, scopeId)] : []),
+      ...(avatarUrl ? [upsertSetting(env, `social_account:${accountId}:avatar_url`, avatarUrl, now, scopeId)] : []),
+    ]);
+    return {
+      display_name: displayName || null,
+      avatar_url: avatarUrl || null,
+    };
+  } catch {
+    return current;
+  }
+}
+
 async function upsertInstagramOAuthAccount(
   env: Env,
   account: {
@@ -933,13 +967,18 @@ export async function listExtraSocialAccounts(
     }>();
 
     const results = await Promise.all((rows.results ?? []).map(async (row) => {
-      const [credentialsReady, presentation] = await Promise.all([
+      const [credentialsReady, savedPresentation, tags] = await Promise.all([
         storedOfficialCredentialsReady(env, row.platform, row.id, scopeId),
         readAccountPresentationSettings(env, row.id, scopeId),
+        readAccountTags(env, "social_account", row.id, scopeId),
       ]);
+      const presentation = row.platform === "linkedin" && (!savedPresentation.display_name || !savedPresentation.avatar_url)
+        ? await refreshLinkedInAccountPresentation(env, row.id, savedPresentation, scopeId)
+        : savedPresentation;
       return {
         ...row,
         ...presentation,
+        tags,
         connection_mode: "official_api",
         status: row.status === "active" && credentialsReady
           ? "active"
@@ -1003,6 +1042,7 @@ export async function proxySocialAccountAvatar(
 
 export async function authorizeInstagramAccount(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
+    const payload = await parseJson<{ tags?: unknown }>(request);
     const config = await instagramOAuthConfig(env, request.url, userId);
     const missingParts = [
       !config.appId ? "INSTAGRAM_APP_ID" : "",
@@ -1017,6 +1057,7 @@ export async function authorizeInstagramAccount(env: Env, request: Request, user
       app_id: config.appId,
       redirect_uri: config.redirectUri,
       scopes: config.scopes,
+      tags: normalizeAccountTags(payload.tags),
       user_id: ownerId(userId),
       created_at: now,
     }), now, userId);
@@ -1066,6 +1107,7 @@ export async function handleInstagramOAuthCallback(env: Env, url: URL): Promise<
       app_id: string;
       redirect_uri: string;
       scopes: string;
+      tags?: unknown;
       user_id?: number;
     };
     const pendingUserId = ownerId(pending.user_id);
@@ -1147,6 +1189,10 @@ export async function handleInstagramOAuthCallback(env: Env, url: URL): Promise<
       expiresIn: longTokenPayload.expires_in,
       avatarUrl: profilePayload.profile_picture_url,
     }, pendingUserId);
+    const tags = normalizeAccountTags(pending.tags);
+    if (tags.length > 0) {
+      await upsertAccountTags(env, "social_account", accountId, tags, new Date().toISOString(), pendingUserId);
+    }
     await env.DB.prepare("DELETE FROM app_settings WHERE key = ?").bind(stateKey).run();
 
     return new Response(
@@ -1279,6 +1325,7 @@ export async function handleMetaDataDeletionRequest(env: Env, request: Request):
 
 export async function authorizeLinkedInAccount(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
+    const payload = await parseJson<{ tags?: unknown }>(request);
     const config = await linkedInOAuthConfig(env, request.url, userId);
     const missingParts = [
       !config.clientId ? "LINKEDIN_CLIENT_ID" : "",
@@ -1297,6 +1344,7 @@ export async function authorizeLinkedInAccount(env: Env, request: Request, userI
       client_id: config.clientId,
       redirect_uri: config.redirectUri,
       scopes: config.scopes,
+      tags: normalizeAccountTags(payload.tags),
       user_id: ownerId(userId),
       created_at: now,
     }), now, userId);
@@ -1345,6 +1393,7 @@ export async function handleLinkedInOAuthCallback(env: Env, url: URL): Promise<R
       client_id: string;
       redirect_uri: string;
       scopes: string;
+      tags?: unknown;
       user_id?: number;
     };
     const pendingUserId = ownerId(pending.user_id);
@@ -1391,6 +1440,10 @@ export async function handleLinkedInOAuthCallback(env: Env, url: URL): Promise<R
       scopes: tokenPayload.scope || pending.scopes || config.scopes,
       expiresIn: tokenPayload.expires_in,
     }, pendingUserId);
+    const tags = normalizeAccountTags(pending.tags);
+    if (tags.length > 0) {
+      await upsertAccountTags(env, "social_account", accountId, tags, new Date().toISOString(), pendingUserId);
+    }
     await env.DB.prepare("DELETE FROM app_settings WHERE key = ?").bind(stateKey).run();
 
     return new Response(
@@ -1436,13 +1489,18 @@ export async function listInternalExtraSocialAccounts(env: Env, scopeId = DEFAUL
   }>();
 
   return Promise.all((rows.results ?? []).map(async (row) => {
-    const [officialReady, presentation] = await Promise.all([
+    const [officialReady, savedPresentation, tags] = await Promise.all([
       storedOfficialCredentialsReady(env, row.platform, row.id, scopeId),
       readAccountPresentationSettings(env, row.id, scopeId),
+      readAccountTags(env, "social_account", row.id, scopeId),
     ]);
+    const presentation = row.platform === "linkedin" && (!savedPresentation.display_name || !savedPresentation.avatar_url)
+      ? await refreshLinkedInAccountPresentation(env, row.id, savedPresentation, scopeId)
+      : savedPresentation;
     return {
       ...row,
       ...presentation,
+      tags,
       connection_mode: "official_api",
       credentials_ready: officialReady,
     };
@@ -1477,6 +1535,7 @@ export async function addExtraSocialAccount(
 
     const accountId = result.meta.last_row_id;
     await upsertSetting(env, `social_account:${accountId}:connection_mode`, connectionMode, now, scopeId);
+    const tags = await upsertAccountTags(env, "social_account", accountId, payload.tags, now, scopeId);
 
     await Promise.all(Object.entries(OFFICIAL_FIELD_SETTINGS[platform]).flatMap(([field, settingKey]) => {
       const value = String(payload[field as FieldName] ?? "").trim();
@@ -1488,6 +1547,7 @@ export async function addExtraSocialAccount(
       platform,
       username,
       status,
+      tags,
       connection_mode: connectionMode,
       credentials_ready: 1,
       created_at: now,
@@ -1558,6 +1618,9 @@ export async function updateExtraSocialAccount(
       if (!value) continue;
       updates.push(upsertSetting(env, `social_account:${id}:${settingKey}`, value, now, scopeId));
     }
+    if (payload.tags !== undefined) {
+      updates.push(upsertAccountTags(env, "social_account", id, payload.tags, now, scopeId));
+    }
 
     if (updates.length === 0 && accountUpdates.length === 0) {
       return errorResponse("No account fields to update", 400);
@@ -1567,6 +1630,62 @@ export async function updateExtraSocialAccount(
     return jsonResponse({ success: true, updated_at: now });
   } catch {
     return errorResponse("Failed to update social account", 500);
+  }
+}
+
+export async function updateSocialAccountTags(
+  env: Env,
+  accountId: string,
+  request: Request,
+  scopeId = DEFAULT_USER_ID,
+): Promise<Response> {
+  try {
+    const id = Number(accountId);
+    if (!Number.isFinite(id) || id <= 0) return errorResponse("Invalid account ID", 400);
+
+    const payload = await parseJson<{ platform?: string; tags?: unknown }>(request);
+    const platform = String(payload.platform ?? "").trim().toLowerCase();
+    const tags = normalizeAccountTags(payload.tags);
+    const now = new Date().toISOString();
+
+    if (platform === "reddit") {
+      const filters = ["id = ?"];
+      const values: unknown[] = [id];
+      await appendScopedFilter(env, "reddit_accounts", filters, values, scopeId);
+      const existing = await env.DB.prepare(`SELECT id FROM reddit_accounts WHERE ${filters.join(" AND ")} LIMIT 1`)
+        .bind(...values)
+        .first<{ id: number }>();
+      if (!existing) return errorResponse("Reddit account not found", 404);
+      await Promise.all([
+        upsertAccountTags(env, "reddit_account", id, tags, now, scopeId),
+        env.DB.prepare(`UPDATE reddit_accounts SET updated_at = ? WHERE ${filters.join(" AND ")}`)
+          .bind(now, ...values)
+          .run(),
+      ]);
+      return jsonResponse({ success: true, tags, updated_at: now });
+    }
+
+    const filters = ["id = ?"];
+    const values: unknown[] = [id];
+    if (platform) {
+      filters.push("platform = ?");
+      values.push(platform);
+    }
+    await appendScopedFilter(env, "social_accounts", filters, values, scopeId);
+    const existing = await env.DB.prepare(`SELECT id FROM social_accounts WHERE ${filters.join(" AND ")} LIMIT 1`)
+      .bind(...values)
+      .first<{ id: number }>();
+    if (!existing) return errorResponse("Social account not found", 404);
+
+    await Promise.all([
+      upsertAccountTags(env, "social_account", id, tags, now, scopeId),
+      env.DB.prepare(`UPDATE social_accounts SET updated_at = ? WHERE ${filters.join(" AND ")}`)
+        .bind(now, ...values)
+        .run(),
+    ]);
+    return jsonResponse({ success: true, tags, updated_at: now });
+  } catch {
+    return errorResponse("Failed to update account tags", 500);
   }
 }
 

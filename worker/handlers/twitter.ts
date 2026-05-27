@@ -2,6 +2,7 @@ import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
 import { markLinkedPlannerItemsPublished, markSocialPostsFailed, socialPostsHaveLastError, socialPublishErrorMessage } from "../lib/social-publish";
+import { normalizeAccountTags, readAccountTags, upsertAccountTags } from "../lib/account-tags";
 
 const IMAGE_URL_ALIASES = ["image_url", "imageUrl", "imageURL", "image", "photo", "picture", "media", "media_url", "mediaUrl", "media_urls", "mediaUrls", "url"] as const;
 const TWITTER_OAUTH_REQUEST_TOKEN_URL = "https://api.twitter.com/oauth/request_token";
@@ -20,6 +21,7 @@ type TwitterAccountPayload = {
   access_secret: string;
   connection_mode?: "official_api";
   status?: "active" | "inactive";
+  tags?: unknown;
 };
 
 type TwitterAccountUpdatePayload = Partial<TwitterAccountPayload> & {
@@ -30,6 +32,7 @@ type PendingTwitterOAuth = {
   api_key?: string;
   api_secret?: string;
   redirect_uri?: string;
+  tags?: unknown;
 };
 
 type TwitterCredentials = {
@@ -1378,6 +1381,9 @@ async function upsertTwitterAccount(
     ...(payload.avatar_url?.trim()
       ? [upsertSetting(env, `social_account:${accountId}:avatar_url`, payload.avatar_url.trim(), now, scopeId)]
       : []),
+    ...(payload.tags !== undefined
+      ? [upsertAccountTags(env, "social_account", accountId, payload.tags, now, scopeId)]
+      : []),
   ]);
 
   return {
@@ -1469,11 +1475,13 @@ export async function listTwitterAccounts(
           }
         }
       }
+      const tags = await readAccountTags(env, "social_account", account.id, scopeId);
       return {
         id: account.id,
         platform: account.platform,
         username: account.username,
         ...presentation,
+        tags,
         status: account.status === "active" && account.api_credentials_ready
           ? "active"
           : "inactive",
@@ -1533,6 +1541,7 @@ export async function authorizeTwitterAccount(
       api_secret: config.api_secret,
       redirect_uri: config.redirect_uri,
       request_token_secret: oauthTokenSecret,
+      tags: normalizeAccountTags(payload.tags),
       user_id: ownerId(userId),
       created_at: now,
     }), now, userId);
@@ -1597,6 +1606,7 @@ export async function handleTwitterOAuthCallback(env: Env, url: URL): Promise<Re
       api_secret: string;
       redirect_uri: string;
       request_token_secret: string;
+      tags?: unknown;
       user_id?: number;
       created_at?: string;
     };
@@ -1644,6 +1654,7 @@ export async function handleTwitterOAuthCallback(env: Env, url: URL): Promise<Re
       status: "active",
       display_name: profile.display_name || undefined,
       avatar_url: profile.avatar_url || undefined,
+      tags: pending.tags,
     }, pendingUserId);
     await env.DB.prepare("DELETE FROM app_settings WHERE key = ?").bind(stateKey).run();
 
@@ -1718,8 +1729,9 @@ export async function updateTwitterAccount(
     if (payload.access_token?.trim()) credentialUpdates.push(["twitter_access_token", payload.access_token.trim()]);
     if (payload.access_secret?.trim()) credentialUpdates.push(["twitter_access_secret", payload.access_secret.trim()]);
     const connectionMode = payload.connection_mode ? "official_api" : null;
+    const tagUpdate = payload.tags !== undefined;
 
-    if (accountUpdates.length === 0 && credentialUpdates.length === 0 && !connectionMode) {
+    if (accountUpdates.length === 0 && credentialUpdates.length === 0 && !connectionMode && !tagUpdate) {
       return errorResponse("No account fields to update", 400);
     }
 
@@ -1735,14 +1747,17 @@ export async function updateTwitterAccount(
         .run();
     }
 
-    await Promise.all(
-      credentialUpdates.flatMap(([key, value]) => [
-        upsertSetting(env, `social_account:${id}:${key}`, value, now, scopeId),
-        upsertSetting(env, key, value, now, scopeId),
-      ]).concat(
-        connectionMode ? [upsertSetting(env, `social_account:${id}:connection_mode`, connectionMode, now, scopeId)] : [],
-      ),
-    );
+    const settingWrites: Array<Promise<unknown>> = credentialUpdates.flatMap(([key, value]) => [
+      upsertSetting(env, `social_account:${id}:${key}`, value, now, scopeId),
+      upsertSetting(env, key, value, now, scopeId),
+    ]);
+    if (connectionMode) {
+      settingWrites.push(upsertSetting(env, `social_account:${id}:connection_mode`, connectionMode, now, scopeId));
+    }
+    if (tagUpdate) {
+      settingWrites.push(upsertAccountTags(env, "social_account", id, payload.tags, now, scopeId));
+    }
+    await Promise.all(settingWrites);
 
     return jsonResponse({ success: true, updated_at: now });
   } catch {

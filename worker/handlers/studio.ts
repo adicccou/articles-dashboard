@@ -4,6 +4,7 @@ import { callAiText } from "../lib/ai";
 import { getSocialPostSchemaCapabilities } from "./twitter";
 import { plannerHasSocialPostLinks } from "./planner";
 import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, scopedInsertColumnsFromRecord, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
+import { readAccountTags } from "../lib/account-tags";
 
 type StudioStatus = "active" | "inactive" | "archived";
 type StudioCampaignType = "post" | "reply";
@@ -898,20 +899,22 @@ export async function listStudioAccounts(env: Env, userId = DEFAULT_USER_ID): Pr
          ORDER BY updated_at DESC`,
       ).bind(...redditValues).all<Record<string, unknown>>(),
     ]);
-    const accounts = [...(socialRows.results ?? []), ...(redditRows.results ?? [])].map((row) => {
+    const accounts = await Promise.all([...(socialRows.results ?? []), ...(redditRows.results ?? [])].map(async (row) => {
       const platform = normalizePlatform(row.platform);
       const id = Number(row.id);
+      const tags = await readAccountTags(env, platform === "reddit" ? "reddit_account" : "social_account", id, userId);
       return {
         id,
         platform,
         username: String(row.username ?? ""),
+        tags,
         status: row.status,
         ref: `${platform}:${id}`,
-        label: `${PLATFORM_LABELS[platform] ?? platform}: @${row.username}`,
+        label: `${PLATFORM_LABELS[platform] ?? platform}: @${row.username}${tags.length ? ` (${tags.join(", ")})` : ""}`,
         created_at: row.created_at,
         updated_at: row.updated_at,
       };
-    });
+    }));
     return jsonResponse(accounts);
   } catch {
     return errorResponse("Failed to load Studio accounts", 500);

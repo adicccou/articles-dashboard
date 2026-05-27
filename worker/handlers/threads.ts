@@ -3,6 +3,7 @@ import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
 import { markLinkedPlannerItemsPublished, markSocialPostFailed, socialPostsHaveLastError, socialPublishErrorMessage } from "../lib/social-publish";
 import { listSocialPosts, createSocialPost, updateSocialPost, deleteSocialPost, getSocialPostSchemaCapabilities } from "./twitter";
+import { normalizeAccountTags, readAccountTags, upsertAccountTags } from "../lib/account-tags";
 
 // Re-export post handlers using the 'threads' platform
 export { listSocialPosts, createSocialPost, updateSocialPost, deleteSocialPost };
@@ -21,6 +22,7 @@ type ThreadsAccountPayload = {
   avatar_url?: string;
   connection_mode?: "official_api";
   status?: "active" | "inactive";
+  tags?: unknown;
 };
 
 type ThreadsAccountUpdatePayload = Partial<ThreadsAccountPayload> & {
@@ -464,6 +466,9 @@ async function createThreadsAccount(
     ...(payload.avatar_url?.trim()
       ? [upsertSetting(env, `social_account:${accountId}:avatar_url`, payload.avatar_url.trim(), now, scopeId)]
       : []),
+    ...(payload.tags !== undefined
+      ? [upsertAccountTags(env, "social_account", accountId, payload.tags, now, scopeId)]
+      : []),
   ]);
 
   return {
@@ -550,9 +555,11 @@ export async function listThreadsAccounts(
           }
         }
       }
+      const tags = await readAccountTags(env, "social_account", accountId, scopeId);
       return {
         ...row,
         ...presentation,
+        tags,
         connection_mode: "official_api",
       };
     }));
@@ -599,6 +606,7 @@ export async function authorizeThreadsAccount(env: Env, request: Request, userId
       client_secret: config.client_secret,
       redirect_uri: config.redirect_uri,
       scopes: config.scopes,
+      tags: normalizeAccountTags(payload.tags),
       user_id: ownerId(userId),
       created_at: now,
     }), now, userId);
@@ -922,7 +930,7 @@ export async function handleThreadsOAuthCallback(env: Env, url: URL): Promise<Re
       });
     }
 
-    const pending = JSON.parse(row.value) as Required<PendingThreadsOAuth> & { created_at?: string; user_id?: number };
+    const pending = JSON.parse(row.value) as Required<PendingThreadsOAuth> & { created_at?: string; user_id?: number; tags?: unknown };
     const pendingUserId = ownerId(pending.user_id);
 
     const shortTokenResponse = await fetch(THREADS_TOKEN_URL, {
@@ -1001,6 +1009,7 @@ export async function handleThreadsOAuthCallback(env: Env, url: URL): Promise<Re
       user_id: profile.user_id,
       display_name: profile.display_name || undefined,
       avatar_url: profile.avatar_url || undefined,
+      tags: pending.tags,
     }, pendingUserId);
     await env.DB.prepare("DELETE FROM app_settings WHERE key = ?").bind(stateKey).run();
 
@@ -1077,8 +1086,9 @@ export async function updateThreadsAccount(
     if (payload.access_token?.trim()) settingUpdates.push(["threads_access_token", payload.access_token.trim()]);
     if (payload.user_id?.trim()) settingUpdates.push(["threads_user_id", payload.user_id.trim()]);
     const connectionMode = payload.connection_mode ? "official_api" : null;
+    const tagUpdate = payload.tags !== undefined;
 
-    if (accountUpdates.length === 0 && settingUpdates.length === 0 && !connectionMode) {
+    if (accountUpdates.length === 0 && settingUpdates.length === 0 && !connectionMode && !tagUpdate) {
       return errorResponse("No account fields to update", 400);
     }
 
@@ -1094,13 +1104,20 @@ export async function updateThreadsAccount(
         .run();
     }
 
-    await Promise.all(settingUpdates.flatMap(([key, value]) => {
+    const settingWrites: Array<Promise<unknown>> = settingUpdates.flatMap(([key, value]) => {
       const updates = [upsertSetting(env, `social_account:${id}:${key}`, value, now, scopeId)];
       if (key === "threads_access_token" || key === "threads_user_id") {
         updates.push(upsertSetting(env, key, value, now, scopeId));
       }
       return updates;
-    }).concat(connectionMode ? [upsertSetting(env, `social_account:${id}:connection_mode`, connectionMode, now, scopeId)] : []));
+    });
+    if (connectionMode) {
+      settingWrites.push(upsertSetting(env, `social_account:${id}:connection_mode`, connectionMode, now, scopeId));
+    }
+    if (tagUpdate) {
+      settingWrites.push(upsertAccountTags(env, "social_account", id, payload.tags, now, scopeId));
+    }
+    await Promise.all(settingWrites);
 
     return jsonResponse({ success: true, updated_at: now });
   } catch {

@@ -792,10 +792,10 @@ button.button-secondary:disabled {
 
 .config-table--accounts .config-table__row {
   grid-template-columns:
-    minmax(260px, 1fr)
-    92px
+    minmax(360px, 1fr)
+    minmax(130px, 0.28fr)
     120px
-    minmax(88px, 0.28fr);
+    minmax(52px, 0.12fr);
 }
 
 .config-main-cell {

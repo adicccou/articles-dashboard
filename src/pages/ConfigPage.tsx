@@ -51,6 +51,7 @@ type AccountForm = {
   user_id: string;
   page_id: string;
   refresh_token: string;
+  tags: string;
 };
 
 type ManagedAccount = {
@@ -61,6 +62,7 @@ type ManagedAccount = {
   profile_username?: string | null;
   display_name?: string | null;
   avatar_url?: string | null;
+  tags?: string[] | null;
   status: AccountStatus;
   credentials_ready?: boolean | number;
   created_at: string;
@@ -167,6 +169,7 @@ function emptyAccountForm(platform: AccountPlatform = "twitter"): AccountForm {
     user_id: "",
     page_id: "",
     refresh_token: "",
+    tags: "",
   };
 }
 
@@ -176,6 +179,36 @@ function platformLabel(platform: AccountPlatform) {
 
 function cleanAccountValue(value: string | null | undefined) {
   return String(value ?? "").trim().replace(/^@+/, "");
+}
+
+function cleanAccountTag(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .replace(/^#+/, "")
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9_-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^[-_]+|[-_]+$/g, "")
+    .slice(0, 32);
+}
+
+function normalizeAccountTags(raw: unknown): string[] {
+  const values = Array.isArray(raw)
+    ? raw
+    : typeof raw === "string"
+    ? raw.split(/[,\n]+/)
+    : [];
+  const tags: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const tag = cleanAccountTag(value);
+    if (!tag || seen.has(tag)) continue;
+    tags.push(tag);
+    seen.add(tag);
+    if (tags.length >= 12) break;
+  }
+  return tags;
 }
 
 function looksLikeEmail(value: string) {
@@ -438,6 +471,7 @@ function normalizeAccounts(
       profile_username: resolveProfileUsername(account) || null,
       display_name: account.display_name?.trim() || null,
       avatar_url: account.avatar_url?.trim() || null,
+      tags: normalizeAccountTags(account.tags),
       status: account.status,
       credentials_ready: account.credentials_ready,
       created_at: account.created_at,
@@ -451,6 +485,7 @@ function normalizeAccounts(
     profile_username: cleanAccountValue(account.name) || null,
     display_name: null,
     avatar_url: null,
+    tags: normalizeAccountTags(account.tags),
     status: account.status,
     created_at: account.created_at,
     updated_at: account.updated_at || account.created_at,
@@ -482,12 +517,12 @@ function usesHostedOAuth(form: AccountForm) {
     && (form.platform === "twitter" || form.platform === "threads" || form.platform === "instagram" || form.platform === "linkedin" || form.platform === "reddit");
 }
 
-async function startHostedOAuth(platform: AccountPlatform, username: string) {
-  if (platform === "threads") return api.startThreadsOAuth({});
-  if (platform === "twitter") return api.startTwitterOAuth({});
-  if (platform === "linkedin") return api.startLinkedInOAuth();
-  if (platform === "reddit") return api.startRedditOAuth(username || "Reddit");
-  return api.startInstagramOAuth();
+async function startHostedOAuth(platform: AccountPlatform, username: string, tags: string[]) {
+  if (platform === "threads") return api.startThreadsOAuth({ tags });
+  if (platform === "twitter") return api.startTwitterOAuth({ tags });
+  if (platform === "linkedin") return api.startLinkedInOAuth({ tags });
+  if (platform === "reddit") return api.startRedditOAuth(username || "Reddit", tags);
+  return api.startInstagramOAuth({ tags });
 }
 
 function hostedOAuthMessageType(platform: AccountPlatform) {
@@ -496,6 +531,10 @@ function hostedOAuthMessageType(platform: AccountPlatform) {
   if (platform === "linkedin") return "linkedin_connected";
   if (platform === "reddit") return "reddit_connected";
   return "instagram_connected";
+}
+
+function accountTagKey(account: Pick<ManagedAccount, "id" | "platform">) {
+  return `${account.platform}:${account.id}`;
 }
 
 function normalizeComparable(value: string | null | undefined) {
@@ -574,6 +613,8 @@ export function ConfigPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [tagDrafts, setTagDrafts] = useState<Record<string, string>>({});
+  const [savingTags, setSavingTags] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const appSiteRows = buildAppSiteRows(apps, sites);
@@ -769,6 +810,7 @@ export function ConfigPage() {
   async function saveAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const username = accountForm.username.trim().replace(/^@+/, "");
+    const accountTags = normalizeAccountTags(accountForm.tags);
     const hostedOAuth = usesHostedOAuth(accountForm);
     if (!hostedOAuth && !username) {
       setError(accountForm.platform === "reddit" ? "Reddit account name is required." : "Username is required.");
@@ -784,7 +826,7 @@ export function ConfigPage() {
       if (hostedOAuth) {
         const popup = window.open("about:blank", `${accountForm.platform}-connect`, "width=540,height=760");
         try {
-          const { auth_url } = await startHostedOAuth(accountForm.platform, username);
+          const { auth_url } = await startHostedOAuth(accountForm.platform, username, accountTags);
           if (!popup) {
             window.location.href = auth_url;
             return;
@@ -833,6 +875,7 @@ export function ConfigPage() {
             name: username,
             status: derivedStatus,
             connection_mode: "official_api",
+            tags: accountTags,
           });
           setFeedback("Reddit account updated.");
           setAccountForm(emptyAccountForm("reddit"));
@@ -840,7 +883,7 @@ export function ConfigPage() {
           await load({ silent: true });
           return;
         }
-        const result = await api.startRedditOAuth(username);
+        const result = await api.startRedditOAuth(username, accountTags);
         window.location.href = result.auth_url;
         return;
       }
@@ -851,6 +894,7 @@ export function ConfigPage() {
           username,
           status: derivedStatus,
           connection_mode: "official_api",
+          tags: accountTags,
         };
         putIfFilled(extraPayload, "client_id", accountForm.client_id);
         putIfFilled(extraPayload, "client_secret", accountForm.client_secret);
@@ -880,6 +924,7 @@ export function ConfigPage() {
             username,
             status: derivedStatus,
             connection_mode: "official_api",
+            tags: accountTags,
           };
           putIfFilled(payload, "api_key", accountForm.api_key);
           putIfFilled(payload, "api_secret", accountForm.api_secret);
@@ -896,6 +941,7 @@ export function ConfigPage() {
             api_secret: accountForm.api_secret.trim(),
             access_token: accountForm.access_token.trim(),
             access_secret: accountForm.access_secret.trim(),
+            tags: accountTags,
           });
           setFeedback("Twitter/X account added.");
         }
@@ -909,6 +955,7 @@ export function ConfigPage() {
         username,
         status: derivedStatus,
         connection_mode: "official_api",
+        tags: accountTags,
       };
       putIfFilled(threadsPayload, "client_id", accountForm.client_id);
       putIfFilled(threadsPayload, "client_secret", accountForm.client_secret);
@@ -937,6 +984,7 @@ export function ConfigPage() {
           scopes: accountForm.scopes.trim(),
           access_token: accountForm.access_token.trim(),
           user_id: accountForm.user_id.trim(),
+          tags: accountTags,
         });
         setFeedback("Threads account added.");
         setAccountForm(emptyAccountForm("threads"));
@@ -952,6 +1000,7 @@ export function ConfigPage() {
         client_secret: accountForm.client_secret.trim(),
         redirect_uri: accountForm.redirect_uri.trim(),
         scopes: accountForm.scopes.trim(),
+        tags: accountTags,
       });
       window.location.href = result.auth_url;
     } catch (err) {
@@ -989,23 +1038,44 @@ export function ConfigPage() {
     }
   }
 
-  function editAccount(account: ManagedAccount) {
-    setTab("accounts");
-    setError(null);
-    setFeedback(null);
-    setAccountForm({
-      ...emptyAccountForm(account.platform),
-      id: account.id,
-      connection_mode: "official_api",
-      username: account.username,
-      status: account.status,
-    });
-    setActiveModal("account");
+  async function saveAccountTags(account: ManagedAccount, nextTags: string[]) {
+    const key = accountTagKey(account);
+    try {
+      setSavingTags((current) => ({ ...current, [key]: true }));
+      setError(null);
+      const result = await api.updateSocialAccountTags(account.id, {
+        platform: account.platform,
+        tags: nextTags,
+      });
+      setAccounts((current) => current.map((item) => (
+        item.id === account.id && item.platform === account.platform
+          ? { ...item, tags: result.tags }
+          : item
+      )));
+      setTagDrafts((current) => ({ ...current, [key]: "" }));
+      setFeedback("Account tags updated.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update account tags");
+    } finally {
+      setSavingTags((current) => ({ ...current, [key]: false }));
+    }
+  }
+
+  function addAccountTags(account: ManagedAccount) {
+    const key = accountTagKey(account);
+    const draftedTags = normalizeAccountTags(tagDrafts[key] ?? "");
+    if (draftedTags.length === 0) return;
+    const nextTags = normalizeAccountTags([...(account.tags ?? []), ...draftedTags]);
+    void saveAccountTags(account, nextTags);
+  }
+
+  function removeAccountTag(account: ManagedAccount, tag: string) {
+    const nextTags = normalizeAccountTags((account.tags ?? []).filter((item) => item !== tag));
+    void saveAccountTags(account, nextTags);
   }
 
   function accountSubmitLabel() {
     if (saving) return "Saving...";
-    if (accountForm.id) return "Save account";
     if (accountForm.platform === "reddit") return "Connect Reddit account";
     if (accountForm.platform === "twitter") return "Connect Twitter/X account";
     if (accountForm.platform === "threads") return "Connect Threads account";
@@ -1174,45 +1244,78 @@ export function ConfigPage() {
                   <span>Added</span>
                   <span>Actions</span>
                 </div>
-                {accounts.map((account) => (
-                  <article className="config-table__row" key={`${account.platform}-${account.id}`}>
-                    <div className="config-main-cell">
-                      <div className="config-account-cell">
-                        <AccountPlatformLogo platform={account.platform} />
-                        <AccountAvatar account={account} />
-                        <div className="config-account-copy">
-                          <strong className="config-account-copy__title">{accountHandleLabel(account)}</strong>
-                          <small className="config-account-copy__subtitle">{accountSubtitle(account)}</small>
+                {accounts.map((account) => {
+                  const key = accountTagKey(account);
+                  const draft = tagDrafts[key] ?? "";
+                  const isSavingTags = Boolean(savingTags[key]);
+                  return (
+                    <article className="config-table__row" key={`${account.platform}-${account.id}`}>
+                      <div className="config-main-cell">
+                        <div className="config-account-cell">
+                          <AccountPlatformLogo platform={account.platform} />
+                          <AccountAvatar account={account} />
+                          <div className="config-account-copy">
+                            <strong className="config-account-copy__title">{accountHandleLabel(account)}</strong>
+                            <small className="config-account-copy__subtitle">{accountSubtitle(account)}</small>
+                            <div className="config-account-tags" aria-label={`${account.username} tags`}>
+                              {(account.tags ?? []).map((tag) => (
+                                <span className="config-account-tag" key={tag}>
+                                  #{tag}
+                                  <button
+                                    type="button"
+                                    disabled={isSavingTags}
+                                    onClick={() => removeAccountTag(account, tag)}
+                                    aria-label={`Remove ${tag} tag`}
+                                  >
+                                    x
+                                  </button>
+                                </span>
+                              ))}
+                              <input
+                                className="config-account-tag-input"
+                                value={draft}
+                                placeholder="Type tag"
+                                disabled={isSavingTags}
+                                onChange={(event) => setTagDrafts((current) => ({ ...current, [key]: event.target.value }))}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter") {
+                                    event.preventDefault();
+                                    addAccountTags(account);
+                                  }
+                                }}
+                                aria-label={`Add tag for ${account.username}`}
+                              />
+                              <button
+                                className="config-account-tag-add"
+                                type="button"
+                                disabled={isSavingTags || normalizeAccountTags(draft).length === 0}
+                                onClick={() => addAccountTags(account)}
+                              >
+                                Add
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <span className={`config-pill config-pill--${accountStatusTone(account.status)}`}>
-                      {accountStatusLabel(account.status)}
-                    </span>
-                    <span className="config-muted">{formatDisplayDate(account.created_at)}</span>
-                    <div className="config-row-actions">
-                      <button
-                        className="button-secondary dashboard-icon-button"
-                        type="button"
-                        onClick={() => editAccount(account)}
-                        aria-label={`Edit ${account.username}`}
-                        title="Edit"
-                      >
-                        <PencilSquareIcon aria-hidden="true" />
-                      </button>
-                      <button
-                        className="button-secondary config-danger-button dashboard-icon-button"
-                        type="button"
-                        disabled={saving}
-                        onClick={() => void deleteAccount(account)}
-                        aria-label={`Delete ${account.username}`}
-                        title="Delete"
-                      >
-                        <TrashIcon aria-hidden="true" />
-                      </button>
-                    </div>
-                  </article>
-                ))}
+                      <span className={`config-pill config-pill--${accountStatusTone(account.status)}`}>
+                        {accountStatusLabel(account.status)}
+                      </span>
+                      <span className="config-muted">{formatDisplayDate(account.created_at)}</span>
+                      <div className="config-row-actions">
+                        <button
+                          className="button-secondary config-danger-button dashboard-icon-button"
+                          type="button"
+                          disabled={saving}
+                          onClick={() => void deleteAccount(account)}
+                          aria-label={`Delete ${account.username}`}
+                          title="Delete"
+                        >
+                          <TrashIcon aria-hidden="true" />
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
             )}
         </div>
@@ -1331,7 +1434,7 @@ export function ConfigPage() {
             <div className="panel__title-row">
               <div>
                 <p className="eyebrow">Social media</p>
-                <h2>{accountForm.id ? "Edit account" : "Add account"}</h2>
+                <h2>Add account</h2>
               </div>
               <ModalCloseButton onClick={() => setActiveModal(null)} label="Close account modal" />
             </div>
@@ -1340,13 +1443,20 @@ export function ConfigPage() {
               Platform
               <select
                 value={accountForm.platform}
-                disabled={Boolean(accountForm.id)}
                 onChange={(event) => setAccountForm(emptyAccountForm(event.target.value as AccountPlatform))}
               >
                 {platformOptions.map((platform) => (
                   <option key={platform.id} value={platform.id}>{platform.label}</option>
                 ))}
               </select>
+            </label>
+            <label className="config-account-tag-field">
+              Tags
+              <input
+                value={accountForm.tags}
+                placeholder="work, personal"
+                onChange={(event) => setAccountForm((current) => ({ ...current, tags: event.target.value }))}
+              />
             </label>
             {hostedOAuthAccount ? (
               <div className="config-oauth-card">
@@ -1413,10 +1523,6 @@ export function ConfigPage() {
 
             {accountForm.platform === "reddit" && !accountForm.id ? (
               <p className="config-hint">Reddit will return the connected username automatically after approval.</p>
-            ) : null}
-
-            {accountForm.id ? (
-              <p className="config-hint">Leave credential fields blank to keep the saved values.</p>
             ) : null}
 
             {!hostedOAuthAccount ? (

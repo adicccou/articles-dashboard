@@ -6,6 +6,7 @@ import type { DashboardUser } from "./lib/ownership";
 import { DEFAULT_USER_ID, activeScopeId } from "./lib/ownership";
 import { authenticateDashboardUser } from "./lib/users";
 import { markLinkedPlannerItemsPublished } from "./lib/social-publish";
+import { readAccountTags } from "./lib/account-tags";
 import {
   listCampaigns,
   createCampaign,
@@ -37,6 +38,7 @@ import {
   proxySocialAccountAvatar,
   publishExtraSocialPost,
   updateExtraSocialAccount,
+  updateSocialAccountTags,
   updatePublishedLinkedInPost,
 } from "./handlers/social-accounts";
 import { completeCtraderConnectionFromAgent, getAppSettings, getCustomLeanDiagnostics, getCustomLeanSettings, getCustomLeanWorkers, getInternalAgentSettings, getLeanStatus, getLearningReport, getMlTradingAssets, getMlTradingDiagnostics, getMlTradingSettings, syncAgentFromSettings, updateAppSettings, updateCustomLeanSettings, updateMlTradingSettings } from "./handlers/settings";
@@ -535,6 +537,16 @@ async function handleInternalContext(env: Env) {
   const globalKnowledgeBase = Array.isArray(knowledgeBases)
     ? knowledgeBases.find((entry) => entry.entity_type === "global" && Number(entry.entity_id) === 0) ?? null
     : null;
+  const [twitterAccounts, threadsAccounts] = await Promise.all([
+    Promise.all((twitterAccountsResult.results ?? []).map(async (account) => ({
+      ...account,
+      tags: await readAccountTags(env, "social_account", Number((account as { id?: number }).id ?? 0)),
+    }))),
+    Promise.all((threadsAccountsResult.results ?? []).map(async (account) => ({
+      ...account,
+      tags: await readAccountTags(env, "social_account", Number((account as { id?: number }).id ?? 0)),
+    }))),
+  ]);
 
   return json({
     scope: {
@@ -607,8 +619,8 @@ async function handleInternalContext(env: Env) {
     social_platform_knowledge_bases: socialPlatformKnowledgeBases,
     social_accounts: {
       reddit: redditAccountsResult,
-      twitter: twitterAccountsResult.results ?? [],
-      threads: threadsAccountsResult.results ?? [],
+      twitter: twitterAccounts,
+      threads: threadsAccounts,
       instagram: extraAccountsResult.filter((account) => account.platform === "instagram"),
       linkedin: extraAccountsResult.filter((account) => account.platform === "linkedin"),
       youtube: extraAccountsResult.filter((account) => account.platform === "youtube"),
@@ -2047,6 +2059,13 @@ export default {
       if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
       return await proxySocialAccountAvatar(env, id, activeScopeId(user));
+    }
+
+    if (url.pathname.match(/^\/api\/social\/accounts\/[^/]+\/tags$/) && request.method === "PUT") {
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      const id = url.pathname.split("/")[4];
+      return await updateSocialAccountTags(env, id, request, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/social/accounts/") && request.method === "PUT") {

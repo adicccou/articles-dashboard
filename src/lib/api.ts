@@ -276,20 +276,22 @@ export const api = {
     name: string;
     status?: "active" | "inactive";
     connection_mode?: "official_api";
+    tags?: string[];
   }) =>
     request<RedditAccount>("/api/reddit/accounts", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
-  startRedditOAuth: (account_name: string) =>
+  startRedditOAuth: (account_name: string, tags: string[] = []) =>
     request<{ auth_url: string }>("/api/reddit/auth/authorize", {
       method: "POST",
-      body: JSON.stringify({ account_name }),
+      body: JSON.stringify({ account_name, tags }),
     }),
   updateRedditAccount: (id: number, payload: {
     name?: string;
     status?: "active" | "inactive";
     connection_mode?: "official_api";
+    tags?: string[];
   }) =>
     request<{ success: boolean; updated_at: string }>(`/api/reddit/accounts/${id}`, {
       method: "PUT",
@@ -456,19 +458,24 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(payload),
     }),
+  updateSocialAccountTags: (id: number, payload: { platform: SocialAccount["platform"]; tags: string[] }) =>
+    request<{ success: boolean; tags: string[]; updated_at: string }>(`/api/social/accounts/${id}/tags`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
   deleteSocialAccount: (id: number) =>
     request<{ success: boolean }>(`/api/social/accounts/${id}`, {
       method: "DELETE",
     }),
-  startInstagramOAuth: () =>
+  startInstagramOAuth: (payload: { tags?: string[] } = {}) =>
     request<{ auth_url: string }>("/api/instagram/auth/authorize", {
       method: "POST",
-      body: JSON.stringify({}),
+      body: JSON.stringify(payload),
     }),
-  startLinkedInOAuth: () =>
+  startLinkedInOAuth: (payload: { tags?: string[] } = {}) =>
     request<{ auth_url: string }>("/api/linkedin/auth/authorize", {
       method: "POST",
-      body: JSON.stringify({}),
+      body: JSON.stringify(payload),
     }),
   startTwitterOAuth: (payload: SocialAccountInput = {}) =>
     request<{ auth_url: string }>("/api/twitter/auth/authorize", {

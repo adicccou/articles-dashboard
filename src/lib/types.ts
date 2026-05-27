@@ -150,6 +150,7 @@ export type RedditAccount = {
   name: string;
   status: "active" | "inactive";
   credentials_ready?: boolean | number;
+  tags?: string[] | null;
   created_at: string;
   updated_at: string;
 };
@@ -698,13 +699,15 @@ export type SocialAccount = {
   credentials_ready?: boolean | number;
   display_name?: string | null;
   avatar_url?: string | null;
+  tags?: string[] | null;
   created_at: string;
   updated_at: string;
 };
 
 export type SocialAccountInput = {
   username?: string;
-  [key: string]: string | undefined;
+  tags?: string[];
+  [key: string]: string | string[] | undefined;
 };
 
 export type SocialPost = {
@@ -756,6 +759,7 @@ export type StudioAccount = {
   id: number;
   platform: "twitter" | "threads" | "reddit";
   username: string;
+  tags?: string[] | null;
   status: "active" | "inactive";
   ref: string;
   label: string;
