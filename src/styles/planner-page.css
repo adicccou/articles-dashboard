@@ -191,8 +191,9 @@
 }
 
 .scheduler-pill {
-  display: inline-flex;
   align-items: center;
+  display: inline-flex;
+  gap: 6px;
   padding: 5px 10px;
   border-radius: 999px;
   font-size: 0.72rem;
@@ -702,8 +703,11 @@
 }
 
 .scheduler-account-target__header strong {
+  align-items: center;
   color: #0f172a;
+  display: inline-flex;
   font-size: 0.9rem;
+  gap: 6px;
 }
 
 .scheduler-account-target__header small {
@@ -838,8 +842,15 @@
   display: inline-flex;
   font-size: 0.82rem;
   font-weight: 600;
+  gap: 7px;
   min-height: 36px;
   padding: 0 14px;
+}
+
+.scheduler-platform-icon {
+  flex: 0 0 auto;
+  height: 1em;
+  width: 1em;
 }
 
 .scheduler-platform-chip:hover {
@@ -1261,8 +1272,12 @@
 }
 
 .scheduler-confirm-target strong {
+  align-items: center;
   color: #0f172a;
+  display: inline-flex;
   font-size: 0.84rem;
+  gap: 6px;
+  min-width: 0;
 }
 
 .scheduler-confirm-target span {

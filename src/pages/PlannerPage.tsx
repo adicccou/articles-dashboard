@@ -1,5 +1,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { Bars3Icon, ExclamationTriangleIcon, PencilSquareIcon, TrashIcon } from "@heroicons/react/24/solid";
+import type { IconType } from "react-icons";
+import { FaFacebookF, FaLinkedinIn } from "react-icons/fa6";
+import { SiInstagram, SiReddit, SiThreads, SiX, SiYoutube } from "react-icons/si";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
 import { ModalCloseButton } from "../components/ModalCloseButton";
@@ -16,6 +19,15 @@ const schedulerPlatformOrder: Array<SocialAccount["platform"]> = ["twitter", "th
 const PLANNER_VIEW_STORAGE_KEY = "dashboard:planner:view";
 const LEGACY_PLANNER_VIEW_STORAGE_KEY = "blogposter:planner:view";
 const DEFAULT_SCHEDULE_HOUR = 10;
+const plannerPlatformIcons: Partial<Record<SocialAccount["platform"], IconType>> = {
+  facebook: FaFacebookF,
+  instagram: SiInstagram,
+  linkedin: FaLinkedinIn,
+  reddit: SiReddit,
+  threads: SiThreads,
+  twitter: SiX,
+  youtube: SiYoutube,
+};
 
 type PlatformAccountIds = Partial<Record<SocialAccount["platform"], string[]>>;
 
@@ -190,9 +202,25 @@ function normalizePlannerAccountPlatform(platform?: string | null): SocialAccoun
   if (["thread", "threads"].includes(normalized)) return "threads";
   if (normalized === "reddit") return "reddit";
   if (["ig", "instagram"].includes(normalized)) return "instagram";
+  if (normalized === "facebook") return "facebook";
   if (normalized === "linkedin") return "linkedin";
   if (normalized === "youtube") return "youtube";
   return null;
+}
+
+function PlannerPlatformIcon({ platform }: { platform: string }) {
+  const normalized = normalizePlannerAccountPlatform(platform);
+  const Icon = normalized ? plannerPlatformIcons[normalized] : null;
+  return Icon ? <Icon className="scheduler-platform-icon" aria-hidden="true" /> : null;
+}
+
+function PlannerPlatformLabel({ platform }: { platform: string }) {
+  return (
+    <>
+      <PlannerPlatformIcon platform={platform} />
+      <span>{plannerPlatformLabel(platform)}</span>
+    </>
+  );
 }
 
 function uniquePlannerPlatforms(platforms: Array<string | null | undefined>): Array<SocialAccount["platform"]> {
@@ -1577,7 +1605,9 @@ export function PlannerPage() {
                       {item.description ? <small>{item.description}</small> : null}
                     </span>
                     <span>
-                      <span className={`scheduler-pill scheduler-pill--${item.item_type}`}>{plannerPlatformLabel(item.platform)}</span>
+                      <span className={`scheduler-pill scheduler-pill--${item.item_type}`}>
+                        <PlannerPlatformLabel platform={item.platform} />
+                      </span>
                     </span>
                     <span>
                       <span className={`scheduler-status-chip scheduler-status-chip--${status}`}>
@@ -1869,13 +1899,15 @@ export function PlannerPage() {
                           onClick={() => toggleModalPlatform(platform)}
                           aria-pressed={selectedModalPlatforms.includes(platform)}
                         >
-                          {plannerPlatformLabel(platform)}
+                          <PlannerPlatformLabel platform={platform} />
                         </button>
                       ))}
                     </div>
                   ) : (
                     <div className="scheduler-platform-chips scheduler-platform-chips--static" aria-label="Platform">
-                      <span className="scheduler-platform-chip scheduler-platform-chip--active">{modalPlatformLabel}</span>
+                      <span className="scheduler-platform-chip scheduler-platform-chip--active">
+                        <PlannerPlatformLabel platform={form.platform || modalPlatformLabel} />
+                      </span>
                     </div>
                   )}
                 </div>
@@ -1898,7 +1930,9 @@ export function PlannerPage() {
                       return (
                         <div className="scheduler-account-target" key={platform}>
                           <div className="scheduler-account-target__header">
-                            <strong>{plannerPlatformLabel(platform)}</strong>
+                            <strong>
+                              <PlannerPlatformLabel platform={platform} />
+                            </strong>
                             <small>{selectedIds.length > 0 ? "1 selected" : "Choose account"}</small>
                           </div>
                           {accounts.length > 0 ? (
@@ -2118,7 +2152,9 @@ export function PlannerPage() {
               <div className="scheduler-confirm-targets" aria-label="Publishing targets">
                 {publishConfirmTargets.map((target) => (
                   <div className="scheduler-confirm-target" key={plannerTargetKey(target.platform, target.account.id)}>
-                    <strong>{plannerPlatformLabel(target.platform)}</strong>
+                    <strong>
+                      <PlannerPlatformLabel platform={target.platform} />
+                    </strong>
                     <span>@{target.account.username}</span>
                     <small>Official API</small>
                   </div>
