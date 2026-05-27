@@ -86,6 +86,18 @@ function uniqueAccounts(accounts: ReplyAccount[]): ReplyAccount[] {
   return result;
 }
 
+function uniqueComments(comments: SocialComment[]): SocialComment[] {
+  const seen = new Set<string>();
+  const result: SocialComment[] = [];
+  for (const comment of comments) {
+    const key = [comment.platform, comment.post_external_id ?? comment.post_id ?? "", comment.external_id ?? comment.text].join(":");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(comment);
+  }
+  return result;
+}
+
 function getCommentAuthor(comment: SocialComment): string {
   if (comment.commenter_username && comment.commenter_name) {
     return `${comment.commenter_name} (@${comment.commenter_username})`;
@@ -268,7 +280,7 @@ export function RepliesPage() {
               ),
             ),
           );
-          return [id, responses.flatMap((response) => response.data ?? [])] as const;
+          return [id, uniqueComments(responses.flatMap((response) => response.data ?? []))] as const;
         }),
       );
 

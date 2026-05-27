@@ -653,7 +653,7 @@ export async function listRedditComments(env: Env, postId?: string | null, limit
       values.unshift(Number(postId));
     }
     if (requestedAccountId) {
-      filters.push("account_id = ?");
+      filters.push("(account_id = ? OR account_id IS NULL)");
       values.push(requestedAccountId);
     }
     await appendScopedFilter(env, "social_posts", filters, values, userId);
