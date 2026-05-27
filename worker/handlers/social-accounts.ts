@@ -4,7 +4,7 @@ import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tabl
 import { markLinkedPlannerItemsPublished, markSocialPostsFailed, socialPostsHaveLastError, socialPublishErrorMessage } from "../lib/social-publish";
 import { normalizeAccountTags, readAccountTags, upsertAccountTags } from "../lib/account-tags";
 
-type ExtraSocialPlatform = "linkedin" | "instagram" | "youtube";
+type ExtraSocialPlatform = "facebook" | "linkedin" | "instagram" | "youtube";
 type AccountConnectionMode = "official_api";
 type AccountStatus = "active" | "inactive";
 type ExtraSocialPostRow = {
@@ -81,6 +81,42 @@ type LinkedInTokenResponse = {
   error_description?: string;
 };
 
+type FacebookGraphErrorPayload = {
+  error?: {
+    message?: string;
+    type?: string;
+    code?: number;
+  };
+};
+
+type FacebookTokenResponse = FacebookGraphErrorPayload & {
+  access_token?: string;
+  token_type?: string;
+  expires_in?: number;
+};
+
+type FacebookPicture = {
+  data?: {
+    url?: string;
+    is_silhouette?: boolean;
+  };
+};
+
+type FacebookProfileResponse = FacebookGraphErrorPayload & {
+  id?: string;
+  name?: string;
+  picture?: FacebookPicture;
+};
+
+type FacebookAccountsResponse = FacebookGraphErrorPayload & {
+  data?: Array<{
+    id?: string;
+    name?: string;
+    access_token?: string;
+    picture?: FacebookPicture;
+  }>;
+};
+
 type MetaSignedRequestPayload = {
   algorithm?: string;
   user_id?: string;
@@ -98,12 +134,20 @@ type FieldName =
   | "page_id"
   | "refresh_token";
 
-const EXTRA_SOCIAL_PLATFORMS: ExtraSocialPlatform[] = ["linkedin", "instagram", "youtube"];
+const EXTRA_SOCIAL_PLATFORMS: ExtraSocialPlatform[] = ["facebook", "linkedin", "instagram", "youtube"];
+const DEFAULT_FACEBOOK_OAUTH_SCOPES = [
+  "public_profile",
+  "pages_show_list",
+  "pages_read_engagement",
+  "pages_manage_posts",
+].join(",");
 const DEFAULT_INSTAGRAM_OAUTH_SCOPES = [
   "instagram_business_basic",
   "instagram_business_content_publish",
 ].join(",");
 const DEFAULT_LINKEDIN_OAUTH_SCOPES = ["openid", "profile", "w_member_social"].join(" ");
+const FACEBOOK_AUTHORIZE_BASE_URL = "https://www.facebook.com";
+const FACEBOOK_GRAPH_BASE_URL = "https://graph.facebook.com";
 const INSTAGRAM_AUTHORIZE_URL = "https://www.instagram.com/oauth/authorize";
 const INSTAGRAM_TOKEN_URL = "https://api.instagram.com/oauth/access_token";
 const INSTAGRAM_GRAPH_BASE_URL = "https://graph.instagram.com";
@@ -116,6 +160,16 @@ const LINKEDIN_POSTS_URL = "https://api.linkedin.com/rest/posts";
 const LINKEDIN_IMAGES_URL = "https://api.linkedin.com/rest/images?action=initializeUpload";
 
 const OFFICIAL_FIELD_SETTINGS: Record<ExtraSocialPlatform, Record<FieldName, string>> = {
+  facebook: {
+    client_id: "facebook_client_id",
+    client_secret: "facebook_client_secret",
+    redirect_uri: "facebook_redirect_uri",
+    scopes: "facebook_scopes",
+    access_token: "facebook_access_token",
+    user_id: "facebook_page_id",
+    page_id: "facebook_user_id",
+    refresh_token: "facebook_refresh_token",
+  },
   linkedin: {
     client_id: "linkedin_client_id",
     client_secret: "linkedin_client_secret",
@@ -149,6 +203,7 @@ const OFFICIAL_FIELD_SETTINGS: Record<ExtraSocialPlatform, Record<FieldName, str
 };
 
 const REQUIRED_OFFICIAL_FIELDS: Record<ExtraSocialPlatform, FieldName[]> = {
+  facebook: ["access_token", "user_id"],
   linkedin: ["access_token", "user_id"],
   instagram: ["access_token", "user_id"],
   youtube: ["client_id", "client_secret", "redirect_uri", "scopes", "refresh_token", "user_id"],
@@ -218,6 +273,10 @@ function graphApiVersion(): string {
   return "v25.0";
 }
 
+function facebookPayloadError(payload: FacebookGraphErrorPayload | null | undefined): string {
+  return payload?.error?.message || "";
+}
+
 function instagramPayloadError(payload: { error?: { message?: string }; error_message?: string } | null | undefined): string {
   return payload?.error?.message || payload?.error_message || "";
 }
@@ -260,6 +319,66 @@ async function readStoredInstagramOAuthConfig(env: Env, userId = DEFAULT_USER_ID
     appSecret: clientSecret,
     redirectUri,
     scopes,
+  };
+}
+
+async function readStoredFacebookOAuthConfig(env: Env, userId = DEFAULT_USER_ID) {
+  const filters = ["platform = 'facebook'", "status = 'active'"];
+  const values: unknown[] = [];
+  await appendScopedFilter(env, "social_accounts", filters, values, userId);
+  const account = await env.DB.prepare(
+    `SELECT id FROM social_accounts WHERE ${filters.join(" AND ")} ORDER BY updated_at DESC, id DESC LIMIT 1`,
+  )
+    .bind(...values)
+    .first<{ id: number }>();
+  if (!account?.id) return null;
+
+  const [clientId, clientSecret, redirectUri, scopes] = await Promise.all([
+    readSetting(env, `social_account:${account.id}:facebook_client_id`, userId),
+    readSetting(env, `social_account:${account.id}:facebook_client_secret`, userId),
+    readSetting(env, `social_account:${account.id}:facebook_redirect_uri`, userId),
+    readSetting(env, `social_account:${account.id}:facebook_scopes`, userId),
+  ]);
+  if (!clientId || !clientSecret) return null;
+
+  return { appId: clientId, appSecret: clientSecret, redirectUri, scopes };
+}
+
+function facebookAppSecretForAppId(
+  env: Env,
+  appId: string,
+  stored?: { appId: string; appSecret: string } | null,
+): string {
+  const normalizedAppId = appId.trim();
+  if (!normalizedAppId) return "";
+
+  const facebookAppId = env.FACEBOOK_APP_ID?.trim();
+  if (facebookAppId && normalizedAppId === facebookAppId) {
+    return env.FACEBOOK_APP_SECRET?.trim()
+      || (stored?.appId === normalizedAppId ? stored.appSecret : "")
+      || "";
+  }
+
+  const metaAppId = env.META_APP_ID?.trim();
+  if (metaAppId && normalizedAppId === metaAppId) {
+    return env.META_APP_SECRET?.trim()
+      || (stored?.appId === normalizedAppId ? stored.appSecret : "")
+      || "";
+  }
+
+  if (stored?.appId === normalizedAppId) return stored.appSecret;
+  return "";
+}
+
+async function facebookOAuthConfig(env: Env, requestUrl: string, userId = DEFAULT_USER_ID) {
+  const requestOrigin = new URL(requestUrl).origin;
+  const stored = await readStoredFacebookOAuthConfig(env, userId);
+  const appId = env.FACEBOOK_APP_ID?.trim() || env.META_APP_ID?.trim() || stored?.appId || "";
+  return {
+    appId,
+    appSecret: facebookAppSecretForAppId(env, appId, stored),
+    redirectUri: env.FACEBOOK_REDIRECT_URI?.trim() || stored?.redirectUri || `${requestOrigin}/api/facebook/auth/callback`,
+    scopes: env.FACEBOOK_SCOPES?.trim() || stored?.scopes || DEFAULT_FACEBOOK_OAUTH_SCOPES,
   };
 }
 
@@ -684,6 +803,78 @@ async function upsertLinkedInOAuthAccount(
   return accountId;
 }
 
+async function upsertFacebookOAuthAccount(
+  env: Env,
+  account: {
+    username: string;
+    displayName?: string | null;
+    avatarUrl?: string | null;
+    accessToken: string;
+    facebookUserId: string;
+    facebookPageId?: string | null;
+    appId: string;
+    redirectUri: string;
+    scopes: string;
+    expiresIn?: number;
+    accountType: "page" | "profile";
+  },
+  scopeId = DEFAULT_USER_ID,
+): Promise<number> {
+  const now = new Date().toISOString();
+  const username = account.username.trim() || account.facebookPageId?.trim() || account.facebookUserId;
+  const existingFilters = ["platform = 'facebook'", "username = ?"];
+  const existingValues: unknown[] = [username];
+  await appendScopedFilter(env, "social_accounts", existingFilters, existingValues, scopeId);
+  const existing = await env.DB.prepare(
+    `SELECT id FROM social_accounts WHERE ${existingFilters.join(" AND ")} ORDER BY id DESC LIMIT 1`,
+  )
+    .bind(...existingValues)
+    .first<{ id: number }>();
+
+  let accountId = existing?.id ?? 0;
+  if (accountId) {
+    const updateFilters = ["id = ?"];
+    const updateValues: unknown[] = [accountId];
+    await appendScopedFilter(env, "social_accounts", updateFilters, updateValues, scopeId);
+    await env.DB.prepare(`UPDATE social_accounts SET status = 'active', updated_at = ? WHERE ${updateFilters.join(" AND ")}`)
+      .bind(now, ...updateValues)
+      .run();
+  } else {
+    const scoped = await scopedInsertColumns(env, "social_accounts", scopeId);
+    const result = await env.DB.prepare(
+      `INSERT INTO social_accounts (${[...scoped.columns, "platform", "username", "status", "created_at", "updated_at"].join(", ")})
+       VALUES (${[...scoped.columns.map(() => "?"), "?", "?", "'active'", "?", "?"].join(", ")})`,
+    )
+      .bind(...scoped.values, "facebook", username, now, now)
+      .run() as { meta: { last_row_id: number } };
+    accountId = result.meta.last_row_id;
+  }
+
+  const expiresAt = account.expiresIn
+    ? new Date(Date.now() + account.expiresIn * 1000).toISOString()
+    : "";
+  const targetId = account.facebookPageId?.trim() || account.facebookUserId;
+  await Promise.all([
+    upsertSetting(env, `social_account:${accountId}:connection_mode`, "official_api", now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:facebook_client_id`, account.appId, now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:facebook_redirect_uri`, account.redirectUri, now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:facebook_scopes`, account.scopes, now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:facebook_access_token`, account.accessToken, now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:facebook_page_id`, targetId, now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:facebook_user_id`, account.facebookUserId, now, scopeId),
+    upsertSetting(env, `social_account:${accountId}:facebook_account_type`, account.accountType, now, scopeId),
+    ...(account.displayName?.trim()
+      ? [upsertSetting(env, `social_account:${accountId}:display_name`, account.displayName.trim(), now, scopeId)]
+      : []),
+    ...(account.avatarUrl?.trim()
+      ? [upsertSetting(env, `social_account:${accountId}:avatar_url`, account.avatarUrl.trim(), now, scopeId)]
+      : []),
+    ...(expiresAt ? [upsertSetting(env, `social_account:${accountId}:facebook_token_expires_at`, expiresAt, now, scopeId)] : []),
+  ]);
+
+  return accountId;
+}
+
 async function resolveExtraAccountForPost(
   env: Env,
   post: ExtraSocialPostRow,
@@ -1038,6 +1229,204 @@ export async function proxySocialAccountAvatar(
       "Cache-Control": "private, max-age=3600",
     },
   });
+}
+
+function facebookPictureUrl(picture: FacebookPicture | undefined): string | null {
+  const url = picture?.data?.url?.trim();
+  return url || null;
+}
+
+export async function authorizeFacebookAccount(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
+  try {
+    const payload = await parseJson<{ tags?: unknown }>(request);
+    const config = await facebookOAuthConfig(env, request.url, userId);
+    if (!config.appId) {
+      return errorResponse(`Facebook OAuth is not configured. Add FACEBOOK_APP_ID or META_APP_ID to the Worker, then add this redirect URL in Meta: ${config.redirectUri}`, 500);
+    }
+
+    const state = crypto.randomUUID();
+    const now = new Date().toISOString();
+    await upsertSetting(env, `facebook_oauth_state:${state}`, JSON.stringify({
+      app_id: config.appId,
+      redirect_uri: config.redirectUri,
+      scopes: config.scopes,
+      tags: normalizeAccountTags(payload.tags),
+      user_id: ownerId(userId),
+      created_at: now,
+    }), now, userId);
+
+    const authUrl = new URL(`${FACEBOOK_AUTHORIZE_BASE_URL}/${graphApiVersion()}/dialog/oauth`);
+    authUrl.searchParams.set("client_id", config.appId);
+    authUrl.searchParams.set("redirect_uri", config.redirectUri);
+    authUrl.searchParams.set("scope", config.scopes);
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("state", state);
+
+    return jsonResponse({ auth_url: authUrl.toString() });
+  } catch {
+    return errorResponse("Failed to start Facebook authorization", 500);
+  }
+}
+
+export async function handleFacebookOAuthCallback(env: Env, url: URL): Promise<Response> {
+  try {
+    const code = url.searchParams.get("code");
+    const state = url.searchParams.get("state");
+    const oauthError = url.searchParams.get("error") || url.searchParams.get("error_message");
+    if (oauthError) {
+      return new Response(`<html><body><h1>Facebook authorization failed</h1><p>${escapeHtml(oauthError)}</p></body></html>`, {
+        status: 400,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+    if (!code || !state) {
+      return new Response("<html><body><h1>Invalid Facebook OAuth callback</h1></body></html>", {
+        status: 400,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
+    const stateKey = `facebook_oauth_state:${state}`;
+    const row = await env.DB.prepare("SELECT value FROM app_settings WHERE key = ?").bind(stateKey).first<{ value: string }>();
+    if (!row?.value) {
+      return new Response("<html><body><h1>Facebook OAuth state expired</h1></body></html>", {
+        status: 400,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
+    const pending = JSON.parse(row.value) as {
+      app_id: string;
+      redirect_uri: string;
+      scopes: string;
+      tags?: unknown;
+      user_id?: number;
+    };
+    const pendingUserId = ownerId(pending.user_id);
+    const config = await facebookOAuthConfig(env, url.toString(), pendingUserId);
+
+    if (!config.appSecret) {
+      return new Response("<html><body><h1>Facebook OAuth is not configured</h1><p>FACEBOOK_APP_SECRET or META_APP_SECRET is missing on the Worker, so the authorization code cannot be exchanged yet.</p></body></html>", {
+        status: 500,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
+    const tokenUrl = new URL(`${FACEBOOK_GRAPH_BASE_URL}/${graphApiVersion()}/oauth/access_token`);
+    tokenUrl.searchParams.set("client_id", pending.app_id || config.appId);
+    tokenUrl.searchParams.set("client_secret", config.appSecret);
+    tokenUrl.searchParams.set("redirect_uri", pending.redirect_uri || config.redirectUri);
+    tokenUrl.searchParams.set("code", code);
+    const tokenResponse = await fetch(tokenUrl.toString());
+    const tokenPayload = await tokenResponse.json() as FacebookTokenResponse;
+    if (!tokenResponse.ok || !tokenPayload.access_token) {
+      return new Response(`<html><body><h1>Facebook token exchange failed</h1><p>${escapeHtml(facebookPayloadError(tokenPayload) || "No access token returned.")}</p></body></html>`, {
+        status: 500,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
+    const longTokenUrl = new URL(`${FACEBOOK_GRAPH_BASE_URL}/${graphApiVersion()}/oauth/access_token`);
+    longTokenUrl.searchParams.set("grant_type", "fb_exchange_token");
+    longTokenUrl.searchParams.set("client_id", pending.app_id || config.appId);
+    longTokenUrl.searchParams.set("client_secret", config.appSecret);
+    longTokenUrl.searchParams.set("fb_exchange_token", tokenPayload.access_token);
+    const longTokenResponse = await fetch(longTokenUrl.toString());
+    const longTokenPayload = await longTokenResponse.json() as FacebookTokenResponse;
+    const userAccessToken = longTokenPayload.access_token || tokenPayload.access_token;
+    const expiresIn = longTokenPayload.expires_in || tokenPayload.expires_in;
+    if (!longTokenResponse.ok && !userAccessToken) {
+      return new Response(`<html><body><h1>Facebook long-lived token exchange failed</h1><p>${escapeHtml(facebookPayloadError(longTokenPayload) || "No access token returned.")}</p></body></html>`, {
+        status: 500,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
+    const profileUrl = new URL(`${FACEBOOK_GRAPH_BASE_URL}/${graphApiVersion()}/me`);
+    profileUrl.searchParams.set("fields", "id,name,picture.type(large)");
+    profileUrl.searchParams.set("access_token", userAccessToken);
+    const profileResponse = await fetch(profileUrl.toString());
+    const profile = await profileResponse.json() as FacebookProfileResponse;
+    if (!profileResponse.ok || !profile.id) {
+      return new Response(`<html><body><h1>Facebook profile lookup failed</h1><p>${escapeHtml(facebookPayloadError(profile) || "Could not load Facebook profile.")}</p></body></html>`, {
+        status: 500,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
+    const pagesUrl = new URL(`${FACEBOOK_GRAPH_BASE_URL}/${graphApiVersion()}/me/accounts`);
+    pagesUrl.searchParams.set("fields", "id,name,access_token,picture.type(large)");
+    pagesUrl.searchParams.set("limit", "100");
+    pagesUrl.searchParams.set("access_token", userAccessToken);
+    const pagesResponse = await fetch(pagesUrl.toString());
+    const pagesPayload = await pagesResponse.json() as FacebookAccountsResponse;
+    const pages = pagesResponse.ok
+      ? (pagesPayload.data ?? []).filter((page) => page.id?.trim() && page.access_token?.trim())
+      : [];
+
+    const targets = pages.length > 0
+      ? pages.map((page) => ({
+        username: page.name || page.id || "Facebook Page",
+        displayName: page.name || null,
+        avatarUrl: facebookPictureUrl(page.picture),
+        accessToken: page.access_token!,
+        facebookUserId: profile.id!,
+        facebookPageId: page.id!,
+        accountType: "page" as const,
+      }))
+      : [{
+        username: profile.name || profile.id,
+        displayName: profile.name || null,
+        avatarUrl: facebookPictureUrl(profile.picture),
+        accessToken: userAccessToken,
+        facebookUserId: profile.id,
+        facebookPageId: null,
+        accountType: "profile" as const,
+      }];
+
+    const accountIds: number[] = [];
+    const tags = normalizeAccountTags(pending.tags);
+    const now = new Date().toISOString();
+    for (const target of targets) {
+      const accountId = await upsertFacebookOAuthAccount(env, {
+        ...target,
+        appId: pending.app_id || config.appId,
+        redirectUri: pending.redirect_uri || config.redirectUri,
+        scopes: pending.scopes || config.scopes,
+        expiresIn,
+      }, pendingUserId);
+      accountIds.push(accountId);
+      if (tags.length > 0) {
+        await upsertAccountTags(env, "social_account", accountId, tags, now, pendingUserId);
+      }
+    }
+    await env.DB.prepare("DELETE FROM app_settings WHERE key = ?").bind(stateKey).run();
+
+    return new Response(
+      `<html>
+        <head><title>Facebook connected</title></head>
+        <body>
+          <h1>Facebook account connected</h1>
+          <p>You can return to the dashboard now.</p>
+          <script>
+            const payload = { type: "facebook_connected", ok: true, account_ids: ${JSON.stringify(accountIds)} };
+            if (window.opener) {
+              window.opener.postMessage(payload, window.location.origin);
+              window.close();
+            } else {
+              window.location.href = "/";
+            }
+          </script>
+        </body>
+      </html>`,
+      { status: 200, headers: { "Content-Type": "text/html" } },
+    );
+  } catch (error) {
+    return new Response(
+      `<html><body><h1>Error processing Facebook OAuth callback</h1><p>${escapeHtml(error instanceof Error ? error.message : "Unknown error")}</p></body></html>`,
+      { status: 500, headers: { "Content-Type": "text/html" } },
+    );
+  }
 }
 
 export async function authorizeInstagramAccount(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
@@ -1748,6 +2137,8 @@ export async function publishExtraSocialPost(
       externalId = await publishInstagramOfficial(env, post, account.id, scopeId);
     } else if (post.platform === "linkedin") {
       externalId = await publishLinkedInOfficial(env, post, account.id, scopeId);
+    } else if (post.platform === "facebook") {
+      return errorResponse("Facebook official API publishing is not implemented yet.", 501);
     } else {
       return errorResponse("YouTube official API publishing is not implemented yet.", 501);
     }

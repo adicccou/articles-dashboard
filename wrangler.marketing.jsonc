@@ -33,6 +33,8 @@
     "GOOGLE_REDIRECT_URI": "https://marketing-dashboard.adilet-melisov.workers.dev/api/auth/google/callback",
     "META_APP_ID": "26753414114307541",
     "INSTAGRAM_APP_ID": "1707531783621555",
+    "FACEBOOK_REDIRECT_URI": "https://marketing-dashboard.adilet-melisov.workers.dev/api/facebook/auth/callback",
+    "FACEBOOK_SCOPES": "public_profile,pages_show_list,pages_read_engagement,pages_manage_posts",
     "REDDIT_REDIRECT_URI": "https://marketing-dashboard.adilet-melisov.workers.dev/api/reddit/auth/callback",
     "TWITTER_REDIRECT_URI": "https://marketing-dashboard.adilet-melisov.workers.dev/api/twitter/auth/callback",
     "THREADS_REDIRECT_URI": "https://marketing-dashboard.adilet-melisov.workers.dev/api/threads/auth/callback",

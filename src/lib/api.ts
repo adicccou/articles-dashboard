@@ -467,6 +467,11 @@ export const api = {
     request<{ success: boolean }>(`/api/social/accounts/${id}`, {
       method: "DELETE",
     }),
+  startFacebookOAuth: (payload: { tags?: string[] } = {}) =>
+    request<{ auth_url: string }>("/api/facebook/auth/authorize", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   startInstagramOAuth: (payload: { tags?: string[] } = {}) =>
     request<{ auth_url: string }>("/api/instagram/auth/authorize", {
       method: "POST",

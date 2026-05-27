@@ -26,9 +26,11 @@ import { generateArticleCover, styleArticleContent, suggestArticleField } from "
 import { suggestSocialReply } from "./handlers/social-replies";
 import {
   addExtraSocialAccount,
+  authorizeFacebookAccount,
   authorizeInstagramAccount,
   authorizeLinkedInAccount,
   deleteExtraSocialAccount,
+  handleFacebookOAuthCallback,
   handleMetaDataDeletionRequest,
   handleMetaDeauthorizeCallback,
   handleInstagramOAuthCallback,
@@ -622,6 +624,7 @@ async function handleInternalContext(env: Env) {
       twitter: twitterAccounts,
       threads: threadsAccounts,
       instagram: extraAccountsResult.filter((account) => account.platform === "instagram"),
+      facebook: extraAccountsResult.filter((account) => account.platform === "facebook"),
       linkedin: extraAccountsResult.filter((account) => account.platform === "linkedin"),
       youtube: extraAccountsResult.filter((account) => account.platform === "youtube"),
     },
@@ -897,6 +900,7 @@ function isMarketingApiPath(pathname: string): boolean {
     "/api/articles",
     "/api/categories",
     "/api/reddit",
+    "/api/facebook",
     "/api/instagram",
     "/api/linkedin",
     "/api/meta",
@@ -2018,6 +2022,16 @@ export default {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       return await listExtraSocialAccounts(env, activeScopeId(user), user.id);
+    }
+
+    if (url.pathname === "/api/facebook/auth/authorize" && request.method === "POST") {
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      return await authorizeFacebookAccount(env, request, activeScopeId(user));
+    }
+
+    if (url.pathname === "/api/facebook/auth/callback" && request.method === "GET") {
+      return await handleFacebookOAuthCallback(env, url);
     }
 
     if (url.pathname === "/api/instagram/auth/authorize" && request.method === "POST") {

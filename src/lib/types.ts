@@ -692,7 +692,7 @@ export type TradingNoteInput = {
 
 export type SocialAccount = {
   id: number;
-  platform: "twitter" | "threads" | "reddit" | "linkedin" | "instagram" | "youtube";
+  platform: "twitter" | "threads" | "reddit" | "facebook" | "linkedin" | "instagram" | "youtube";
   username: string;
   status: "active" | "inactive";
   connection_mode?: "official_api";
@@ -712,7 +712,7 @@ export type SocialAccountInput = {
 
 export type SocialPost = {
   id: number;
-  platform: "twitter" | "threads" | "reddit" | "linkedin" | "instagram" | "youtube";
+  platform: "twitter" | "threads" | "reddit" | "facebook" | "linkedin" | "instagram" | "youtube";
   title?: string | null;
   subreddit?: string | null;
   account_id?: number | null;

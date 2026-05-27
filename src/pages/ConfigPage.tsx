@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ArrowPathIcon, PencilSquareIcon, TrashIcon } from "@heroicons/react/24/solid";
 import type { IconType } from "react-icons";
-import { FaLinkedinIn } from "react-icons/fa6";
+import { FaFacebookF, FaLinkedinIn } from "react-icons/fa6";
 import { SiInstagram, SiReddit, SiThreads, SiX, SiYoutube } from "react-icons/si";
 import { ModalCloseButton } from "../components/ModalCloseButton";
 import type { RedditAccount, Site, SocialAccount, SocialAccountInput, StudioApp } from "../lib/types";
@@ -10,7 +10,7 @@ import { formatDisplayDate } from "../lib/datetime";
 import "../styles/config-page.css";
 
 type ConfigTab = "apps" | "accounts";
-type AccountPlatform = "twitter" | "threads" | "reddit" | "linkedin" | "instagram" | "youtube";
+type AccountPlatform = "twitter" | "threads" | "reddit" | "facebook" | "linkedin" | "instagram" | "youtube";
 type AccountStatus = "active" | "inactive";
 type AccountConnectionMode = "official_api";
 type ConfigModal = "app" | "account" | "site" | null;
@@ -99,6 +99,13 @@ const LINKEDIN_SCOPES = [
   "w_member_social",
 ].join(" ");
 
+const FACEBOOK_SCOPES = [
+  "public_profile",
+  "pages_show_list",
+  "pages_read_engagement",
+  "pages_manage_posts",
+].join(",");
+
 const YOUTUBE_SCOPES = [
   "https://www.googleapis.com/auth/youtube.upload",
 ].join(" ");
@@ -107,6 +114,7 @@ const platformOptions: Array<{ id: AccountPlatform; label: string }> = [
   { id: "twitter", label: "Twitter/X" },
   { id: "threads", label: "Threads" },
   { id: "reddit", label: "Reddit" },
+  { id: "facebook", label: "Facebook" },
   { id: "linkedin", label: "LinkedIn" },
   { id: "instagram", label: "Instagram" },
 ];
@@ -115,6 +123,7 @@ const platformIcons: Record<AccountPlatform, IconType> = {
   twitter: SiX,
   threads: SiThreads,
   reddit: SiReddit,
+  facebook: FaFacebookF,
   linkedin: FaLinkedinIn,
   instagram: SiInstagram,
   youtube: SiYoutube,
@@ -159,6 +168,8 @@ function emptyAccountForm(platform: AccountPlatform = "twitter"): AccountForm {
     scopes:
       platform === "threads"
         ? THREADS_FULL_SCOPES
+        : platform === "facebook"
+        ? FACEBOOK_SCOPES
         : platform === "linkedin"
         ? LINKEDIN_SCOPES
         : platform === "instagram"
@@ -330,8 +341,8 @@ function accountStatusLabel(status: string) {
   return status === "active" ? "Connected" : "Failed to connect";
 }
 
-function isExtraPlatform(platform: AccountPlatform): platform is "linkedin" | "instagram" | "youtube" {
-  return platform === "linkedin" || platform === "instagram" || platform === "youtube";
+function isExtraPlatform(platform: AccountPlatform): platform is "facebook" | "linkedin" | "instagram" | "youtube" {
+  return platform === "facebook" || platform === "linkedin" || platform === "instagram" || platform === "youtube";
 }
 
 type OfficialFieldKey =
@@ -380,6 +391,22 @@ const officialFieldsByPlatform: Record<Exclude<AccountPlatform, "reddit">, Offic
     [
       { key: "access_token", label: "Access Token", type: "password", requiredOnCreate: false },
       { key: "user_id", label: "User ID", requiredOnCreate: false },
+    ],
+  ],
+  facebook: [
+    [
+      { key: "client_id", label: "App ID" },
+      { key: "client_secret", label: "App Secret", type: "password" },
+    ],
+    [
+      { key: "redirect_uri", label: "Redirect URI" },
+    ],
+    [
+      { key: "scopes", label: "Scopes" },
+    ],
+    [
+      { key: "access_token", label: "Access Token", type: "password" },
+      { key: "user_id", label: "Page ID" },
     ],
   ],
   linkedin: [
@@ -444,6 +471,9 @@ function officialApiHint(platform: AccountPlatform): string | null {
   }
   if (platform === "threads") {
     return "Add access token and user ID directly, or leave them blank to connect through Threads OAuth.";
+  }
+  if (platform === "facebook") {
+    return "Leave fields blank to connect Facebook through the official popup.";
   }
   if (platform === "linkedin") {
     return "Leave fields blank to connect through LinkedIn OAuth, or add official credentials manually.";
@@ -514,12 +544,13 @@ function deriveAccountStatus(form: AccountForm): AccountStatus {
 
 function usesHostedOAuth(form: AccountForm) {
   return !form.id
-    && (form.platform === "twitter" || form.platform === "threads" || form.platform === "instagram" || form.platform === "linkedin" || form.platform === "reddit");
+    && (form.platform === "twitter" || form.platform === "threads" || form.platform === "instagram" || form.platform === "facebook" || form.platform === "linkedin" || form.platform === "reddit");
 }
 
 async function startHostedOAuth(platform: AccountPlatform, username: string, tags: string[]) {
   if (platform === "threads") return api.startThreadsOAuth({ tags });
   if (platform === "twitter") return api.startTwitterOAuth({ tags });
+  if (platform === "facebook") return api.startFacebookOAuth({ tags });
   if (platform === "linkedin") return api.startLinkedInOAuth({ tags });
   if (platform === "reddit") return api.startRedditOAuth(username || "Reddit", tags);
   return api.startInstagramOAuth({ tags });
@@ -528,6 +559,7 @@ async function startHostedOAuth(platform: AccountPlatform, username: string, tag
 function hostedOAuthMessageType(platform: AccountPlatform) {
   if (platform === "threads") return "threads_connected";
   if (platform === "twitter") return "twitter_connected";
+  if (platform === "facebook") return "facebook_connected";
   if (platform === "linkedin") return "linkedin_connected";
   if (platform === "reddit") return "reddit_connected";
   return "instagram_connected";
@@ -1079,6 +1111,7 @@ export function ConfigPage() {
     if (accountForm.platform === "reddit") return "Connect Reddit account";
     if (accountForm.platform === "twitter") return "Connect Twitter/X account";
     if (accountForm.platform === "threads") return "Connect Threads account";
+    if (accountForm.platform === "facebook") return "Connect Facebook account";
     if (accountForm.platform === "instagram") return "Connect Instagram account";
     if (accountForm.platform === "linkedin") return "Connect LinkedIn account";
     return "Add account";

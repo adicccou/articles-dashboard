@@ -25,6 +25,10 @@ export type Env = {
   THREADS_SCOPES?: string;
   META_APP_ID?: string;
   META_APP_SECRET?: string;
+  FACEBOOK_APP_ID?: string;
+  FACEBOOK_APP_SECRET?: string;
+  FACEBOOK_REDIRECT_URI?: string;
+  FACEBOOK_SCOPES?: string;
   INSTAGRAM_APP_ID?: string;
   INSTAGRAM_APP_SECRET?: string;
   INSTAGRAM_REDIRECT_URI?: string;
