@@ -270,10 +270,13 @@
 }
 
 .scheduler-list-media:hover {
+  background: #f8fafc;
   border-color: #bfdbfe;
+  color: inherit;
 }
 
 .scheduler-list-media--grid {
+  gap: 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   grid-template-rows: repeat(2, minmax(0, 1fr));
 }
