@@ -6,6 +6,9 @@ import { SiInstagram, SiReddit, SiThreads, SiX, SiYoutube } from "react-icons/si
 import { api } from "../lib/api";
 import type { InstagramInsightsResponse, LinkedInInsightsResponse, RedditAccount, SocialAccount, SocialComment, SocialPost, ThreadsInsightsResponse, TwitterInsightsResponse } from "../lib/types";
 import { formatDisplayDateTime } from "../lib/datetime";
+import { normalizeDashboardMediaUrl } from "../lib/mediaUrl";
+import { getDisplayPostImageUrls, isVideoMediaUrl } from "../lib/socialPostMedia";
+import { ModalCloseButton } from "../components/ModalCloseButton";
 import "../styles/statistics-page.css";
 
 type Platform = SocialPost["platform"];
@@ -210,6 +213,7 @@ export function StatisticsPage() {
   const [selectedPlatform, setSelectedPlatform] = useState<PlatformSelection>("all");
   const [selectedAccountKey, setSelectedAccountKey] = useState("all");
   const [selectedPostStatus, setSelectedPostStatus] = useState<PostStatusTab>("posted");
+  const [mediaViewerUrl, setMediaViewerUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -534,13 +538,11 @@ export function StatisticsPage() {
                       </div>
                       <span className={`stats-status-chip stats-status-chip--${item.account.status}`}>{item.account.status}</span>
                     </div>
-                    <div className="stats-account-card__metrics">
+                    <div className="stats-account-card__metrics stats-account-card__metrics--full">
                       <span><strong>{item.publishedPosts}</strong> published</span>
                       <span><strong>{item.scheduledPosts}</strong> scheduled</span>
                       <span><strong>{item.commentsCount}</strong> comments</span>
                       <span><strong>{item.repliesSent}</strong> replies sent</span>
-                    </div>
-                    <div className="stats-insight-row">
                       {INSIGHT_METRICS.map((metric) => {
                         const key = metric.toLowerCase() as "views" | "likes" | "shares";
                         return (
@@ -641,6 +643,9 @@ export function StatisticsPage() {
                     const comments = postCommentsById.get(post.id) ?? 0;
                     const insightComments = typeof insight?.replies === "number" && Number.isFinite(insight.replies) ? insight.replies : comments;
                     const postAccountLabel = postAccountLabelsById.get(post.id) ?? platformLabel(post.platform);
+                    const mediaUrls = getDisplayPostImageUrls(post.image_url);
+                    const previewUrl = mediaUrls[0] ?? null;
+                    const previewIsVideo = previewUrl ? isVideoMediaUrl(previewUrl) : false;
                     return (
                       <article className="stats-recent-post" key={`${post.platform}:${post.id}`}>
                         <div className="stats-recent-post__main">
@@ -652,8 +657,25 @@ export function StatisticsPage() {
                             <span className={`stats-post-status stats-post-status--${post.status}`}>{post.status}</span>
                           </div>
                           <p>{post.content || post.title || "Untitled post"}</p>
+                          {previewUrl ? (
+                            <button
+                              type="button"
+                              className="stats-post-media"
+                              onClick={() => setMediaViewerUrl(previewUrl)}
+                              aria-label={`Open ${previewIsVideo ? "video" : "image"} preview`}
+                            >
+                              {previewIsVideo ? (
+                                <>
+                                  <video className="stats-post-media__asset" src={normalizeDashboardMediaUrl(previewUrl)} muted playsInline preload="metadata" />
+                                  <span className="stats-post-media__badge">Video</span>
+                                </>
+                              ) : (
+                                <img className="stats-post-media__asset" src={normalizeDashboardMediaUrl(previewUrl)} alt="Post preview" loading="lazy" />
+                              )}
+                            </button>
+                          ) : null}
                           {selectedPostStatus === "posted" ? (
-                            <div className="stats-post-metrics" aria-label="Post performance metrics">
+                            <div className="stats-post-metrics stats-post-metrics--published" aria-label="Post performance metrics">
                               <span><strong>{formatPostInsightValue(insight?.views, fallback)}</strong>Views</span>
                               <span><strong>{formatPostInsightValue(insight?.likes, fallback)}</strong>Likes</span>
                               <span><strong>{insightComments.toLocaleString()}</strong>Comments</span>
@@ -663,7 +685,7 @@ export function StatisticsPage() {
                               <span><strong>{formatPostInsightValue(insight?.quotes, fallback)}</strong>Quotes</span>
                             </div>
                           ) : (
-                            <div className="stats-post-metrics" aria-label="Scheduled post details">
+                            <div className="stats-post-metrics stats-post-metrics--scheduled" aria-label="Scheduled post details">
                               <span><strong>{post.scheduled_at ? formatDisplayDateTime(post.scheduled_at) : "No date"}</strong>Scheduled for</span>
                               <span><strong>{postAccountLabel}</strong>Account</span>
                             </div>
@@ -678,6 +700,19 @@ export function StatisticsPage() {
           </>
         )}
       </div>
+
+      {mediaViewerUrl ? (
+        <div className="stats-media-viewer" onClick={() => setMediaViewerUrl(null)}>
+          <div className="stats-media-viewer__dialog" onClick={(event) => event.stopPropagation()}>
+            <ModalCloseButton className="stats-media-viewer__close" onClick={() => setMediaViewerUrl(null)} />
+            {isVideoMediaUrl(mediaViewerUrl) ? (
+              <video className="stats-media-viewer__asset" src={normalizeDashboardMediaUrl(mediaViewerUrl)} controls autoPlay playsInline />
+            ) : (
+              <img className="stats-media-viewer__asset" src={normalizeDashboardMediaUrl(mediaViewerUrl)} alt="Post media preview" />
+            )}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

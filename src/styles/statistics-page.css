@@ -186,15 +186,17 @@
   font-size: 1.05rem;
 }
 
-.stats-account-card__metrics,
-.stats-insight-row {
+.stats-account-card__metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
 }
 
-.stats-account-card__metrics span,
-.stats-insight-row span {
+.stats-account-card__metrics--full {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.stats-account-card__metrics span {
   display: grid;
   gap: 4px;
   padding: 10px;
@@ -204,20 +206,10 @@
   font-size: 0.78rem;
 }
 
-.stats-account-card__metrics strong,
-.stats-insight-row strong {
+.stats-account-card__metrics strong {
   color: var(--accent);
   font-size: 1.2rem;
   line-height: 1;
-}
-
-.stats-insight-row {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.stats-insight-row span {
-  background: #fff7ed;
-  color: #9a3412;
 }
 
 .stats-account-card__note {
@@ -330,18 +322,60 @@
   line-height: 1.45;
 }
 
+.stats-post-media {
+  position: relative;
+  width: 100%;
+  max-width: 320px;
+  padding: 0;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+}
+
+.stats-post-media__asset {
+  display: block;
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: #0f172a;
+}
+
+.stats-post-media__badge {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.8);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
 .stats-post-metrics {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 8px;
 }
 
+.stats-post-metrics--published {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.stats-post-metrics--scheduled {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 560px;
+}
+
 .stats-post-metrics span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 10px;
-  border-radius: 999px;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 14px;
   background: #f8fafc;
   color: var(--text-soft);
   font-size: 0.78rem;
@@ -350,7 +384,44 @@
 
 .stats-post-metrics strong {
   color: var(--accent);
-  font-size: 0.86rem;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.stats-media-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.8);
+}
+
+.stats-media-viewer__dialog {
+  position: relative;
+  width: min(1100px, 100%);
+  max-height: 92vh;
+  padding: 16px;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 30px 90px rgba(15, 23, 42, 0.35);
+}
+
+.stats-media-viewer__close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+}
+
+.stats-media-viewer__asset {
+  display: block;
+  width: 100%;
+  max-height: calc(92vh - 32px);
+  object-fit: contain;
+  border-radius: 14px;
+  background: #0f172a;
 }
 
 .stats-post-status--scheduled {
@@ -406,7 +477,8 @@
   .stats-grid,
   .stats-account-grid,
   .stats-account-card__metrics,
-  .stats-insight-row {
+  .stats-post-metrics--published,
+  .stats-post-metrics--scheduled {
     grid-template-columns: 1fr;
   }
 
