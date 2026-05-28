@@ -87,7 +87,7 @@
 
 .scheduler-tabs {
   display: flex;
-  gap: 10px;
+  gap: 0;
   flex-wrap: wrap;
 }
 
@@ -97,15 +97,16 @@
 }
 
 .scheduler-tab {
-  background: #eff6ff;
-  color: #1e3a8a;
-  border: 1px solid #bfdbfe;
+  background: transparent;
+  color: #94a3b8;
+  border: 0;
+  border-bottom: 2px solid transparent;
 }
 
 .scheduler-tab--active {
-  background: #0f172a;
-  color: #fff;
-  border-color: #0f172a;
+  background: transparent;
+  color: #0f172a;
+  border-bottom-color: #0f172a;
 }
 
 .scheduler-hero__search {

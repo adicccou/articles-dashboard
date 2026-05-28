@@ -461,8 +461,8 @@ button.button-secondary:disabled {
 }
 
 .ui-tabs__list.ui-tabs__list {
-  @apply inline-flex max-w-full items-center gap-1 overflow-x-auto border border-slate-200 bg-slate-100 p-1;
-  border-radius: 999px;
+  @apply inline-flex max-w-full items-center gap-0 overflow-x-auto border border-slate-200 bg-white px-4;
+  border-radius: 14px 14px 0 0;
   scrollbar-width: thin;
 }
 
@@ -473,15 +473,15 @@ button.button-secondary:disabled {
 .ui-tab.ui-tab,
 .scheduler-tab.scheduler-tab,
 .social-panel-tab.social-panel-tab {
-  @apply inline-flex min-h-9 shrink-0 items-center justify-center gap-2 border border-transparent bg-transparent px-4 py-2 text-sm font-semibold text-slate-600 shadow-none hover:bg-white hover:text-slate-950;
-  border-radius: 999px;
+  @apply inline-flex min-h-12 shrink-0 items-center justify-center gap-2 border-0 border-b-2 border-transparent bg-transparent px-5 py-3 text-sm font-semibold text-slate-400 shadow-none hover:bg-transparent hover:text-slate-700;
+  border-radius: 0;
 }
 
 .ui-tab.ui-tab--active,
 .ui-tab.ui-tab--active:hover,
 .scheduler-tab--active.scheduler-tab--active,
 .social-panel-tab--active.social-panel-tab--active {
-  @apply border-slate-300 bg-white text-slate-950 shadow-sm hover:bg-white hover:text-slate-950;
+  @apply border-b-slate-950 bg-transparent text-slate-950 shadow-none hover:bg-transparent hover:text-slate-950;
 }
 
 .ui-tab:disabled,
@@ -494,12 +494,12 @@ button.button-secondary:disabled {
 .config-count,
 .scheduler-week__count,
 .scheduler-calendar__day-count {
-  @apply inline-flex min-h-6 min-w-6 items-center justify-center rounded-full bg-slate-100 px-2 text-xs font-bold text-slate-600;
+  @apply inline-flex min-h-6 min-w-6 items-center justify-center rounded-full bg-slate-100 px-2 text-xs font-bold text-slate-500;
 }
 
 .ui-tab--active .ui-tab__badge.ui-tab__badge,
 .settings-modal__tab.is-active .settings-modal__tab-status {
-  @apply border-slate-200 bg-slate-100 text-slate-600;
+  @apply border-slate-200 bg-slate-100 text-slate-700;
 }
 
 .table,

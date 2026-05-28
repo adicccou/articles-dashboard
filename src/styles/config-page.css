@@ -16,7 +16,7 @@
   align-items: center;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 0;
 }
 
 .config-overview {
@@ -53,21 +53,24 @@
 
 .config-tab {
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  color: var(--text-soft);
-  padding: 0.62rem 0.95rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: #94a3b8;
+  min-height: 48px;
+  padding: 0.75rem 1.25rem;
 }
 
 .config-tab:hover {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: transparent;
+  color: #475569;
 }
 
 .config-tab--active,
 .config-tab--active:hover {
-  background: var(--accent);
-  color: #fff;
+  background: transparent;
+  border-bottom-color: #0f172a;
+  color: #0f172a;
 }
 
 .config-list {

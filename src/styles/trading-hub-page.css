@@ -10,36 +10,38 @@
 }
 
 .trading-hub__tabs {
-  background: #f8fafc;
+  background: #fff;
   border: 1px solid #e2e8f0;
-  border-radius: 999px;
+  border-radius: 14px 14px 0 0;
   display: flex;
-  gap: 6px;
-  padding: 5px;
+  gap: 0;
+  padding: 0 16px;
 }
 
 .trading-hub__tab {
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  color: #475569;
-  min-height: 40px;
-  padding: 0 16px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: #94a3b8;
+  min-height: 48px;
+  padding: 0 20px;
 }
 
 .trading-hub__tab:hover {
-  background: #eef2f7;
-  color: #0f172a;
+  background: transparent;
+  color: #475569;
 }
 
 .trading-hub__tab--active {
-  background: #0f172a;
-  color: #fff;
+  background: transparent;
+  border-bottom-color: #0f172a;
+  color: #0f172a;
 }
 
 .trading-hub__tab--active:hover {
-  background: #0f172a;
-  color: #fff;
+  background: transparent;
+  color: #0f172a;
 }
 
 @media (max-width: 680px) {
