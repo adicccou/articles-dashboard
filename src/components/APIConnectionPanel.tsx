@@ -45,6 +45,7 @@ interface APIConnectionPanelProps {
   onSyncAgent?: () => Promise<unknown>;
   title?: string;
   description?: string;
+  showIntro?: boolean;
 }
 
 function ConnectionStatus({ connected }: { connected: boolean }) {
@@ -82,6 +83,7 @@ export function APIConnectionPanel({
   onSyncAgent,
   title = "AI API Connection",
   description = "Shared settings used across all tools. Keep one AI API configuration here instead of repeating it in each section.",
+  showIntro = true,
 }: APIConnectionPanelProps) {
   const [geminiKey, setGeminiKey] = useState("");
   const [geminiFlash, setGeminiFlash] = useState(geminiFlashModel);
@@ -206,7 +208,7 @@ export function APIConnectionPanel({
   };
 
   const currentTab = tabMeta[activeTab];
-  const showTabIntro = activeTab !== "general";
+  const showTabIntro = showIntro && activeTab !== "general";
 
   return (
     <div className="api-panel">

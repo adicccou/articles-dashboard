@@ -1157,6 +1157,26 @@ export function ConfigPage({ surface, settings, syncMessage, onSaveSettings, onS
     { id: "ai", label: "AI API", badge: settings.ai_api_connected ? "Connected" : "Setup" },
     { id: "rules", label: "Rules", badge: settings.global_ai_rules || settings.social_agent_rules ? "Set" : "Empty" },
   ];
+  const settingsSectionMeta: Record<SettingsTabId, { title: string; badge: string }> = {
+    general: { title: "General settings", badge: settings.workspace_timezone ? settings.workspace_timezone : "Setup" },
+    ai: { title: "AI API connection", badge: settings.ai_api_connected ? "Connected" : "Setup" },
+    rules: { title: "AI operating rules", badge: settings.global_ai_rules || settings.social_agent_rules ? "Set" : "Empty" },
+    trading: { title: "Trading platform connection", badge: settings.ctrader_connected ? "Connected" : "Setup" },
+    agent: { title: "Trading agent sync", badge: settings.trading_agent_connected ? "Connected" : "Setup" },
+  };
+  const activeSettingsMeta = settingsTab ? settingsSectionMeta[settingsTab as SettingsTabId] : null;
+  const refreshConfigButton = (
+    <button
+      className="button-secondary dashboard-icon-button"
+      type="button"
+      disabled={refreshing}
+      onClick={() => void load({ silent: true })}
+      aria-label="Refresh config"
+      title="Refresh"
+    >
+      <ArrowPathIcon aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
+    </button>
+  );
 
   if (loading) {
     return <section className="panel">Loading Config...</section>;
@@ -1178,27 +1198,18 @@ export function ConfigPage({ surface, settings, syncMessage, onSaveSettings, onS
             onChange={setTab}
             items={configTabs}
           />
-          <div className="ui-tabs__actions config-tabs__actions">
-            <button
-              className="button-secondary dashboard-icon-button"
-              type="button"
-              disabled={refreshing}
-              onClick={() => void load({ silent: true })}
-              aria-label="Refresh config"
-              title="Refresh"
-            >
-              <ArrowPathIcon aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
-            </button>
-          </div>
         </div>
 
       {tab === "apps" ? (
         <div className="config-list config-overview__content config-overview__content--combined">
             <div className="config-section">
-            <div className="panel__title-row">
-              <h2>Apps/Sites</h2>
-              <div className="config-title-actions">
+            <div className="panel__title-row config-section-header">
+              <div className="config-section-heading">
+                <h2>Apps/Sites</h2>
                 <span className="config-count">{appSiteRows.length}</span>
+              </div>
+              <div className="config-title-actions">
+                {refreshConfigButton}
                 <button type="button" onClick={openAddApp}>
                   Add app
                 </button>
@@ -1287,10 +1298,13 @@ export function ConfigPage({ surface, settings, syncMessage, onSaveSettings, onS
 
       {tab === "accounts" ? (
         <div className="config-list config-overview__content">
-            <div className="panel__title-row">
-              <h2>Social media accounts</h2>
-              <div className="config-title-actions">
+            <div className="panel__title-row config-section-header">
+              <div className="config-section-heading">
+                <h2>Social media accounts</h2>
                 <span className="config-count">{accounts.length}</span>
+              </div>
+              <div className="config-title-actions">
+                {refreshConfigButton}
                 <button type="button" onClick={() => openAddAccount()}>
                   Add account
                 </button>
@@ -1404,6 +1418,15 @@ export function ConfigPage({ surface, settings, syncMessage, onSaveSettings, onS
 
       {settingsTab ? (
         <div className="config-list config-overview__content">
+          <div className="panel__title-row config-section-header">
+            <div className="config-section-heading">
+              <h2>{activeSettingsMeta?.title ?? "Workspace configuration"}</h2>
+              <span className="config-count">{activeSettingsMeta?.badge ?? "Setup"}</span>
+            </div>
+            <div className="config-title-actions">
+              {refreshConfigButton}
+            </div>
+          </div>
           <APIConnectionPanel
             activeTab={settingsTab as SettingsTabId}
             surface={surface}
@@ -1429,6 +1452,7 @@ export function ConfigPage({ surface, settings, syncMessage, onSaveSettings, onS
             onSyncAgent={onSyncAgent}
             title="Workspace configuration"
             description="General workspace, AI API, and rule settings for the dashboard."
+            showIntro={false}
           />
         </div>
       ) : null}

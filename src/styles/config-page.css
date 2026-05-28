@@ -98,6 +98,22 @@
   justify-content: flex-end;
 }
 
+.config-section-header {
+  align-items: center;
+}
+
+.config-section-heading {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+
+.config-section-heading h2 {
+  margin: 0;
+}
+
 .config-mode-field {
   display: grid;
   gap: 8px;
@@ -600,14 +616,12 @@
   .config-tabs,
   .config-tabs__list,
   .config-tabs__actions,
-  .config-title-actions,
   .config-modal__actions {
     align-items: stretch;
     flex-direction: column;
   }
 
   .config-tabs button,
-  .config-title-actions button,
   .config-row-actions button,
   .config-modal__actions button {
     width: 100%;
