@@ -315,11 +315,6 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     [summary.accounts],
   );
 
-  const selectedCampaignAccount = useMemo(
-    () => availableAccounts.find((account) => account.ref === campaignForm.account_refs[0]) ?? null,
-    [availableAccounts, campaignForm.account_refs],
-  );
-
   const campaignResultsById = useMemo(() => {
     const results = new Map<number, {
       runs: typeof summary.crawler_runs;
@@ -361,27 +356,32 @@ export function StudioPage({ onUpload }: StudioPageProps) {
       || Boolean(editingPost.target_external_id || editingPost.target_url || editingPost.target_author || editingPost.target_text)
     : false;
 
-  function buildEmptyCampaignForm(preferredPlatform?: Platform): CampaignForm {
-    const defaultPlatform = preferredPlatform && availablePlatforms.some((item) => item.id === preferredPlatform)
-      ? preferredPlatform
-      : availablePlatforms[0]?.id;
-    const matchingAccounts = defaultPlatform
-      ? availableAccounts.filter((account) => account.platform === defaultPlatform)
-      : [];
+  const availableReplyAccounts = useMemo(
+    () => availableAccounts.filter((account) => REPLY_CAPABLE_PLATFORMS.has(account.platform)),
+    [availableAccounts],
+  );
+
+  function buildEmptyCampaignForm(tab: CrawlerTab = selectedCrawlerTab): CampaignForm {
+    const tabConfig = CRAWLER_TABS.find((item) => item.id === tab) ?? CRAWLER_TABS[0];
+    const replyAccount = availableReplyAccounts[0] ?? null;
+    const painPlatforms = availablePlatforms.length > 0
+      ? availablePlatforms.map((platform) => platform.id)
+      : PLATFORMS.map((platform) => platform.id);
     return {
       name: "",
-      campaign_type: "post",
+      campaign_type: tabConfig.campaignType,
       result_limit: String(DEFAULT_CAMPAIGN_RESULT_LIMIT),
       app_id: availableApps[0] ? String(availableApps[0].id) : "",
-      account_refs: matchingAccounts[0] ? [matchingAccounts[0].ref] : [],
-      platforms: defaultPlatform ? [defaultPlatform] : [],
+      account_refs: tabConfig.campaignType === "reply" && replyAccount ? [replyAccount.ref] : [],
+      platforms: tabConfig.campaignType === "reply" && replyAccount ? [replyAccount.platform] : painPlatforms,
       instructions: "",
       status: "active",
     };
   }
 
-  function openCampaignModal() {
-    setCampaignForm(buildEmptyCampaignForm());
+  function openCampaignModal(tab: CrawlerTab = selectedCrawlerTab) {
+    setSelectedCrawlerTab(tab);
+    setCampaignForm(buildEmptyCampaignForm(tab));
     setEditingCampaignId(null);
     setCampaignModalOpen(true);
     setFeedback(null);
@@ -432,20 +432,16 @@ export function StudioPage({ onUpload }: StudioPageProps) {
         : availableApps[0]
         ? String(availableApps[0].id)
         : "";
-      const nextPlatform = current.platforms[0] && availablePlatforms.some((item) => item.id === current.platforms[0])
-        ? current.platforms[0]
-        : availablePlatforms[0]?.id;
-      const matchingAccounts = nextPlatform
-        ? availableAccounts.filter((account) => account.platform === nextPlatform)
-        : [];
-      const nextAccountRef = current.account_refs[0] && matchingAccounts.some((account) => account.ref === current.account_refs[0])
-        ? current.account_refs[0]
-        : matchingAccounts[0]?.ref ?? "";
-      const nextPlatforms = nextPlatform ? [nextPlatform] : [];
-      const nextAccountRefs = nextAccountRef ? [nextAccountRef] : [];
+      const isReply = current.campaign_type === "reply";
+      const selectedAccount = availableReplyAccounts.find((account) => account.ref === current.account_refs[0]) ?? availableReplyAccounts[0] ?? null;
+      const painPlatforms = availablePlatforms.length > 0
+        ? availablePlatforms.map((platform) => platform.id)
+        : PLATFORMS.map((platform) => platform.id);
+      const nextAccountRefs = isReply && selectedAccount ? [selectedAccount.ref] : [];
+      const nextPlatforms = isReply && selectedAccount ? [selectedAccount.platform] : painPlatforms;
       const changed = nextAppId !== current.app_id
-        || nextPlatforms[0] !== current.platforms[0]
-        || nextAccountRefs[0] !== current.account_refs[0];
+        || nextPlatforms.join(",") !== current.platforms.join(",")
+        || nextAccountRefs.join(",") !== current.account_refs.join(",");
       return changed
         ? {
             ...current,
@@ -455,7 +451,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
           }
         : current;
     });
-  }, [availableAccounts, availableApps, availablePlatforms, campaignModalOpen]);
+  }, [availableApps, availablePlatforms, availableReplyAccounts, campaignModalOpen]);
 
   function closeSuggestionEditor() {
     if (savingPostId) return;
@@ -465,27 +461,28 @@ export function StudioPage({ onUpload }: StudioPageProps) {
 
   async function saveCampaign(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const isReplyCampaign = campaignForm.campaign_type === "reply";
     if (availableApps.length === 0) {
-      setError("Add an active app in Config first.");
+      setError("Add an active app in Config first so Studio can attach crawler results.");
       return;
     }
-    if (availablePlatforms.length === 0) {
-      setError("Connect an active social account in Config first.");
+    if (isReplyCampaign && availableReplyAccounts.length === 0) {
+      setError("Connect an active Twitter/X, Threads, or Reddit account in Config first.");
       return;
     }
     if (!campaignForm.name.trim() || !campaignForm.app_id) {
-      setError("Campaign name and app are required.");
+      setError("Campaign name is required.");
       return;
     }
     if (campaignForm.platforms.length === 0) {
-      setError("Select a social platform.");
+      setError("No social platforms are available for this crawler.");
       return;
     }
-    if (campaignForm.account_refs.length === 0) {
+    if (isReplyCampaign && campaignForm.account_refs.length === 0) {
       setError("Select a connected account.");
       return;
     }
-    if (campaignForm.campaign_type === "reply" && campaignForm.platforms.some((platform) => !REPLY_CAPABLE_PLATFORMS.has(platform))) {
+    if (isReplyCampaign && campaignForm.platforms.some((platform) => !REPLY_CAPABLE_PLATFORMS.has(platform))) {
       setError("Reply campaigns are available for Twitter/X, Threads, and Reddit only.");
       return;
     }
@@ -505,7 +502,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
         app_id: Number(campaignForm.app_id),
         campaign_type: campaignForm.campaign_type,
         result_limit: resultLimit,
-        account_refs: campaignForm.account_refs,
+        account_refs: isReplyCampaign ? campaignForm.account_refs : [],
         platforms: campaignForm.platforms,
         instructions: campaignForm.instructions.trim(),
         status: campaignForm.status,
@@ -1161,6 +1158,8 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     counts[tab.id] = summary.campaigns.filter((campaign) => campaign.campaign_type === tab.campaignType).length;
     return counts;
   }, { comments: 0, "pain-points": 0 });
+  const campaignFormIsCommentsCrawler = campaignForm.campaign_type === "reply";
+  const campaignFormTitle = campaignFormIsCommentsCrawler ? "comments crawler" : "pain-points crawler";
 
   return (
     <div className="studio-page stack">
@@ -1272,30 +1271,6 @@ export function StudioPage({ onUpload }: StudioPageProps) {
         </>
       ) : (
         <section className="panel studio-overview">
-          <div className="studio-overview__bar">
-            <div className="studio-tabs__heading">
-              <div className="studio-tabs__title-wrap">
-                <h2 className="studio-tabs__title">Campaigns</h2>
-                <span className="studio-count">{summary.campaigns.length}</span>
-              </div>
-              <div className="studio-tabs__actions">
-                <button type="button" onClick={openCampaignModal}>
-                  Create campaign
-                </button>
-                <button
-                  className="button-secondary dashboard-icon-button"
-                  type="button"
-                  disabled={refreshing}
-                  onClick={() => void load({ silent: true })}
-                  aria-label="Refresh campaigns"
-                  title="Refresh"
-                >
-                  <ArrowPathIcon aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
-                </button>
-              </div>
-            </div>
-          </div>
-
           <div className="studio-crawler-tabs ui-tabs">
             <div className="ui-tabs__list social-platform-tabs stats-tabs-list" role="tablist" aria-label="Studio crawler type">
               {CRAWLER_TABS.map((tab) => (
@@ -1309,6 +1284,21 @@ export function StudioPage({ onUpload }: StudioPageProps) {
                   <span className="ui-tab__badge">{campaignCountsByCrawlerTab[tab.id]}</span>
                 </button>
               ))}
+            </div>
+            <div className="ui-tabs__actions studio-tabs__actions">
+              <button type="button" onClick={() => openCampaignModal(selectedCrawlerTab)}>
+                Create {selectedCrawlerTabConfig.label.toLowerCase()}
+              </button>
+              <button
+                className="button-secondary dashboard-icon-button"
+                type="button"
+                disabled={refreshing}
+                onClick={() => void load({ silent: true })}
+                aria-label="Refresh campaigns"
+                title="Refresh"
+              >
+                <ArrowPathIcon aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
+              </button>
             </div>
           </div>
 
@@ -1447,42 +1437,23 @@ export function StudioPage({ onUpload }: StudioPageProps) {
           <form className="studio-modal panel" onSubmit={saveCampaign}>
             <div className="panel__title-row">
               <div>
-                <p className="eyebrow">Campaign</p>
-                <h2>{editingCampaignId ? "Edit campaign" : "Create campaign"}</h2>
-                <p className="studio-muted">Set the campaign target and queue the Pain Crawler from here.</p>
+                <p className="eyebrow">{campaignFormIsCommentsCrawler ? "Comments crawler" : "Pain-points crawler"}</p>
+                <h2>{editingCampaignId ? `Edit ${campaignFormTitle}` : `Create ${campaignFormTitle}`}</h2>
+                <p className="studio-muted">
+                  {campaignFormIsCommentsCrawler
+                    ? "Choose the account that replies and use instructions to guide the comment search."
+                    : "Set the crawler name, result count, and instructions."}
+                </p>
               </div>
               <ModalCloseButton onClick={closeCampaignModal} label="Close campaign modal" />
             </div>
             <label>
-              Campaign name
+              Name
               <input value={campaignForm.name} onChange={(event) => setCampaignForm((current) => ({ ...current, name: event.target.value }))} required />
             </label>
-            <label>
-              App
-              <select value={campaignForm.app_id} onChange={(event) => setCampaignForm((current) => ({ ...current, app_id: event.target.value }))} required>
-                <option value="">{availableApps.length === 0 ? "No active apps in Config" : "Select app"}</option>
-                {availableApps.map((app) => (
-                  <option key={app.id} value={app.id}>{app.name}</option>
-                ))}
-              </select>
-            </label>
-            {availableApps.length === 0 ? <p className="studio-muted">Apps for campaigns come from Config. Add an active app there first.</p> : null}
-            <div className="studio-choice-row" role="group" aria-label="Campaign type">
-              {(["post", "reply"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  className={`studio-choice ${campaignForm.campaign_type === mode ? "studio-choice--active" : ""}`}
-                  disabled={mode === "reply" && selectedCampaignAccount ? !REPLY_CAPABLE_PLATFORMS.has(selectedCampaignAccount.platform) : false}
-                  onClick={() => setCampaignForm((current) => ({ ...current, campaign_type: mode }))}
-                >
-                  {mode === "post" ? "Post" : "Reply"}
-                </button>
-              ))}
-            </div>
-            {availableAccounts.length > 0 ? (
+            {campaignFormIsCommentsCrawler ? availableReplyAccounts.length > 0 ? (
               <div className="studio-check-grid" role="group" aria-label="Campaign account">
-                {availableAccounts.map((account) => (
+                {availableReplyAccounts.map((account) => (
                   <label className="studio-check" key={account.ref}>
                     <input
                       type="radio"
@@ -1490,7 +1461,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
                       checked={campaignForm.account_refs[0] === account.ref}
                       onChange={() => setCampaignForm((current) => ({
                         ...current,
-                        campaign_type: REPLY_CAPABLE_PLATFORMS.has(account.platform) ? current.campaign_type : "post",
+                        campaign_type: "reply",
                         account_refs: [account.ref],
                         platforms: [account.platform],
                       }))}
@@ -1500,10 +1471,10 @@ export function StudioPage({ onUpload }: StudioPageProps) {
                 ))}
               </div>
             ) : (
-              <p className="studio-muted">Social platform options come from Config. No active accounts are connected yet.</p>
-            )}
+              <p className="studio-muted">Connect an active Twitter/X, Threads, or Reddit account in Config first.</p>
+            ) : null}
             <label>
-              How many results we need
+              Results needed
               <input
                 type="number"
                 min={1}
@@ -1544,7 +1515,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
                 Cancel
               </button>
               <button type="submit" disabled={saving}>
-                {saving ? "Saving..." : editingCampaignId ? "Save campaign" : "Create campaign"}
+                {saving ? "Saving..." : editingCampaignId ? `Save ${campaignFormTitle}` : `Create ${campaignFormTitle}`}
               </button>
             </div>
           </form>

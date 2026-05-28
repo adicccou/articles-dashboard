@@ -1081,7 +1081,7 @@ export async function createStudioCampaign(
     if (campaignType === "reply" && platforms.some((platform) => !isReplyCapableStudioPlatform(platform))) {
       return errorResponse("Reply campaigns are available for Twitter/X, Threads, and Reddit only.", 400);
     }
-    if (accountRefs.length === 0) return errorResponse("Select at least one connected account", 400);
+    if (campaignType === "reply" && accountRefs.length === 0) return errorResponse("Select at least one connected account", 400);
     const now = nowIso();
     const hasCampaignType = await tableHasColumn(env, "studio_campaigns", "campaign_type");
     const hasResultLimit = await tableHasColumn(env, "studio_campaigns", "result_limit");
