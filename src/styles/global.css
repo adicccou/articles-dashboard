@@ -126,11 +126,11 @@ button:disabled {
 }
 
 .shell-sidebar-nav__items {
-  @apply grid content-start gap-2 self-start;
+  @apply grid content-start gap-1 self-start;
 }
 
 .shell-sidebar-nav__item {
-  @apply h-[60px] w-full justify-start border-transparent bg-transparent px-3 py-2.5 text-left text-sm font-semibold text-slate-600 shadow-none hover:bg-slate-100 hover:text-slate-950;
+  @apply h-11 w-full justify-start border-transparent bg-transparent px-3 py-2 text-left text-sm font-semibold text-slate-600 shadow-none hover:bg-slate-100 hover:text-slate-950;
   border-radius: 10px;
 }
 
@@ -147,7 +147,7 @@ button:disabled {
 }
 
 .shell-sidebar-nav__collapse {
-  @apply h-[60px] w-full justify-start border-transparent bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600 shadow-none hover:bg-slate-100 hover:text-slate-950;
+  @apply h-11 w-full justify-start border-transparent bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600 shadow-none hover:bg-slate-100 hover:text-slate-950;
   border-radius: 10px;
 }
 
