@@ -208,3 +208,45 @@
   white-space: pre-wrap;
   word-wrap: break-word;
 }
+
+@media (max-width: 640px) {
+  .kb-editor {
+    padding: 14px;
+  }
+
+  .kb-editor.loading,
+  .kb-editor__empty {
+    padding: 28px 14px;
+  }
+
+  .kb-editor__header,
+  .kb-editor__input-group label,
+  .kb-editor__buttons {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .kb-editor__actions,
+  .kb-editor__buttons {
+    width: 100%;
+  }
+
+  .kb-editor__actions button,
+  .kb-editor__buttons button {
+    width: 100%;
+  }
+
+  .kb-editor__textarea,
+  .kb-editor__preview {
+    min-height: 220px;
+  }
+
+  .kb-editor__version-item {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .kb-editor__version-date {
+    white-space: normal;
+  }
+}

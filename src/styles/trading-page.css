@@ -701,6 +701,23 @@
 }
 
 @media (max-width: 720px) {
+  .trading-stats {
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .trading-table {
+    overflow-x: auto;
+  }
+
+  .trading-table__row {
+    min-width: 760px;
+  }
+
+  .trading-table__actions button {
+    min-width: max-content;
+  }
+
   .custom-lean-hero {
     flex-direction: column;
   }
@@ -727,6 +744,26 @@
 
   .custom-lean-settings__form {
     grid-template-columns: 1fr;
+  }
+
+  .custom-lean-save,
+  .custom-lean-settings__title button {
+    width: 100%;
+  }
+
+  .runtime-diagnostics__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .execution-controls-modal__card {
+    max-height: calc(100dvh - 32px);
+    overflow: auto;
+    padding: 16px;
+  }
+
+  .execution-controls-modal__footer button {
+    width: 100%;
   }
 }
 

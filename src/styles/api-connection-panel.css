@@ -148,12 +148,22 @@
 
 @media (max-width: 640px) {
   .api-panel {
-    padding: 18px;
+    padding: 14px;
   }
 
   .api-panel__header {
     align-items: flex-start;
     flex-direction: column;
     gap: 10px;
+  }
+
+  .api-panel__button-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .api-panel__button-row button,
+  .api-panel__button-row .api-panel__button {
+    width: 100%;
   }
 }

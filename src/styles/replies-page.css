@@ -651,6 +651,34 @@
 }
 
 @media (max-width: 720px) {
+  .social-platform-bar.replies-toolbar {
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .replies-toolbar .social-platform-actions {
+    margin-left: 0;
+    padding-inline: 0;
+    width: 100%;
+  }
+
+  .replies-account-select {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .replies-account-select select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .replies-filter-tabs {
+    border-radius: 16px;
+    overflow-x: auto;
+    width: 100%;
+  }
+
   .panel__title-row.replies-panel__header {
     align-items: stretch;
     flex-wrap: wrap;
@@ -668,6 +696,32 @@
 
   .replies-panel__heading p {
     white-space: normal;
+  }
+
+  .replies-card__top-row,
+  .replies-card__post-content-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .replies-card__post-text {
+    align-self: stretch;
+  }
+
+  .replies-card__post-media-grid {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    width: 100%;
+  }
+
+  .replies-card__thread-branch {
+    margin-left: min(calc(var(--reply-depth, 0) * 10px), 28px);
+  }
+
+  .replies-card__comment-status-row {
+    justify-content: flex-start;
+    margin-left: 0;
   }
 
   .replies-compose-backdrop {
@@ -693,5 +747,33 @@
 
   .replies-compose__error {
     text-align: left;
+  }
+}
+
+@media (max-width: 420px) {
+  .replies-overview__content {
+    padding: 12px;
+  }
+
+  .replies-card__comment-block {
+    padding: 12px;
+  }
+
+  .replies-card__post-media-button {
+    height: 48px;
+    width: 64px;
+  }
+
+  .replies-compose-backdrop,
+  .replies-media-viewer {
+    padding: 10px;
+  }
+
+  .replies-compose-modal {
+    max-height: calc(100dvh - 20px);
+  }
+
+  .replies-compose__actions button {
+    width: 100%;
   }
 }

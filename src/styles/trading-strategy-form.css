@@ -266,3 +266,32 @@
   grid-template-columns: 1fr 1fr;
   gap: 16px;
 }
+
+@media (max-width: 640px) {
+  .trading-form {
+    padding: 14px;
+  }
+
+  .trading-form__section {
+    margin-bottom: 20px;
+    padding-bottom: 20px;
+  }
+
+  .trading-form__row,
+  .trading-form__hours-times {
+    grid-template-columns: 1fr;
+  }
+
+  .trading-form__section-header,
+  .trading-form__hours-window-header,
+  .trading-form__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .trading-form__actions button,
+  .trading-form__section-header button,
+  .trading-form__hours-window-header button {
+    width: 100%;
+  }
+}

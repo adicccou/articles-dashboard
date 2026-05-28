@@ -599,7 +599,9 @@
 
 @media (max-width: 900px) {
   .config-table--apps .config-table__row,
-  .config-table--accounts .config-table__row {
+  .config-table--apps-sites .config-table__row,
+  .config-table--accounts .config-table__row,
+  .config-table--sites .config-table__row {
     grid-template-columns: 1fr;
   }
 
@@ -613,17 +615,68 @@
 }
 
 @media (max-width: 640px) {
+  .config-overview__content {
+    padding: 12px;
+  }
+
   .config-tabs,
   .config-tabs__list,
   .config-tabs__actions,
+  .config-section-header,
+  .config-title-actions,
   .config-modal__actions {
     align-items: stretch;
     flex-direction: column;
   }
 
   .config-tabs button,
+  .config-title-actions button,
   .config-row-actions button,
   .config-modal__actions button {
+    width: 100%;
+  }
+
+  .config-tabs .config-tabs__actions {
+    margin-left: 0;
+    padding-inline: 12px;
+  }
+
+  .config-table__row {
+    padding: 12px;
+  }
+
+  .config-account-cell {
+    align-items: flex-start;
+  }
+
+  .config-account-tags {
+    gap: 6px;
+  }
+
+  .config-account-tag {
+    max-width: 100%;
+  }
+
+  .config-account-tag-input {
+    flex: 1 1 120px;
+    width: auto;
+  }
+
+  .config-mode-switch {
+    width: 100%;
+  }
+
+  .config-mode-switch__option {
+    flex: 1;
+  }
+
+  .config-modal-backdrop {
+    padding: 10px;
+    place-items: stretch;
+  }
+
+  .config-modal {
+    max-height: calc(100dvh - 20px);
     width: 100%;
   }
 }

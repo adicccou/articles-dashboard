@@ -78,6 +78,7 @@ button:disabled {
 
 .shell__main {
   @apply min-w-0;
+  overflow-x: hidden;
 }
 
 .shell__header {
@@ -86,6 +87,7 @@ button:disabled {
 
 .shell__content {
   @apply px-4 py-5 sm:px-6;
+  min-width: 0;
 }
 
 .shell-header-shell {
@@ -448,11 +450,13 @@ p {
 
 .panel {
   @apply p-5;
+  max-width: 100%;
 }
 
 .panel__title-row,
 .topbar {
   @apply flex flex-wrap items-center justify-between gap-3;
+  min-width: 0;
 }
 
 .panel__title-row h2,
@@ -1342,6 +1346,10 @@ button.button-secondary:disabled {
     @apply px-3 py-4;
   }
 
+  .shell__content {
+    @apply px-3 py-4;
+  }
+
   .panel,
   .login-card {
     @apply p-4;
@@ -1379,6 +1387,34 @@ button.button-secondary:disabled {
     @apply pb-10;
   }
 
+  .shell__header {
+    @apply px-3 py-2;
+  }
+
+  .shell__content {
+    @apply px-3 py-3;
+  }
+
+  .shell-header-shell {
+    @apply min-h-11 gap-2;
+  }
+
+  .shell-header-shell__copy h1 {
+    @apply text-lg;
+  }
+
+  .shell-header-shell__actions {
+    @apply gap-1;
+  }
+
+  .account-menu__trigger {
+    @apply px-1.5 py-1;
+  }
+
+  .account-menu__name {
+    @apply hidden;
+  }
+
   h1 {
     @apply text-2xl;
   }
@@ -1390,6 +1426,24 @@ button.button-secondary:disabled {
   .ui-tabs__list.ui-tabs__list,
   .studio-link-pill-row {
     @apply w-full;
+  }
+
+  .ui-tabs__actions.ui-tabs__actions,
+  .actions,
+  .panel__title-row,
+  .topbar {
+    @apply w-full;
+  }
+
+  .panel__title-row,
+  .topbar {
+    @apply items-stretch;
+  }
+
+  .ui-tab.ui-tab,
+  .scheduler-tab.scheduler-tab,
+  .social-panel-tab.social-panel-tab {
+    @apply min-h-11 px-4 py-2.5;
   }
 
   .studio-signal-grid,
@@ -1413,6 +1467,21 @@ button.button-secondary:disabled {
   .settings-modal,
   .social-connections-modal,
   .studio-suggestion-modal {
-    @apply max-h-[92vh] overflow-auto;
+    @apply max-h-[92dvh] overflow-auto;
+  }
+}
+
+@media (max-width: 420px) {
+  .shell__content {
+    @apply px-2.5 py-3;
+  }
+
+  .panel,
+  .login-card {
+    @apply p-3;
+  }
+
+  button {
+    min-height: 36px;
   }
 }

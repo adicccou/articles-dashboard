@@ -810,6 +810,35 @@
 }
 
 @media (max-width: 680px) {
+  .studio-crawler-tabs {
+    align-items: stretch;
+  }
+
+  .studio-crawler-tabs .studio-tabs__actions {
+    justify-content: stretch;
+    width: 100%;
+  }
+
+  .studio-crawler-tabs .studio-tabs__actions button {
+    flex: 1 1 100%;
+  }
+
+  .studio-card-grid,
+  .studio-signal-grid,
+  .studio-post-grid,
+  .studio-card-grid--campaigns {
+    grid-template-columns: 1fr;
+  }
+
+  .studio-card__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .studio-card__actions {
+    justify-content: flex-start;
+  }
+
   .studio-modal__actions {
     justify-content: stretch;
   }
@@ -844,5 +873,26 @@
 
   .studio-suggestion-modal__textarea {
     min-height: 280px;
+  }
+}
+
+@media (max-width: 420px) {
+  .studio-campaign-row,
+  .studio-card,
+  .studio-signal-card,
+  .studio-post-card,
+  .studio-empty {
+    padding: 12px;
+  }
+
+  .studio-row-actions,
+  .studio-scheduled-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .studio-row-actions button,
+  .studio-scheduled-actions button {
+    width: 100%;
   }
 }

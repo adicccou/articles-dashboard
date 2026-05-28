@@ -1108,6 +1108,23 @@
     gap: 8px;
   }
 
+  .social-panel-section {
+    padding: 12px;
+  }
+
+  .social-composer__footer,
+  .social-composer__schedule-actions {
+    align-items: stretch;
+  }
+
+  .social-composer__schedule-actions {
+    flex-direction: column;
+  }
+
+  .social-composer__schedule-actions button {
+    width: 100%;
+  }
+
   .social-post-card-grid {
     grid-template-columns: 1fr;
   }
@@ -1137,6 +1154,10 @@
     padding: 14px;
     width: calc(100vw - 16px);
   }
+
+  .social-empty-card {
+    padding: 22px 16px;
+  }
 }
 
 @media (max-width: 420px) {
@@ -1152,5 +1173,16 @@
   .social-post-card__body,
   .social-post-card__actions {
     padding: 12px;
+  }
+
+  .social-platform-actions,
+  .social-hero__actions,
+  .social-table-actions,
+  .social-post-card__actions {
+    align-items: stretch;
+  }
+
+  .social-inline-button {
+    flex-basis: 100%;
   }
 }

@@ -199,10 +199,15 @@
   }
 
   .settings-modal {
-    max-height: 92vh;
+    max-height: calc(100dvh - 20px);
+    padding: 12px;
   }
 
   .settings-modal__tabs {
     width: 100%;
+  }
+
+  .settings-modal .api-panel__section {
+    padding: 14px 0;
   }
 }

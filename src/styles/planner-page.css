@@ -1530,6 +1530,49 @@
     display: none;
   }
 
+  .scheduler-view-panel {
+    gap: 12px;
+  }
+
+  .panel__title-row.scheduler-calendar__header,
+  .panel__title-row.scheduler-week__header {
+    gap: 12px;
+  }
+
+  .scheduler-calendar__heading,
+  .scheduler-calendar__actions,
+  .scheduler-calendar__actions .scheduler-hero__search,
+  .scheduler-hero__search {
+    max-width: none;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .scheduler-calendar__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .scheduler-calendar__actions .scheduler-hero__actions,
+  .scheduler-calendar__nav {
+    justify-content: stretch;
+    width: 100%;
+  }
+
+  .scheduler-calendar__actions .scheduler-hero__actions button,
+  .scheduler-calendar__nav button {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .scheduler-list__title-cell {
+    align-items: flex-start;
+  }
+
+  .scheduler-row-actions {
+    justify-content: flex-start;
+  }
+
   .scheduler-media-field__header {
     flex-direction: column;
     align-items: stretch;
@@ -1545,5 +1588,35 @@
 
   .scheduler-confirm-target {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .scheduler-list__row {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .scheduler-list-media {
+    --scheduler-list-media-height: 48px;
+    --scheduler-list-media-width: 64px;
+  }
+
+  .scheduler-modal-backdrop,
+  .scheduler-confirm-backdrop {
+    padding: 10px;
+  }
+
+  .scheduler-modal,
+  .scheduler-confirm-modal {
+    width: 100%;
+  }
+
+  .scheduler-submit-actions {
+    flex-direction: column;
+  }
+
+  .scheduler-submit-actions button {
+    width: 100%;
   }
 }
