@@ -469,8 +469,7 @@ export function StatisticsPage() {
           <>
             <section className="stats-tabs-panel" aria-label="Statistics filters">
               <div className="stats-tabs-toolbar">
-                <div className="stats-tabs-group stats-tabs-group--platform">
-                  <span className="stats-tabs-label">Platform</span>
+                <div className="stats-tabs-row stats-tabs-row--platform">
                   <SectionTabs<PlatformSelection>
                     activeId={selectedPlatform}
                     ariaLabel="Social platform statistics"
@@ -491,20 +490,31 @@ export function StatisticsPage() {
                       })),
                     ]}
                   />
+
+                  {selectedPlatform === "all" ? (
+                    <button
+                      className="button-secondary dashboard-icon-button stats-refresh-button"
+                      onClick={() => void load({ silent: true })}
+                      disabled={refreshing}
+                      aria-label="Refresh statistics"
+                      title="Refresh"
+                    >
+                      <ArrowPathIcon aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
+                    </button>
+                  ) : null}
                 </div>
 
-                <button
-                  className="button-secondary dashboard-icon-button stats-refresh-button"
-                  onClick={() => void load({ silent: true })}
-                  disabled={refreshing}
-                  aria-label="Refresh statistics"
-                  title="Refresh"
-                >
-                  <ArrowPathIcon aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
-                </button>
-
                 {selectedPlatform !== "all" ? (
-                  <div className="stats-tabs-group stats-tabs-group--account">
+                  <div className="stats-tabs-row stats-tabs-row--account">
+                    <button
+                      className="button-secondary dashboard-icon-button stats-refresh-button"
+                      onClick={() => void load({ silent: true })}
+                      disabled={refreshing}
+                      aria-label="Refresh statistics"
+                      title="Refresh"
+                    >
+                      <ArrowPathIcon aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
+                    </button>
                     <span className="stats-tabs-label">Account</span>
                     <SectionTabs
                       activeId={selectedAccountKey}
