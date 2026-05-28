@@ -46,8 +46,8 @@ const REPLY_CAPABLE_PLATFORMS = new Set<Platform>(["twitter", "threads", "reddit
 const DEFAULT_CAMPAIGN_RESULT_LIMIT = 10;
 
 const CRAWLER_TABS: Array<{ id: CrawlerTab; label: string; campaignType: StudioCampaign["campaign_type"] }> = [
-  { id: "comments", label: "Comments crawler", campaignType: "reply" },
-  { id: "pain-points", label: "Pain-points crawler", campaignType: "post" },
+  { id: "comments", label: "Comment searcher", campaignType: "reply" },
+  { id: "pain-points", label: "Painpoint analyzer", campaignType: "post" },
 ];
 
 function emptyCampaignForm(): CampaignForm {
@@ -1160,7 +1160,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     return counts;
   }, { comments: 0, "pain-points": 0 });
   const campaignFormIsCommentsCrawler = campaignForm.campaign_type === "reply";
-  const campaignFormTitle = campaignFormIsCommentsCrawler ? "comments crawler" : "pain-points crawler";
+  const campaignFormTitle = campaignFormIsCommentsCrawler ? "comment searcher" : "painpoint analyzer";
 
   return (
     <div className="studio-page stack">
@@ -1438,7 +1438,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
           <form className="studio-modal panel" onSubmit={saveCampaign}>
             <div className="panel__title-row">
               <div>
-                <p className="eyebrow">{campaignFormIsCommentsCrawler ? "Comments crawler" : "Pain-points crawler"}</p>
+                <p className="eyebrow">{campaignFormIsCommentsCrawler ? "Comment searcher" : "Painpoint analyzer"}</p>
                 <h2>{editingCampaignId ? `Edit ${campaignFormTitle}` : `Create ${campaignFormTitle}`}</h2>
                 <p className="studio-muted">
                   {campaignFormIsCommentsCrawler

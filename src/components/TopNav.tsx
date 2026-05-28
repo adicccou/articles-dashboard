@@ -45,7 +45,7 @@ interface TopNavProps {
 
 export const NAV_ITEMS: Array<{ label: string; view: NavView }> = [
   { label: "Trading", view: "trading" },
-  { label: "Studio", view: "studio" },
+  { label: "Studio agents", view: "studio" },
   { label: "Replies", view: "replies" },
   { label: "Planner", view: "planner" },
   { label: "Statistics", view: "statistics" },
@@ -116,7 +116,7 @@ export const TopNav: React.FC<TopNavProps> = ({
               }}
               aria-current={isActive ? "page" : undefined}
               aria-label={label}
-              title={collapsed ? label : undefined}
+              data-tooltip={collapsed ? label : undefined}
             >
               <Icon className="shell-sidebar-nav__icon" aria-hidden="true" />
               <span className="shell-sidebar-nav__label">{label}</span>

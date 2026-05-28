@@ -468,9 +468,9 @@ export function StatisticsPage() {
         ) : (
           <>
             <section className="stats-tabs-panel" aria-label="Statistics filters">
-              <div className="stats-tabs-group">
-                <span className="stats-tabs-label">Platform</span>
-                <div className="stats-tabs-row">
+              <div className="stats-tabs-toolbar">
+                <div className="stats-tabs-group stats-tabs-group--platform">
+                  <span className="stats-tabs-label">Platform</span>
                   <SectionTabs<PlatformSelection>
                     activeId={selectedPlatform}
                     ariaLabel="Social platform statistics"
@@ -491,45 +491,44 @@ export function StatisticsPage() {
                       })),
                     ]}
                   />
-                  <button
-                    className="button-secondary dashboard-icon-button stats-refresh-button"
-                    onClick={() => void load({ silent: true })}
-                    disabled={refreshing}
-                    aria-label="Refresh statistics"
-                    title="Refresh"
-                  >
-                    <ArrowPathIcon aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
-                  </button>
                 </div>
-              </div>
 
-              {selectedPlatform !== "all" ? (
-                <div className="stats-tabs-group">
-                  <span className="stats-tabs-label">Account</span>
-                  <SectionTabs
-                    activeId={selectedAccountKey}
-                    ariaLabel="Social account statistics"
-                    className="social-platform-tabs stats-tabs-list"
-                    tabClassName="social-tab"
-                    activeTabClassName="social-tab--active"
-                    onChange={setSelectedAccountKey}
-                    items={[
-                      {
-                        id: "all",
-                        label: `All ${platformLabel(selectedPlatform)} accounts`,
-                        leading: <PlatformIcon platform={selectedPlatform} />,
-                        badge: platformStats.length,
-                      },
-                      ...platformStats.map((item) => ({
-                        id: accountKey(item.account),
-                        label: item.account.username ? `@${item.account.username}` : `Account ${item.account.id}`,
-                        leading: <PlatformIcon platform={item.account.platform} />,
-                        badge: item.totalPosts,
-                      })),
-                    ]}
-                  />
-                </div>
-              ) : null}
+                <button
+                  className="button-secondary dashboard-icon-button stats-refresh-button"
+                  onClick={() => void load({ silent: true })}
+                  disabled={refreshing}
+                  aria-label="Refresh statistics"
+                  title="Refresh"
+                >
+                  <ArrowPathIcon aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
+                </button>
+
+                {selectedPlatform !== "all" ? (
+                  <div className="stats-tabs-group stats-tabs-group--account">
+                    <span className="stats-tabs-label">Account</span>
+                    <SectionTabs
+                      activeId={selectedAccountKey}
+                      ariaLabel="Social account statistics"
+                      className="social-platform-tabs stats-tabs-list"
+                      tabClassName="social-tab"
+                      activeTabClassName="social-tab--active"
+                      onChange={setSelectedAccountKey}
+                      items={[
+                        {
+                          id: "all",
+                          label: `All ${platformLabel(selectedPlatform)} accounts`,
+                          leading: <PlatformIcon platform={selectedPlatform} />,
+                        },
+                        ...platformStats.map((item) => ({
+                          id: accountKey(item.account),
+                          label: item.account.username ? `@${item.account.username}` : `Account ${item.account.id}`,
+                          leading: <PlatformIcon platform={item.account.platform} />,
+                        })),
+                      ]}
+                    />
+                  </div>
+                ) : null}
+              </div>
             </section>
 
             <section className="stats-section stats-performance-panel">
@@ -545,30 +544,31 @@ export function StatisticsPage() {
                 <StatCard label="Scheduled" value={totals.scheduled} sub="waiting to publish" accent="amber" />
                 <StatCard label="Comments" value={totals.comments} sub={`${totals.replies} replied`} accent="purple" />
               </div>
-              <div className="stats-account-grid">
-                {visibleStats.map((item) => (
-                  <article className="stats-account-card" key={accountKey(item.account)}>
-                    <div className="stats-account-card__header">
-                      <div>
+              <div className="stats-account-list" aria-label="Account publishing status">
+                {visibleStats.map((item) => {
+                  const accountName = item.account.username ? `@${item.account.username}` : `Account ${item.account.id}`;
+                  return (
+                    <article className="stats-account-row" key={accountKey(item.account)}>
+                      <div className="stats-account-row__identity">
                         <span className="stats-platform-chip">
                           <PlatformIcon platform={item.account.platform} />
                           {platformLabel(item.account.platform)}
                         </span>
-                        <h4>{item.account.username ? `@${item.account.username}` : `Account ${item.account.id}`}</h4>
+                        <strong>{accountName}</strong>
                       </div>
-                      <span className={`stats-status-chip stats-status-chip--${item.account.status}`}>{item.account.status}</span>
-                    </div>
-                    <div className="stats-account-card__metrics">
-                      <span><strong>{item.publishedPosts}</strong> published</span>
-                      <span><strong>{item.scheduledPosts}</strong> scheduled</span>
-                      <span><strong>{item.draftPosts}</strong> draft/approved</span>
-                      <span><strong>{item.failedPosts}</strong> failed</span>
-                    </div>
-                    <p className="stats-account-card__note">
-                      {item.lastPostAt ? `Latest activity ${formatDisplayDateTime(item.lastPostAt)}` : "No posts created for this account yet."}
-                    </p>
-                  </article>
-                ))}
+                      <div className="stats-account-row__metrics">
+                        <span><strong>{item.publishedPosts}</strong> published</span>
+                        <span><strong>{item.scheduledPosts}</strong> scheduled</span>
+                        <span><strong>{item.draftPosts}</strong> draft/approved</span>
+                        <span><strong>{item.failedPosts}</strong> failed</span>
+                      </div>
+                      <div className="stats-account-row__meta">
+                        <span className={`stats-status-chip stats-status-chip--${item.account.status}`}>{item.account.status}</span>
+                        <span>{item.lastPostAt ? `Latest ${formatDisplayDateTime(item.lastPostAt)}` : "No posts yet"}</span>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
             </section>
 

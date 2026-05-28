@@ -229,6 +229,58 @@ button:disabled {
   @apply hidden;
 }
 
+@media (min-width: 901px) {
+  .shell--sidebar-collapsed .shell__sidebar {
+    overflow: visible;
+  }
+
+  .shell--sidebar-collapsed .shell-sidebar-nav__item[data-tooltip] {
+    position: relative;
+  }
+
+  .shell--sidebar-collapsed .shell-sidebar-nav__item[data-tooltip]::before,
+  .shell--sidebar-collapsed .shell-sidebar-nav__item[data-tooltip]::after {
+    position: absolute;
+    top: 50%;
+    left: calc(100% + 10px);
+    z-index: 60;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-4px, -50%);
+    transition: opacity 120ms ease, transform 120ms ease;
+  }
+
+  .shell--sidebar-collapsed .shell-sidebar-nav__item[data-tooltip]::before {
+    content: "";
+    left: calc(100% + 4px);
+    border: 6px solid transparent;
+    border-right-color: #0f172a;
+  }
+
+  .shell--sidebar-collapsed .shell-sidebar-nav__item[data-tooltip]::after {
+    content: attr(data-tooltip);
+    width: max-content;
+    max-width: 220px;
+    padding: 7px 10px;
+    border-radius: 6px;
+    background: #0f172a;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .shell--sidebar-collapsed .shell-sidebar-nav__item[data-tooltip]:hover::before,
+  .shell--sidebar-collapsed .shell-sidebar-nav__item[data-tooltip]:hover::after,
+  .shell--sidebar-collapsed .shell-sidebar-nav__item[data-tooltip]:focus-visible::before,
+  .shell--sidebar-collapsed .shell-sidebar-nav__item[data-tooltip]:focus-visible::after {
+    opacity: 1;
+    transform: translate(0, -50%);
+  }
+}
+
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
