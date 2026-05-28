@@ -192,10 +192,6 @@
   gap: 10px;
 }
 
-.stats-account-card__metrics--full {
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-}
-
 .stats-account-card__metrics span {
   display: grid;
   gap: 4px;

@@ -43,7 +43,6 @@ type PostStatusTab = "posted" | "scheduled";
 
 const PLATFORMS: Platform[] = ["twitter", "threads", "reddit", "instagram", "linkedin", "facebook", "youtube"];
 const COMMENT_PLATFORMS = new Set<Platform>(["twitter", "threads", "reddit"]);
-const INSIGHT_METRICS = ["Views", "Likes", "Shares"];
 const REQUEST_TIMEOUT_MS = 20000;
 const platformIcons: Partial<Record<Platform, IconType>> = {
   twitter: SiX,
@@ -515,8 +514,8 @@ export function StatisticsPage() {
             <section className="stats-section stats-performance-panel">
               <div className="stats-section__header">
                 <div>
-                  <h3>Performance Overview</h3>
-                  <p>Unified publishing health and available engagement for {selectedScopeLabel}.</p>
+                  <h3>Publishing Overview</h3>
+                  <p>Account health, posting volume, and last activity for {selectedScopeLabel}.</p>
                 </div>
               </div>
               <div className="stats-grid stats-grid--summary">
@@ -538,19 +537,11 @@ export function StatisticsPage() {
                       </div>
                       <span className={`stats-status-chip stats-status-chip--${item.account.status}`}>{item.account.status}</span>
                     </div>
-                    <div className="stats-account-card__metrics stats-account-card__metrics--full">
+                    <div className="stats-account-card__metrics">
                       <span><strong>{item.publishedPosts}</strong> published</span>
                       <span><strong>{item.scheduledPosts}</strong> scheduled</span>
-                      <span><strong>{item.commentsCount}</strong> comments</span>
-                      <span><strong>{item.repliesSent}</strong> replies sent</span>
-                      {INSIGHT_METRICS.map((metric) => {
-                        const key = metric.toLowerCase() as "views" | "likes" | "shares";
-                        return (
-                          <span key={metric} title={item.insights.message}>
-                            <strong>{formatInsightMetric(item.insights, key)}</strong>{metric}
-                          </span>
-                        );
-                      })}
+                      <span><strong>{item.draftPosts}</strong> draft/approved</span>
+                      <span><strong>{item.failedPosts}</strong> failed</span>
                     </div>
                     <p className="stats-account-card__note">
                       {item.lastPostAt ? `Latest activity ${formatDisplayDateTime(item.lastPostAt)}` : "No posts created for this account yet."}
@@ -563,8 +554,8 @@ export function StatisticsPage() {
             <section className="stats-section stats-table-section">
               <div className="stats-section__header">
                 <div>
-                  <h3>Post Performance By Account</h3>
-                  <p>Filtered to {selectedScopeLabel}. Threads, Twitter/X, Instagram, and LinkedIn views, likes, and shares sync from the official platform APIs where metrics are available.</p>
+                  <h3>Engagement Performance</h3>
+                  <p>Filtered to {selectedScopeLabel}. Views, likes, shares, and comments by account where platform APIs expose them.</p>
                 </div>
               </div>
               <div className="stats-table-wrap">
@@ -573,10 +564,6 @@ export function StatisticsPage() {
                     <tr>
                       <th>Account</th>
                       <th>Total</th>
-                      <th>Published</th>
-                      <th>Scheduled</th>
-                      <th>Draft/Approved</th>
-                      <th>Failed</th>
                       <th>Comments</th>
                       <th>Views</th>
                       <th>Likes</th>
@@ -593,10 +580,6 @@ export function StatisticsPage() {
                           </span>
                         </td>
                         <td>{item.totalPosts}</td>
-                        <td>{item.publishedPosts}</td>
-                        <td>{item.scheduledPosts}</td>
-                        <td>{item.draftPosts}</td>
-                        <td>{item.failedPosts}</td>
                         <td>{item.commentsCount}</td>
                         <td className={insightCellClass(item.insights)} title={item.insights.message}>{formatInsightMetric(item.insights, "views")}</td>
                         <td className={insightCellClass(item.insights)} title={item.insights.message}>{formatInsightMetric(item.insights, "likes")}</td>
