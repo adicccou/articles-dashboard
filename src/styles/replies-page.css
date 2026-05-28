@@ -10,7 +10,7 @@
 
 .replies-toolbar .social-platform-tabs {
   --ui-tabs-padding-inline: 0;
-  flex: 1 1 100%;
+  flex: 1 1 auto;
   width: 100%;
 }
 
@@ -74,12 +74,38 @@
   padding: 0 0 16px;
 }
 
-.replies-panel__header {
-  align-items: flex-start;
+.panel__title-row.replies-panel__header {
+  align-items: center;
+  flex-wrap: nowrap;
 }
 
-.replies-panel__header p {
-  margin: 6px 0 0;
+.replies-panel__heading {
+  align-items: baseline;
+  display: flex;
+  flex: 1 1 auto;
+  gap: 12px;
+  min-width: 0;
+}
+
+.replies-panel__heading h2 {
+  flex: 0 0 auto;
+}
+
+.replies-panel__heading p {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.replies-panel__actions {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 10px;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .replies-filter-tabs {
@@ -625,6 +651,25 @@
 }
 
 @media (max-width: 720px) {
+  .panel__title-row.replies-panel__header {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .replies-panel__heading,
+  .replies-panel__actions {
+    flex: 1 1 100%;
+  }
+
+  .replies-panel__actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .replies-panel__heading p {
+    white-space: normal;
+  }
+
   .replies-compose-backdrop {
     padding: 16px;
   }

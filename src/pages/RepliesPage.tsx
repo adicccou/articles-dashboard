@@ -625,68 +625,71 @@ export function RepliesPage() {
                 badge: isCommentPlatform(item.id) ? commentsByPlatform[item.id].length : 0,
               }))}
             />
-
-            <div className="social-platform-actions">
-              <label className="replies-account-select">
-                <span>Account</span>
-                <select
-                  value={selectedAccountByPlatform[platform] ?? ""}
-                  onChange={(event) => {
-                    const nextSelection = {
-                      ...selectedAccountByPlatform,
-                      [platform]: event.target.value,
-                    };
-                    setSelectedAccountByPlatform(nextSelection);
-                    if (isCommentPlatform(platform)) {
-                      setRefreshing(true);
-                      void load(nextSelection);
-                    }
-                  }}
-                  disabled={platformAccounts.length === 0 || !isCommentPlatform(platform)}
-                >
-                  <option value="">All connected accounts</option>
-                  {platformAccounts.map((account) => (
-                    <option key={`${account.platform}:${account.id}`} value={String(account.id)}>
-                      {accountLabel(account)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                className="button-secondary dashboard-icon-button"
-                onClick={() => {
-                  setRefreshing(true);
-                  void load();
-                }}
-                disabled={refreshing}
-                aria-label="Refresh replies"
-                title="Refresh"
-              >
-                <ArrowPathIcon aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
-              </button>
-            </div>
           </div>
         ) : null}
 
         <div className="replies-overview__content">
           <div className="panel__title-row replies-panel__header">
-            <div>
+            <div className="replies-panel__heading">
               <h2>Comments</h2>
               <p className="muted">Other people commenting under your published posts.</p>
             </div>
-            <div className="replies-filter-tabs" aria-label="Filter comments by reply status">
-              {(["all", "new", "replied"] as const).map((filter) => (
-                <button
-                  className={`replies-filter-tab ${replyFilter === filter ? "replies-filter-tab--active" : ""}`}
-                  key={filter}
-                  onClick={() => setReplyFilter(filter)}
-                  type="button"
-                >
-                  <span>{filter === "all" ? "All" : filter === "new" ? "New" : "Replied"}</span>
-                  <span className="replies-filter-tab__count">{replyFilterCounts[filter]}</span>
-                </button>
-              ))}
+            <div className="replies-panel__actions">
+              {visiblePlatforms.length > 0 ? (
+                <>
+                  <label className="replies-account-select">
+                    <span>Account</span>
+                    <select
+                      value={selectedAccountByPlatform[platform] ?? ""}
+                      onChange={(event) => {
+                        const nextSelection = {
+                          ...selectedAccountByPlatform,
+                          [platform]: event.target.value,
+                        };
+                        setSelectedAccountByPlatform(nextSelection);
+                        if (isCommentPlatform(platform)) {
+                          setRefreshing(true);
+                          void load(nextSelection);
+                        }
+                      }}
+                      disabled={platformAccounts.length === 0 || !isCommentPlatform(platform)}
+                    >
+                      <option value="">All connected accounts</option>
+                      {platformAccounts.map((account) => (
+                        <option key={`${account.platform}:${account.id}`} value={String(account.id)}>
+                          {accountLabel(account)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="button-secondary dashboard-icon-button"
+                    onClick={() => {
+                      setRefreshing(true);
+                      void load();
+                    }}
+                    disabled={refreshing}
+                    aria-label="Refresh replies"
+                    title="Refresh"
+                  >
+                    <ArrowPathIcon aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
+                  </button>
+                </>
+              ) : null}
+              <div className="replies-filter-tabs" aria-label="Filter comments by reply status">
+                {(["all", "new", "replied"] as const).map((filter) => (
+                  <button
+                    className={`replies-filter-tab ${replyFilter === filter ? "replies-filter-tab--active" : ""}`}
+                    key={filter}
+                    onClick={() => setReplyFilter(filter)}
+                    type="button"
+                  >
+                    <span>{filter === "all" ? "All" : filter === "new" ? "New" : "Replied"}</span>
+                    <span className="replies-filter-tab__count">{replyFilterCounts[filter]}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
