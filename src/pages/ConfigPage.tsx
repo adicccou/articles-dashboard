@@ -4,16 +4,26 @@ import type { IconType } from "react-icons";
 import { FaFacebookF, FaLinkedinIn } from "react-icons/fa6";
 import { SiInstagram, SiReddit, SiThreads, SiX, SiYoutube } from "react-icons/si";
 import { ModalCloseButton } from "../components/ModalCloseButton";
-import type { RedditAccount, Site, SocialAccount, SocialAccountInput, StudioApp } from "../lib/types";
+import { APIConnectionPanel, type SettingsTabId } from "../components/APIConnectionPanel";
+import type { RedditAccount, Site, SocialAccount, SocialAccountInput, StudioApp, AppSettings, AppSettingsInput } from "../lib/types";
+import type { DashboardSurface } from "../lib/surface";
 import { api } from "../lib/api";
 import { formatDisplayDate } from "../lib/datetime";
 import "../styles/config-page.css";
 
-type ConfigTab = "apps" | "accounts";
+type ConfigTab = "apps" | "accounts" | "general" | "ai" | "rules";
 type AccountPlatform = "twitter" | "threads" | "reddit" | "facebook" | "linkedin" | "instagram" | "youtube";
 type AccountStatus = "active" | "inactive";
 type AccountConnectionMode = "official_api";
 type ConfigModal = "app" | "account" | "site" | null;
+
+type ConfigPageProps = {
+  surface: DashboardSurface;
+  settings: AppSettings;
+  syncMessage: string | null;
+  onSaveSettings: (payload: AppSettingsInput) => Promise<unknown>;
+  onSyncAgent: () => Promise<unknown>;
+};
 
 type AppForm = {
   id?: number;
@@ -635,7 +645,7 @@ function buildAppSiteRows(apps: StudioApp[], sites: Site[]): AppSiteRow[] {
   return [...rows, ...siteOnlyRows].sort((left, right) => left.name.localeCompare(right.name));
 }
 
-export function ConfigPage() {
+export function ConfigPage({ surface, settings, syncMessage, onSaveSettings, onSyncAgent }: ConfigPageProps) {
   const [tab, setTab] = useState<ConfigTab>("accounts");
   const [apps, setApps] = useState<StudioApp[]>([]);
   const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
@@ -1138,6 +1148,14 @@ export function ConfigPage() {
     ? []
     : officialFieldsByPlatform[accountForm.platform];
   const hostedOAuthAccount = usesHostedOAuth(accountForm);
+  const settingsTab = tab === "general" || tab === "ai" || tab === "rules" ? tab : null;
+  const configTabs: Array<{ id: ConfigTab; label: string; badge?: string }> = [
+    { id: "accounts", label: "Social Accounts", badge: String(accounts.length) },
+    { id: "apps", label: "Apps/Sites", badge: String(appsAndSitesCount) },
+    { id: "general", label: "General", badge: settings.workspace_timezone ? settings.workspace_timezone : "Setup" },
+    { id: "ai", label: "AI API", badge: settings.ai_api_connected ? "Connected" : "Setup" },
+    { id: "rules", label: "Rules", badge: settings.global_ai_rules || settings.social_agent_rules ? "Set" : "Empty" },
+  ];
 
   if (loading) {
     return <section className="panel">Loading Config...</section>;
@@ -1151,20 +1169,17 @@ export function ConfigPage() {
       <section className="panel config-overview">
         <div className="ui-tabs config-tabs config-overview__tabs">
           <div className="ui-tabs__list config-tabs__list">
-            <button
-              type="button"
-              className={`ui-tab config-tab ${tab === "accounts" ? "ui-tab--active config-tab--active" : ""}`}
-              onClick={() => setTab("accounts")}
-            >
-              Social Media Accounts ({accounts.length})
-            </button>
-            <button
-              type="button"
-              className={`ui-tab config-tab ${tab === "apps" ? "ui-tab--active config-tab--active" : ""}`}
-              onClick={() => setTab("apps")}
-            >
-              Apps/Sites ({appsAndSitesCount})
-            </button>
+            {configTabs.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`ui-tab config-tab ${tab === item.id ? "ui-tab--active config-tab--active" : ""}`}
+                onClick={() => setTab(item.id)}
+              >
+                {item.label}
+                {item.badge ? <span className="ui-tab__badge">{item.badge}</span> : null}
+              </button>
+            ))}
           </div>
           <div className="ui-tabs__actions config-tabs__actions">
             <button
@@ -1387,6 +1402,37 @@ export function ConfigPage() {
                 })}
               </div>
             )}
+        </div>
+      ) : null}
+
+      {settingsTab ? (
+        <div className="config-list config-overview__content">
+          <APIConnectionPanel
+            activeTab={settingsTab as SettingsTabId}
+            surface={surface}
+            aiApiConnected={settings.ai_api_connected}
+            geminiApiConnected={settings.gemini_api_connected}
+            geminiFlashModel={settings.gemini_flash_model}
+            geminiProModel={settings.gemini_pro_model}
+            globalAiRules={settings.global_ai_rules}
+            socialAgentRules={settings.social_agent_rules}
+            workspaceTimezone={settings.workspace_timezone}
+            tradingAgentUrl={settings.trading_agent_url}
+            tradingAgentConnected={settings.trading_agent_connected}
+            tradingAgentTokenSaved={settings.trading_agent_token_saved}
+            ctraderClientId={settings.ctrader_client_id}
+            ctraderAccountId={settings.ctrader_account_id}
+            ctraderDemoAccountId={settings.ctrader_demo_account_id}
+            ctraderLiveAccountId={settings.ctrader_live_account_id}
+            ctraderConnected={settings.ctrader_connected}
+            ctraderClientSecretSaved={settings.ctrader_client_secret_saved}
+            ctraderAccessTokenSaved={settings.ctrader_access_token_saved}
+            syncMessage={syncMessage}
+            onSave={onSaveSettings}
+            onSyncAgent={onSyncAgent}
+            title="Workspace configuration"
+            description="General workspace, AI API, and rule settings for the dashboard."
+          />
         </div>
       ) : null}
 

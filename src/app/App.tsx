@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { ArrowRightOnRectangleIcon, Bars3Icon, Cog6ToothIcon, XMarkIcon } from "@heroicons/react/24/solid";
+import { ArrowRightOnRectangleIcon, Bars3Icon, XMarkIcon } from "@heroicons/react/24/solid";
 import { api } from "../lib/api";
 import type { ArticleRecord, AuthState, Site, ArticleCategory, AppSettings, AppSettingsInput } from "../lib/types";
 import { LoginCard } from "../components/LoginCard";
-import { SettingsModal } from "../components/SettingsModal";
 import { Shell } from "../components/Shell";
 import { TopNav, getNavLabel, type NavView } from "../components/TopNav";
 import { DashboardPage } from "../pages/DashboardPage";
@@ -89,7 +88,6 @@ export function App() {
   const [selectedArticle, setSelectedArticle] = useState<ArticleRecord | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [appSettings, setAppSettings] = useState<AppSettings>({
@@ -245,15 +243,6 @@ export function App() {
               <button
                 type="button"
                 className="dashboard-icon-button"
-                onClick={() => setSettingsOpen(true)}
-                aria-label="Open settings"
-                title="Settings"
-              >
-                <Cog6ToothIcon aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                className="dashboard-icon-button"
                 onClick={async () => {
                   const confirmed = window.confirm("Sign out now?");
                   if (!confirmed) return;
@@ -298,19 +287,13 @@ export function App() {
             await load();
           }}
           onUpload={api.uploadMedia}
-        />
-      </Shell>
-
-      {settingsOpen ? (
-        <SettingsModal
           surface={surface}
           settings={appSettings}
-          syncMessage={settingsMessage}
-          onClose={() => setSettingsOpen(false)}
-          onSave={saveSettings}
-          onSyncAgent={syncAgentSettings}
+          settingsMessage={settingsMessage}
+          onSaveSettings={saveSettings}
+          onSyncAgentSettings={syncAgentSettings}
         />
-      ) : null}
+      </Shell>
     </div>
   );
 }

@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { TrashIcon } from "@heroicons/react/24/solid";
-import type { ArticleRecord, Site, ArticleCategory } from "../lib/types";
+import type { ArticleRecord, Site, ArticleCategory, AppSettings, AppSettingsInput } from "../lib/types";
 import type { NavView } from "../components/TopNav";
+import type { DashboardSurface } from "../lib/surface";
 import { ArticleEditor } from "../components/ArticleEditor";
 import { SocialAgentsPage } from "./SocialAgentsPage";
 import { StudioPage } from "./StudioPage";
@@ -45,6 +46,11 @@ type DashboardPageProps = {
   ) => Promise<void>;
   onDeleteArticle: (id: number) => Promise<void>;
   onUpload: (file: File) => Promise<{ key: string; url: string }>;
+  surface: DashboardSurface;
+  settings: AppSettings;
+  settingsMessage: string | null;
+  onSaveSettings: (payload: AppSettingsInput) => Promise<unknown>;
+  onSyncAgentSettings: () => Promise<unknown>;
 };
 
 export function DashboardPage({
@@ -57,6 +63,11 @@ export function DashboardPage({
   onSaveArticle,
   onDeleteArticle,
   onUpload,
+  surface,
+  settings,
+  settingsMessage,
+  onSaveSettings,
+  onSyncAgentSettings,
 }: DashboardPageProps) {
   const [isCreatingArticle, setIsCreatingArticle] = useState(false);
 
@@ -93,7 +104,15 @@ export function DashboardPage({
     }
 
     if (view === "config") {
-      return <ConfigPage />;
+      return (
+        <ConfigPage
+          surface={surface}
+          settings={settings}
+          syncMessage={settingsMessage}
+          onSaveSettings={onSaveSettings}
+          onSyncAgent={onSyncAgentSettings}
+        />
+      );
     }
 
     if (view === "trading") {
