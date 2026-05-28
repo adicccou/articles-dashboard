@@ -683,7 +683,7 @@ export function StatisticsPage() {
                                 const previewIsVideo = isVideoMediaUrl(mediaUrl);
                                 return (
                                   <button
-                                    key={mediaUrl}
+                                    key={`${mediaUrl}-${index}`}
                                     type="button"
                                     className="stats-post-media"
                                     onClick={() => setMediaViewerUrl(mediaUrl)}
