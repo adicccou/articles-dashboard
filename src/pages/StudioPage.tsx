@@ -1272,7 +1272,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
       ) : (
         <section className="panel studio-overview">
           <div className="studio-crawler-tabs ui-tabs">
-            <div className="ui-tabs__list social-platform-tabs stats-tabs-list" role="tablist" aria-label="Studio crawler type">
+            <div className="ui-tabs__list studio-crawler-tabs__list" role="tablist" aria-label="Studio crawler type">
               {CRAWLER_TABS.map((tab) => (
                 <button
                   key={tab.id}

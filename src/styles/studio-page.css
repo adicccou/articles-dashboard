@@ -99,8 +99,21 @@
 }
 
 .studio-crawler-tabs {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
   justify-content: flex-start;
   padding: 0 0 16px;
+}
+
+.studio-crawler-tabs__list {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.studio-crawler-tabs .studio-tabs__actions {
+  flex: 0 0 auto;
 }
 
 .studio-tabs__heading {
