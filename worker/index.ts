@@ -3,9 +3,9 @@ import { createSite, deleteSite, getPublishedArticleBySlug, getPublishedArticles
 import { json, parseJson, text } from "./lib/http";
 import type { Env } from "./lib/types";
 import type { DashboardUser } from "./lib/ownership";
-import { DEFAULT_USER_ID, activeScopeId } from "./lib/ownership";
+import { DEFAULT_USER_ID, activeScopeId, tableHasUserId, tableHasWorkspaceId } from "./lib/ownership";
 import { authenticateDashboardUser } from "./lib/users";
-import { markLinkedPlannerItemsPublished } from "./lib/social-publish";
+import { markLinkedPlannerItemsPublished, markSocialPostsFailed, socialPublishErrorMessage } from "./lib/social-publish";
 import { readAccountTags } from "./lib/account-tags";
 import {
   listCampaigns,
@@ -955,7 +955,99 @@ function enforceSurfaceRoute(env: Env, pathname: string): Response | null {
   return allowed ? null : text("Not found", 404);
 }
 
+type DueSocialPost = {
+  id: number;
+  platform: string;
+  user_id?: number | null;
+  workspace_id?: number | null;
+};
+
+const SCHEDULED_SOCIAL_PLATFORMS = ["threads", "twitter", "reddit", "instagram", "linkedin", "youtube"];
+
+async function responseErrorMessage(response: Response): Promise<string> {
+  const body = await response.text().catch(() => "");
+  if (!body.trim()) return `Publishing failed with HTTP ${response.status}`;
+  try {
+    const parsed = JSON.parse(body) as { error?: unknown; message?: unknown };
+    const message = typeof parsed.error === "string" ? parsed.error : typeof parsed.message === "string" ? parsed.message : "";
+    return message || body.trim().slice(0, 2000);
+  } catch {
+    return body.trim().slice(0, 2000);
+  }
+}
+
+async function publishScheduledSocialPost(env: Env, post: DueSocialPost, now: string): Promise<boolean> {
+  const scopeId = post.workspace_id ?? post.user_id ?? DEFAULT_USER_ID;
+  const dashboardUserId = post.user_id ?? DEFAULT_USER_ID;
+  let response: Response;
+
+  if (post.platform === "threads") {
+    response = await publishThreadsPost(env, String(post.id), scopeId);
+  } else if (post.platform === "twitter") {
+    response = await publishTwitterPost(env, String(post.id), scopeId);
+  } else if (post.platform === "reddit") {
+    response = await publishRedditPost(env, String(post.id), scopeId, dashboardUserId);
+  } else if (["instagram", "linkedin", "youtube"].includes(post.platform)) {
+    response = await publishExtraSocialPost(env, String(post.id), scopeId, dashboardUserId);
+  } else {
+    await markSocialPostsFailed(env, ["id = ?"], [post.id], now, `Scheduled publishing is not available for ${post.platform}.`);
+    return false;
+  }
+
+  if (response.ok || response.status === 409) return response.ok;
+  await markSocialPostsFailed(env, ["id = ?"], [post.id], now, await responseErrorMessage(response));
+  return false;
+}
+
+async function publishDueSocialPosts(env: Env): Promise<{ published: number; failed: number; total: number }> {
+  const now = new Date().toISOString();
+  const hasUserId = await tableHasUserId(env, "social_posts");
+  const hasWorkspaceId = await tableHasWorkspaceId(env, "social_posts");
+  const selectColumns = ["id", "platform"];
+  if (hasUserId) selectColumns.push("user_id");
+  if (hasWorkspaceId) selectColumns.push("workspace_id");
+
+  const due = await env.DB.prepare(
+    `SELECT ${selectColumns.join(", ")}
+     FROM social_posts
+     WHERE status = 'scheduled'
+       AND scheduled_at IS NOT NULL
+       AND scheduled_at <= ?
+       AND platform IN (${SCHEDULED_SOCIAL_PLATFORMS.map(() => "?").join(", ")})
+     ORDER BY scheduled_at ASC, id ASC
+     LIMIT 20`,
+  )
+    .bind(now, ...SCHEDULED_SOCIAL_PLATFORMS)
+    .all<DueSocialPost>();
+
+  let published = 0;
+  let failed = 0;
+  for (const post of due.results ?? []) {
+    try {
+      if (await publishScheduledSocialPost(env, post, now)) {
+        published += 1;
+      } else {
+        failed += 1;
+      }
+    } catch (error) {
+      failed += 1;
+      const message = socialPublishErrorMessage(error, "Scheduled publishing failed");
+      await markSocialPostsFailed(env, ["id = ?"], [post.id], new Date().toISOString(), message);
+      console.error(`Failed to publish scheduled social post ${post.id}:`, error);
+    }
+  }
+
+  return { published, failed, total: (due.results ?? []).length };
+}
+
 export default {
+  async scheduled(_controller: unknown, env: Env, _ctx: ExecutionContext): Promise<void> {
+    const result = await publishDueSocialPosts(env);
+    if (result.total > 0) {
+      console.log(`Scheduled social publisher processed ${result.total} posts: ${result.published} published, ${result.failed} failed.`);
+    }
+  },
+
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
       const url = new URL(request.url);

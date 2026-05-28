@@ -17,6 +17,7 @@ import {
 import "../styles/app.css";
 
 const DASHBOARD_VIEW_STORAGE_KEY_PREFIX = "dashboard:last-view";
+const SIDEBAR_COLLAPSED_STORAGE_KEY = "dashboard:sidebar-collapsed";
 const FALLBACK_SIGN_PATH = "/fallbacksign";
 
 function readAuthNotice(): string | null {
@@ -89,7 +90,10 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true";
+  });
   const [appSettings, setAppSettings] = useState<AppSettings>({
     ai_api_connected: false,
     gemini_api_connected: false,
@@ -167,6 +171,11 @@ export function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [sidebarOpen]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
+
   async function saveSettings(payload: AppSettingsInput) {
     const next = await api.updateSettings(payload);
     setAppSettings(next);
@@ -236,7 +245,6 @@ export function App() {
               {sidebarOpen ? <XMarkIcon aria-hidden="true" /> : <Bars3Icon aria-hidden="true" />}
             </button>
             <div className="shell-header-shell__copy">
-              <p className="shell-header-shell__eyebrow">Dashboard</p>
               <h1>{getNavLabel(view)}</h1>
             </div>
             <div className="shell-header-shell__actions">
