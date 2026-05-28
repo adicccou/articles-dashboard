@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowPathIcon } from "@heroicons/react/24/solid";
+import {
+  ArrowPathRoundedSquareIcon,
+  ChatBubbleBottomCenterTextIcon,
+  ChatBubbleOvalLeftIcon,
+  EyeIcon,
+  HeartIcon,
+  PaperAirplaneIcon,
+} from "@heroicons/react/24/outline";
 import type { IconType } from "react-icons";
 import { FaFacebookF, FaLinkedinIn } from "react-icons/fa6";
 import { SiInstagram, SiReddit, SiThreads, SiX, SiYoutube } from "react-icons/si";
@@ -40,6 +48,7 @@ type AccountInsights = {
 };
 type PlatformSelection = "all" | Platform;
 type PostStatusTab = "posted" | "scheduled";
+type PostMetricKey = "views" | "likes" | "comments" | "shares" | "replies" | "reposts" | "quotes";
 
 const PLATFORMS: Platform[] = ["twitter", "threads", "reddit", "instagram", "linkedin", "facebook", "youtube"];
 const COMMENT_PLATFORMS = new Set<Platform>(["twitter", "threads", "reddit"]);
@@ -53,6 +62,36 @@ const platformIcons: Partial<Record<Platform, IconType>> = {
   facebook: FaFacebookF,
   youtube: SiYoutube,
 };
+const postMetricIcons: Record<PostMetricKey, typeof EyeIcon> = {
+  views: EyeIcon,
+  likes: HeartIcon,
+  comments: ChatBubbleBottomCenterTextIcon,
+  shares: PaperAirplaneIcon,
+  replies: ChatBubbleOvalLeftIcon,
+  reposts: ArrowPathRoundedSquareIcon,
+  quotes: ChatBubbleOvalLeftIcon,
+};
+
+const postMetricLabels: Record<PostMetricKey, string> = {
+  views: "Views",
+  likes: "Likes",
+  comments: "Comments",
+  shares: "Shares",
+  replies: "Replies",
+  reposts: "Reposts",
+  quotes: "Quotes",
+};
+
+function PostMetric({ metric, value }: { metric: PostMetricKey; value: string }) {
+  const Icon = postMetricIcons[metric];
+  return (
+    <span className="stats-post-metric" title={postMetricLabels[metric]}>
+      <Icon className="stats-post-metric__icon" aria-hidden="true" />
+      <strong>{value}</strong>
+      <span>{postMetricLabels[metric]}</span>
+    </span>
+  );
+}
 const EMPTY_INSIGHTS: AccountInsights = {
   status: "not_supported",
   data: [],
@@ -665,13 +704,13 @@ export function StatisticsPage() {
                           ) : null}
                           {selectedPostStatus === "posted" ? (
                             <div className="stats-post-metrics stats-post-metrics--published" aria-label="Post performance metrics">
-                              <span><strong>{formatPostInsightValue(insight?.views, fallback)}</strong>Views</span>
-                              <span><strong>{formatPostInsightValue(insight?.likes, fallback)}</strong>Likes</span>
-                              <span><strong>{insightComments.toLocaleString()}</strong>Comments</span>
-                              <span><strong>{formatPostInsightValue(insight?.shares, fallback)}</strong>Shares</span>
-                              <span><strong>{formatPostInsightValue(insight?.replies, fallback)}</strong>Replies</span>
-                              <span><strong>{formatPostInsightValue(insight?.reposts, fallback)}</strong>Reposts</span>
-                              <span><strong>{formatPostInsightValue(insight?.quotes, fallback)}</strong>Quotes</span>
+                              <PostMetric metric="likes" value={formatPostInsightValue(insight?.likes, fallback)} />
+                              <PostMetric metric="comments" value={insightComments.toLocaleString()} />
+                              <PostMetric metric="shares" value={formatPostInsightValue(insight?.shares, fallback)} />
+                              <PostMetric metric="replies" value={formatPostInsightValue(insight?.replies, fallback)} />
+                              <PostMetric metric="reposts" value={formatPostInsightValue(insight?.reposts, fallback)} />
+                              <PostMetric metric="quotes" value={formatPostInsightValue(insight?.quotes, fallback)} />
+                              <PostMetric metric="views" value={formatPostInsightValue(insight?.views, fallback)} />
                             </div>
                           ) : (
                             <div className="stats-post-metrics stats-post-metrics--scheduled" aria-label="Scheduled post details">

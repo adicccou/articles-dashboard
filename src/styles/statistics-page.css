@@ -320,8 +320,10 @@
 
 .stats-post-media-grid {
   display: flex;
+  align-items: flex-start;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
+  max-width: min(100%, 240px);
 }
 
 .stats-post-media-grid--multi {
@@ -330,11 +332,11 @@
 
 .stats-post-media {
   position: relative;
-  width: 88px;
-  flex: 0 0 88px;
+  width: 52px;
+  flex: 0 0 52px;
   padding: 0;
   border: 0;
-  border-radius: 14px;
+  border-radius: 10px;
   background: transparent;
   overflow: hidden;
   cursor: pointer;
@@ -344,53 +346,65 @@
 .stats-post-media__asset {
   display: block;
   width: 100%;
-  height: 88px;
+  height: 52px;
   object-fit: cover;
-  border-radius: 14px;
+  border-radius: 10px;
   border: 1px solid var(--border);
   background: #0f172a;
 }
 
 .stats-post-media__badge {
   position: absolute;
-  left: 10px;
-  bottom: 10px;
-  padding: 5px 10px;
+  left: 4px;
+  bottom: 4px;
+  padding: 2px 6px;
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.8);
   color: #fff;
-  font-size: 0.72rem;
+  font-size: 0.58rem;
   font-weight: 700;
 }
 
 .stats-post-metrics {
-  display: grid;
-  gap: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 18px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
 }
 
 .stats-post-metrics--published {
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  max-width: 100%;
 }
 
 .stats-post-metrics--scheduled {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   max-width: 560px;
 }
 
-.stats-post-metrics span {
-  display: grid;
-  gap: 4px;
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: #f8fafc;
+.stats-post-metric {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--text-soft);
-  font-size: 0.78rem;
+  font-size: 0.84rem;
   font-weight: 650;
+  white-space: nowrap;
 }
 
-.stats-post-metrics strong {
+.stats-post-metric__icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+}
+
+.stats-post-metric strong {
   color: var(--accent);
-  font-size: 1rem;
+  font-size: 0.94rem;
+  line-height: 1;
+}
+
+.stats-post-metric span {
   line-height: 1;
 }
 
@@ -482,19 +496,21 @@
 @media (max-width: 720px) {
   .stats-grid,
   .stats-account-grid,
-  .stats-account-card__metrics,
-  .stats-post-metrics--published,
-  .stats-post-metrics--scheduled {
+  .stats-account-card__metrics {
     grid-template-columns: 1fr;
   }
 
+  .stats-post-metrics {
+    gap: 10px 14px;
+  }
+
   .stats-post-media {
-    width: 72px;
-    flex-basis: 72px;
+    width: 44px;
+    flex-basis: 44px;
   }
 
   .stats-post-media__asset {
-    height: 72px;
+    height: 44px;
   }
 
   .stats-recent-post,
