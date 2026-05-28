@@ -322,10 +322,20 @@
   line-height: 1.45;
 }
 
+.stats-post-media-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stats-post-media-grid--multi {
+  max-width: 100%;
+}
+
 .stats-post-media {
   position: relative;
-  width: 100%;
-  max-width: 320px;
+  width: 88px;
+  flex: 0 0 88px;
   padding: 0;
   border: 0;
   border-radius: 14px;
@@ -338,7 +348,7 @@
 .stats-post-media__asset {
   display: block;
   width: 100%;
-  height: 180px;
+  height: 88px;
   object-fit: cover;
   border-radius: 14px;
   border: 1px solid var(--border);
@@ -480,6 +490,15 @@
   .stats-post-metrics--published,
   .stats-post-metrics--scheduled {
     grid-template-columns: 1fr;
+  }
+
+  .stats-post-media {
+    width: 72px;
+    flex-basis: 72px;
+  }
+
+  .stats-post-media__asset {
+    height: 72px;
   }
 
   .stats-recent-post,

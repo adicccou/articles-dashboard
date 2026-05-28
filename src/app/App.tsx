@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
+import { ArrowRightOnRectangleIcon, Bars3Icon, Cog6ToothIcon, XMarkIcon } from "@heroicons/react/24/solid";
 import { api } from "../lib/api";
 import type { ArticleRecord, AuthState, Site, ArticleCategory, AppSettings, AppSettingsInput } from "../lib/types";
 import { LoginCard } from "../components/LoginCard";
 import { SettingsModal } from "../components/SettingsModal";
-import { TopNav, type NavView } from "../components/TopNav";
+import { Shell } from "../components/Shell";
+import { TopNav, getNavLabel, type NavView } from "../components/TopNav";
 import { DashboardPage } from "../pages/DashboardPage";
 import {
   getDashboardSurface,
@@ -88,6 +90,7 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [appSettings, setAppSettings] = useState<AppSettings>({
     ai_api_connected: false,
     gemini_api_connected: false,
@@ -148,6 +151,23 @@ export function App() {
     syncViewUrl(surface, view);
   }, [surface, view]);
 
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [view]);
+
+  useEffect(() => {
+    if (!sidebarOpen || typeof window === "undefined") return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSidebarOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [sidebarOpen]);
+
   async function saveSettings(payload: AppSettingsInput) {
     const next = await api.updateSettings(payload);
     setAppSettings(next);
@@ -200,19 +220,54 @@ export function App() {
 
   return (
     <div className="app-layout">
-      <TopNav
-        currentView={view}
-        surface={surface}
-        onNavigate={setView}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onLogout={async () => {
-          const confirmed = window.confirm("Sign out now?");
-          if (!confirmed) return;
-          await api.logout();
-          setAuth({ authenticated: false });
-        }}
-      />
-      <main className="app-content">
+      <Shell
+        sidebarOpen={sidebarOpen}
+        onBackdropClick={() => setSidebarOpen(false)}
+        header={
+          <div className="shell-header-shell">
+            <button
+              type="button"
+              className="shell-header-shell__menu dashboard-icon-button"
+              onClick={() => setSidebarOpen((current) => !current)}
+              aria-label={sidebarOpen ? "Close navigation" : "Open navigation"}
+              aria-expanded={sidebarOpen}
+              title={sidebarOpen ? "Close navigation" : "Open navigation"}
+            >
+              {sidebarOpen ? <XMarkIcon aria-hidden="true" /> : <Bars3Icon aria-hidden="true" />}
+            </button>
+            <div className="shell-header-shell__copy">
+              <p className="shell-header-shell__eyebrow">Dashboard</p>
+              <h1>{getNavLabel(view)}</h1>
+            </div>
+            <div className="shell-header-shell__actions">
+              <button
+                type="button"
+                className="dashboard-icon-button"
+                onClick={() => setSettingsOpen(true)}
+                aria-label="Open settings"
+                title="Settings"
+              >
+                <Cog6ToothIcon aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="dashboard-icon-button"
+                onClick={async () => {
+                  const confirmed = window.confirm("Sign out now?");
+                  if (!confirmed) return;
+                  await api.logout();
+                  setAuth({ authenticated: false });
+                }}
+                aria-label="Sign out"
+                title="Sign out"
+              >
+                <ArrowRightOnRectangleIcon aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        }
+        sidebar={<TopNav currentView={view} surface={surface} onNavigate={(nextView) => setView(nextView)} />}
+      >
         {error ? <p className="error panel">{error}</p> : null}
         <DashboardPage
           view={view}
@@ -234,7 +289,7 @@ export function App() {
           }}
           onUpload={api.uploadMedia}
         />
-      </main>
+      </Shell>
 
       {settingsOpen ? (
         <SettingsModal

@@ -644,8 +644,6 @@ export function StatisticsPage() {
                     const insightComments = typeof insight?.replies === "number" && Number.isFinite(insight.replies) ? insight.replies : comments;
                     const postAccountLabel = postAccountLabelsById.get(post.id) ?? platformLabel(post.platform);
                     const mediaUrls = getDisplayPostImageUrls(post.image_url);
-                    const previewUrl = mediaUrls[0] ?? null;
-                    const previewIsVideo = previewUrl ? isVideoMediaUrl(previewUrl) : false;
                     return (
                       <article className="stats-recent-post" key={`${post.platform}:${post.id}`}>
                         <div className="stats-recent-post__main">
@@ -657,22 +655,30 @@ export function StatisticsPage() {
                             <span className={`stats-post-status stats-post-status--${post.status}`}>{post.status}</span>
                           </div>
                           <p>{post.content || post.title || "Untitled post"}</p>
-                          {previewUrl ? (
-                            <button
-                              type="button"
-                              className="stats-post-media"
-                              onClick={() => setMediaViewerUrl(previewUrl)}
-                              aria-label={`Open ${previewIsVideo ? "video" : "image"} preview`}
-                            >
-                              {previewIsVideo ? (
-                                <>
-                                  <video className="stats-post-media__asset" src={normalizeDashboardMediaUrl(previewUrl)} muted playsInline preload="metadata" />
-                                  <span className="stats-post-media__badge">Video</span>
-                                </>
-                              ) : (
-                                <img className="stats-post-media__asset" src={normalizeDashboardMediaUrl(previewUrl)} alt="Post preview" loading="lazy" />
-                              )}
-                            </button>
+                          {mediaUrls.length > 0 ? (
+                            <div className={`stats-post-media-grid ${mediaUrls.length > 1 ? "stats-post-media-grid--multi" : ""}`}>
+                              {mediaUrls.map((mediaUrl, index) => {
+                                const previewIsVideo = isVideoMediaUrl(mediaUrl);
+                                return (
+                                  <button
+                                    key={mediaUrl}
+                                    type="button"
+                                    className="stats-post-media"
+                                    onClick={() => setMediaViewerUrl(mediaUrl)}
+                                    aria-label={`Open ${previewIsVideo ? "video" : "image"} preview ${index + 1}`}
+                                  >
+                                    {previewIsVideo ? (
+                                      <>
+                                        <video className="stats-post-media__asset" src={normalizeDashboardMediaUrl(mediaUrl)} muted playsInline preload="metadata" />
+                                        <span className="stats-post-media__badge">Video</span>
+                                      </>
+                                    ) : (
+                                      <img className="stats-post-media__asset" src={normalizeDashboardMediaUrl(mediaUrl)} alt={`Post preview ${index + 1}`} loading="lazy" />
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
                           ) : null}
                           {selectedPostStatus === "posted" ? (
                             <div className="stats-post-metrics stats-post-metrics--published" aria-label="Post performance metrics">
