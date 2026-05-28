@@ -30,6 +30,8 @@ type CampaignForm = {
   status: StudioCampaign["status"];
 };
 
+type CrawlerTab = "comments" | "pain-points";
+
 const PLATFORMS: Array<{ id: Platform; label: string }> = [
   { id: "twitter", label: "Twitter/X" },
   { id: "threads", label: "Threads" },
@@ -41,6 +43,11 @@ const PLATFORMS: Array<{ id: Platform; label: string }> = [
 const REPLY_CAPABLE_PLATFORMS = new Set<Platform>(["twitter", "threads", "reddit"]);
 
 const DEFAULT_CAMPAIGN_RESULT_LIMIT = 10;
+
+const CRAWLER_TABS: Array<{ id: CrawlerTab; label: string; campaignType: StudioCampaign["campaign_type"] }> = [
+  { id: "comments", label: "Comments crawler", campaignType: "reply" },
+  { id: "pain-points", label: "Pain-points crawler", campaignType: "post" },
+];
 
 function emptyCampaignForm(): CampaignForm {
   return {
@@ -238,6 +245,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
   const [deletingCampaignId, setDeletingCampaignId] = useState<number | null>(null);
   const [rerunningCampaignId, setRerunningCampaignId] = useState<number | null>(null);
   const [campaignForm, setCampaignForm] = useState<CampaignForm>(emptyCampaignForm);
+  const [selectedCrawlerTab, setSelectedCrawlerTab] = useState<CrawlerTab>("comments");
   const [uploadingPostId, setUploadingPostId] = useState<number | null>(null);
   const [schedulingPostId, setSchedulingPostId] = useState<number | null>(null);
   const [unpostingPostId, setUnpostingPostId] = useState<number | null>(null);
@@ -1147,6 +1155,12 @@ export function StudioPage({ onUpload }: StudioPageProps) {
   const selectedCampaignDisplayStatus = selectedCampaign && selectedCampaignResults
     ? getCampaignDisplayStatus(selectedCampaign, selectedCampaignResults.runs)
     : null;
+  const selectedCrawlerTabConfig = CRAWLER_TABS.find((tab) => tab.id === selectedCrawlerTab) ?? CRAWLER_TABS[0];
+  const visibleCampaigns = summary.campaigns.filter((campaign) => campaign.campaign_type === selectedCrawlerTabConfig.campaignType);
+  const campaignCountsByCrawlerTab = CRAWLER_TABS.reduce<Record<CrawlerTab, number>>((counts, tab) => {
+    counts[tab.id] = summary.campaigns.filter((campaign) => campaign.campaign_type === tab.campaignType).length;
+    return counts;
+  }, { comments: 0, "pain-points": 0 });
 
   return (
     <div className="studio-page stack">
@@ -1282,9 +1296,25 @@ export function StudioPage({ onUpload }: StudioPageProps) {
             </div>
           </div>
 
+          <div className="studio-crawler-tabs ui-tabs">
+            <div className="ui-tabs__list social-platform-tabs stats-tabs-list" role="tablist" aria-label="Studio crawler type">
+              {CRAWLER_TABS.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  className={`ui-tab social-tab ${selectedCrawlerTab === tab.id ? "ui-tab--active social-tab--active" : ""}`}
+                  onClick={() => setSelectedCrawlerTab(tab.id)}
+                >
+                  {tab.label}
+                  <span className="ui-tab__badge">{campaignCountsByCrawlerTab[tab.id]}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="studio-overview__campaigns studio-campaigns">
-            {summary.campaigns.length === 0 ? (
-              <div className="studio-empty">No campaigns yet.</div>
+            {visibleCampaigns.length === 0 ? (
+              <div className="studio-empty">No {selectedCrawlerTabConfig.label.toLowerCase()} campaigns yet.</div>
             ) : (
               <div className="studio-campaign-list">
                 <div className="studio-campaign-row studio-campaign-row--head">
@@ -1296,7 +1326,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
                   <span>Status</span>
                   <span>Actions</span>
                 </div>
-                {summary.campaigns.map((campaign) => (
+                {visibleCampaigns.map((campaign) => (
                   <article
                     className="studio-campaign-row studio-campaign-row--clickable"
                     key={campaign.id}

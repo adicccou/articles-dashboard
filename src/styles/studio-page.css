@@ -98,6 +98,11 @@
   padding: 0;
 }
 
+.studio-crawler-tabs {
+  justify-content: flex-start;
+  padding: 0 0 16px;
+}
+
 .studio-tabs__heading {
   align-items: center;
   display: flex;
