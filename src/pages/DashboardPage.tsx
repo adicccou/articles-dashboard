@@ -131,7 +131,6 @@ export function DashboardPage({
       <section className="panel articles-overview">
         <div className="articles-overview__content">
           <div className="panel__title-row">
-            <h2>Articles</h2>
             <div className="actions">
               <button onClick={() => {
                 onSelectArticle(undefined);

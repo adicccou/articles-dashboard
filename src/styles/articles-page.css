@@ -11,6 +11,7 @@
 }
 
 .articles-overview__content > .panel__title-row {
+  justify-content: flex-end;
   padding: 24px 24px 18px;
 }
 

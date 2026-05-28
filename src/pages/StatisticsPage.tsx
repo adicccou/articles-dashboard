@@ -459,24 +459,6 @@ export function StatisticsPage() {
 
   return (
     <section className="panel statistics-panel statistics-overview">
-      <div className="statistics-overview__bar">
-        <div className="panel__title-row">
-          <div>
-            <h2>Social Media Statistics</h2>
-            <p className="statistics-overview__subtitle">Account-level publishing and reply performance across connected social platforms.</p>
-          </div>
-          <button
-            className="button-secondary dashboard-icon-button"
-            onClick={() => void load({ silent: true })}
-            disabled={refreshing}
-            aria-label="Refresh statistics"
-            title="Refresh"
-          >
-            <ArrowPathIcon aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
-          </button>
-        </div>
-      </div>
-
       <div className="statistics-overview__content">
         {error ? <div className="stats-error">{error}</div> : null}
 
@@ -487,36 +469,47 @@ export function StatisticsPage() {
             <section className="stats-tabs-panel" aria-label="Statistics filters">
               <div className="stats-tabs-group">
                 <span className="stats-tabs-label">Platform</span>
-                <div className="ui-tabs__list social-platform-tabs stats-tabs-list" role="tablist" aria-label="Social platform statistics">
+                <div className="stats-tabs-row">
+                  <div className="ui-tabs__list social-platform-tabs stats-tabs-list" role="tablist" aria-label="Social platform statistics">
+                    <button
+                      type="button"
+                      className={`ui-tab social-tab ${selectedPlatform === "all" ? "ui-tab--active social-tab--active" : ""}`}
+                      onClick={() => {
+                        setSelectedPlatform("all");
+                        setSelectedAccountKey("all");
+                      }}
+                    >
+                      All platforms
+                      <span className="ui-tab__badge">{statsByAccount.length}</span>
+                    </button>
+                    {platformTabs.map((platform) => {
+                      const count = statsByAccount.filter((item) => item.account.platform === platform).length;
+                      return (
+                        <button
+                          type="button"
+                          className={`ui-tab social-tab ${selectedPlatform === platform ? "ui-tab--active social-tab--active" : ""}`}
+                          key={platform}
+                          onClick={() => {
+                            setSelectedPlatform(platform);
+                            setSelectedAccountKey("all");
+                          }}
+                        >
+                          <PlatformIcon platform={platform} />
+                          {platformLabel(platform)}
+                          <span className="ui-tab__badge">{count}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                   <button
-                    type="button"
-                    className={`ui-tab social-tab ${selectedPlatform === "all" ? "ui-tab--active social-tab--active" : ""}`}
-                    onClick={() => {
-                      setSelectedPlatform("all");
-                      setSelectedAccountKey("all");
-                    }}
+                    className="button-secondary dashboard-icon-button stats-refresh-button"
+                    onClick={() => void load({ silent: true })}
+                    disabled={refreshing}
+                    aria-label="Refresh statistics"
+                    title="Refresh"
                   >
-                    All platforms
-                    <span className="ui-tab__badge">{statsByAccount.length}</span>
+                    <ArrowPathIcon aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
                   </button>
-                  {platformTabs.map((platform) => {
-                    const count = statsByAccount.filter((item) => item.account.platform === platform).length;
-                    return (
-                      <button
-                        type="button"
-                        className={`ui-tab social-tab ${selectedPlatform === platform ? "ui-tab--active social-tab--active" : ""}`}
-                        key={platform}
-                        onClick={() => {
-                          setSelectedPlatform(platform);
-                          setSelectedAccountKey("all");
-                        }}
-                      >
-                        <PlatformIcon platform={platform} />
-                        {platformLabel(platform)}
-                        <span className="ui-tab__badge">{count}</span>
-                      </button>
-                    );
-                  })}
                 </div>
               </div>
 

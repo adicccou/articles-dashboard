@@ -22,7 +22,7 @@
 .statistics-overview__content {
   display: grid;
   gap: 24px;
-  padding: 0;
+  padding: 24px;
 }
 
 .stats-tabs-panel {
@@ -46,6 +46,17 @@
 
 .stats-tabs-list {
   width: fit-content;
+}
+
+.stats-tabs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stats-refresh-button {
+  flex: 0 0 auto;
 }
 
 .stats-platform-icon,
@@ -502,6 +513,14 @@
 
   .stats-post-metrics {
     gap: 10px 14px;
+  }
+
+  .statistics-overview__content {
+    padding: 16px;
+  }
+
+  .stats-tabs-row {
+    align-items: flex-start;
   }
 
   .stats-post-media {
