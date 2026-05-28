@@ -5,12 +5,13 @@ type ShellProps = {
   sidebar: ReactNode;
   children: ReactNode;
   sidebarOpen?: boolean;
+  sidebarCollapsed?: boolean;
   onBackdropClick?: () => void;
 };
 
-export function Shell({ header, sidebar, children, sidebarOpen = false, onBackdropClick }: ShellProps) {
+export function Shell({ header, sidebar, children, sidebarOpen = false, sidebarCollapsed = false, onBackdropClick }: ShellProps) {
   return (
-    <div className={`shell${sidebarOpen ? " shell--sidebar-open" : ""}`}>
+    <div className={`shell${sidebarOpen ? " shell--sidebar-open" : ""}${sidebarCollapsed ? " shell--sidebar-collapsed" : ""}`}>
       <button
         type="button"
         className="shell__backdrop"

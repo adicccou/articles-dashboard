@@ -64,6 +64,10 @@ button:disabled {
   grid-template-columns: 280px minmax(0, 1fr);
 }
 
+.shell--sidebar-collapsed {
+  grid-template-columns: 76px minmax(0, 1fr);
+}
+
 .shell__backdrop {
   @apply fixed inset-0 z-20 block border-0 bg-slate-950/40 p-0 opacity-0 pointer-events-none transition-opacity;
 }
@@ -109,7 +113,8 @@ button:disabled {
 }
 
 .shell-sidebar-nav {
-  @apply grid gap-6 p-5;
+  @apply grid h-full gap-6 p-5;
+  grid-template-rows: auto 1fr auto;
 }
 
 .shell-sidebar-nav__brand {
@@ -129,8 +134,54 @@ button:disabled {
   border-radius: 10px;
 }
 
+.shell-sidebar-nav__icon {
+  @apply h-5 w-5 shrink-0;
+}
+
+.shell-sidebar-nav__label {
+  @apply min-w-0 truncate;
+}
+
 .shell-sidebar-nav__item--active {
   @apply bg-slate-100 text-slate-950;
+}
+
+.shell-sidebar-nav__collapse {
+  @apply w-full justify-start border-transparent bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600 shadow-none hover:bg-slate-100 hover:text-slate-950;
+  border-radius: 10px;
+}
+
+.shell-sidebar-nav__collapse svg {
+  @apply h-5 w-5 shrink-0;
+}
+
+.shell-sidebar-nav__collapse-label {
+  @apply truncate;
+}
+
+.shell--sidebar-collapsed .shell-sidebar-nav {
+  @apply gap-4 px-3 py-5;
+}
+
+.shell--sidebar-collapsed .shell-sidebar-nav__brand {
+  @apply justify-center;
+}
+
+.shell--sidebar-collapsed .shell-sidebar-nav__logo {
+  width: 34px;
+  max-width: 34px;
+  object-fit: cover;
+  object-position: left center;
+}
+
+.shell--sidebar-collapsed .shell-sidebar-nav__item,
+.shell--sidebar-collapsed .shell-sidebar-nav__collapse {
+  @apply justify-center px-0;
+}
+
+.shell--sidebar-collapsed .shell-sidebar-nav__label,
+.shell--sidebar-collapsed .shell-sidebar-nav__collapse-label {
+  @apply hidden;
 }
 
 button:focus-visible,
@@ -1153,6 +1204,34 @@ button.button-secondary:disabled {
 
   .shell-header-shell__actions {
     @apply gap-1;
+  }
+
+  .shell--sidebar-collapsed .shell-sidebar-nav {
+    @apply gap-6 p-5;
+  }
+
+  .shell--sidebar-collapsed .shell-sidebar-nav__brand {
+    @apply justify-start;
+  }
+
+  .shell--sidebar-collapsed .shell-sidebar-nav__logo {
+    width: auto;
+    max-width: none;
+    object-fit: contain;
+  }
+
+  .shell--sidebar-collapsed .shell-sidebar-nav__item,
+  .shell--sidebar-collapsed .shell-sidebar-nav__collapse {
+    @apply justify-start px-3;
+  }
+
+  .shell--sidebar-collapsed .shell-sidebar-nav__label,
+  .shell--sidebar-collapsed .shell-sidebar-nav__collapse-label {
+    @apply inline;
+  }
+
+  .shell-sidebar-nav__collapse {
+    @apply hidden;
   }
 }
 

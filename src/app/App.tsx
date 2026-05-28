@@ -91,6 +91,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [appSettings, setAppSettings] = useState<AppSettings>({
     ai_api_connected: false,
     gemini_api_connected: false,
@@ -222,6 +223,7 @@ export function App() {
     <div className="app-layout">
       <Shell
         sidebarOpen={sidebarOpen}
+        sidebarCollapsed={sidebarCollapsed}
         onBackdropClick={() => setSidebarOpen(false)}
         header={
           <div className="shell-header-shell">
@@ -266,7 +268,15 @@ export function App() {
             </div>
           </div>
         }
-        sidebar={<TopNav currentView={view} surface={surface} onNavigate={(nextView) => setView(nextView)} />}
+        sidebar={
+          <TopNav
+            currentView={view}
+            surface={surface}
+            collapsed={sidebarCollapsed}
+            onNavigate={(nextView) => setView(nextView)}
+            onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
+          />
+        }
       >
         {error ? <p className="error panel">{error}</p> : null}
         <DashboardPage
