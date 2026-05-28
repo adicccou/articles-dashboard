@@ -1201,6 +1201,50 @@ export function PlannerPage() {
     );
   }
 
+  function renderPlannerListMediaPreview(item: PlannerItem) {
+    const mediaUrls = getPostImageUrls(item.image_url);
+    if (mediaUrls.length === 0) return null;
+
+    const previewUrls = mediaUrls.slice(0, 4);
+    const extraCount = mediaUrls.length - previewUrls.length;
+
+    return (
+      <button
+        className={`scheduler-list-media${previewUrls.length > 1 ? " scheduler-list-media--grid" : ""}`}
+        type="button"
+        onClick={() => openEditModal(item)}
+        aria-label={`Open media for ${displayPlannerTitle(item)}`}
+        title="Open media"
+      >
+        {previewUrls.map((url, index) => {
+          const normalizedUrl = normalizeDashboardMediaUrl(url);
+          const isVideo = isVideoMediaUrl(url);
+          return (
+            <span className="scheduler-list-media__item" key={`${url}-${index}`}>
+              {isVideo ? (
+                <>
+                  <video className="scheduler-list-media__asset" src={normalizedUrl} muted playsInline preload="metadata" />
+                  <span className="scheduler-list-media__type">Video</span>
+                </>
+              ) : (
+                <img
+                  className="scheduler-list-media__asset"
+                  src={normalizedUrl}
+                  alt=""
+                  loading="lazy"
+                  draggable={false}
+                />
+              )}
+            </span>
+          );
+        })}
+        {extraCount > 0 ? (
+          <span className="scheduler-list-media__count">+{extraCount}</span>
+        ) : null}
+      </button>
+    );
+  }
+
   function collectPlannerTargets(defaultScheduledFor: string | null, scheduledForByTarget?: Map<string, string>): PlannerPostTarget[] | null {
     const platforms = form.id
       ? uniquePlannerPlatforms([form.platform])
@@ -1598,16 +1642,19 @@ export function PlannerPage() {
                 const microNote = plannerItemMicroNote(item);
                 return (
                   <div className="scheduler-list__row" key={item.id}>
-                    <span>
-                      <button className="scheduler-title-button" onClick={() => openEditModal(item)}>
-                        {displayPlannerTitle(item)}
-                      </button>
-                      {microNote ? (
-                        <small className={`scheduler-item-micro-note scheduler-item-micro-note--${microNote.tone}`}>
-                          {microNote.label}
-                        </small>
-                      ) : null}
-                      {item.description ? <small>{item.description}</small> : null}
+                    <span className="scheduler-list__title-cell">
+                      {renderPlannerListMediaPreview(item)}
+                      <span className="scheduler-list__title-copy">
+                        <button className="scheduler-title-button" onClick={() => openEditModal(item)}>
+                          {displayPlannerTitle(item)}
+                        </button>
+                        {microNote ? (
+                          <small className={`scheduler-item-micro-note scheduler-item-micro-note--${microNote.tone}`}>
+                            {microNote.label}
+                          </small>
+                        ) : null}
+                        {item.description ? <small>{item.description}</small> : null}
+                      </span>
                     </span>
                     <span>
                       <span className={`scheduler-pill scheduler-pill--${item.item_type}`}>

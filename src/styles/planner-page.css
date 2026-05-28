@@ -232,10 +232,96 @@
   background: rgba(241, 245, 249, 0.6);
 }
 
+.scheduler-list__title-cell {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+}
+
+.scheduler-list__title-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.scheduler-list__title-copy small {
+  margin-top: 0;
+}
+
+.scheduler-list-media {
+  --scheduler-list-media-height: 56px;
+  --scheduler-list-media-width: 76px;
+  align-items: stretch;
+  background: #f8fafc;
+  border: 1px solid #dbe5f1;
+  border-radius: 8px;
+  cursor: pointer;
+  display: grid;
+  flex: 0 0 var(--scheduler-list-media-width);
+  height: var(--scheduler-list-media-height);
+  justify-content: stretch;
+  overflow: hidden;
+  padding: 0;
+  position: relative;
+  width: var(--scheduler-list-media-width);
+}
+
+.scheduler-list-media:hover {
+  border-color: #bfdbfe;
+}
+
+.scheduler-list-media--grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+
+.scheduler-list-media__item {
+  display: block;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.scheduler-list-media__asset {
+  background: #e2e8f0;
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.scheduler-list-media__type,
+.scheduler-list-media__count {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.82);
+  border-radius: 999px;
+  color: #ffffff;
+  display: inline-flex;
+  font-size: 0.58rem;
+  font-weight: 800;
+  justify-content: center;
+  line-height: 1;
+  padding: 3px 5px;
+  position: absolute;
+}
+
+.scheduler-list-media__type {
+  bottom: 4px;
+  left: 4px;
+}
+
+.scheduler-list-media__count {
+  bottom: 4px;
+  right: 4px;
+}
+
 .scheduler-title-button {
   background: transparent;
   color: #0f172a;
   border: 0;
+  min-width: 0;
   padding: 0;
   text-align: left;
   font-weight: 700;
