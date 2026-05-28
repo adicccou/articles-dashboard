@@ -187,6 +187,10 @@ button:disabled {
   @apply bg-slate-100 text-slate-950;
 }
 
+.shell-sidebar-nav__item--active .shell-sidebar-nav__icon {
+  @apply text-slate-950;
+}
+
 .shell-sidebar-nav__collapse {
   @apply h-11 w-full justify-start border-transparent bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600 shadow-none hover:bg-slate-100 hover:text-slate-950;
   border-radius: 10px;
@@ -461,8 +465,13 @@ button.button-secondary:disabled {
 }
 
 .ui-tabs__list.ui-tabs__list {
-  @apply inline-flex max-w-full items-center gap-0 overflow-x-auto border border-slate-200 bg-white px-4;
-  border-radius: 14px 14px 0 0;
+  @apply flex w-full min-w-0 max-w-full items-center gap-0 overflow-x-auto border-0 border-b border-slate-200 bg-transparent px-0;
+  flex: 1 1 var(--ui-tabs-flex-basis, 100%);
+  margin-inline: var(--ui-tabs-margin-inline, 0);
+  max-width: var(--ui-tabs-max-width, 100%);
+  padding-inline: var(--ui-tabs-padding-inline, 0);
+  width: var(--ui-tabs-width, 100%);
+  border-radius: 0;
   scrollbar-width: thin;
 }
 

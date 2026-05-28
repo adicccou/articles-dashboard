@@ -10,6 +10,7 @@ import { RedditAgentPage } from "./RedditAgentPage";
 import { TwitterAgentPage } from "./TwitterAgentPage";
 import { ThreadsAgentPage } from "./ThreadsAgentPage";
 import type { SocialAgentToolbarHandle } from "../components/SocialPublisherWorkspace";
+import { SectionTabs } from "../components/SectionTabs";
 import "../styles/social-agents-page.css";
 
 type Platform = "reddit" | "twitter" | "threads" | "linkedin";
@@ -64,21 +65,24 @@ export function SocialAgentsPage() {
   return (
     <div className="social-agents-page">
       <div className="social-platform-bar">
-        <div className="ui-tabs__list social-platform-tabs">
-          {PLATFORMS.map((p) => (
-            <button
-              key={p.id}
-              className={`ui-tab social-tab ${platform === p.id ? "ui-tab--active social-tab--active" : ""} ${!p.available ? "ui-tab--disabled social-tab--disabled" : ""}`}
-              onClick={() => p.available && setPlatform(p.id)}
-              disabled={!p.available}
-              title={!p.available ? "Coming soon" : undefined}
-            >
-              <p.Icon className={`social-tab__icon social-tab__icon--${p.id}`} aria-hidden="true" />
-              {p.label}
-              {!p.available && <span className="ui-tab__badge social-tab__badge">soon</span>}
-            </button>
-          ))}
-        </div>
+        <SectionTabs
+          activeId={platform}
+          ariaLabel="Social platform sections"
+          className="social-platform-tabs"
+          tabClassName="social-tab"
+          activeTabClassName="social-tab--active"
+          disabledTabClassName="social-tab--disabled"
+          badgeClassName="social-tab__badge"
+          onChange={setPlatform}
+          items={PLATFORMS.map((p) => ({
+            id: p.id,
+            label: p.label,
+            leading: <p.Icon className={`social-tab__icon social-tab__icon--${p.id}`} aria-hidden="true" />,
+            badge: p.available ? undefined : "soon",
+            disabled: !p.available,
+            title: p.available ? undefined : "Coming soon",
+          }))}
+        />
 
         {activeToolbarRef ? (
           <div className="social-platform-actions">

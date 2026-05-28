@@ -11,6 +11,16 @@ import {
   NewspaperIcon,
   SparklesIcon,
 } from "@heroicons/react/24/outline";
+import {
+  CalendarDaysIcon as CalendarDaysSolidIcon,
+  ChartBarIcon as ChartBarSolidIcon,
+  ChatBubbleLeftRightIcon as ChatBubbleLeftRightSolidIcon,
+  Cog6ToothIcon as Cog6ToothSolidIcon,
+  CurrencyDollarIcon as CurrencyDollarSolidIcon,
+  GlobeAltIcon as GlobeAltSolidIcon,
+  NewspaperIcon as NewspaperSolidIcon,
+  SparklesIcon as SparklesSolidIcon,
+} from "@heroicons/react/24/solid";
 import logoMark from "../assets/my-logo.svg";
 import type { DashboardSurface } from "../lib/surface";
 import { getSurfaceViews } from "../lib/surface";
@@ -47,15 +57,17 @@ export function getNavLabel(view: NavView) {
   return NAV_ITEMS.find((item) => item.view === view)?.label ?? "Dashboard";
 }
 
-const navIcons: Record<NavView, typeof SparklesIcon> = {
-  articles: NewspaperIcon,
-  reddit: GlobeAltIcon,
-  replies: ChatBubbleLeftRightIcon,
-  studio: SparklesIcon,
-  config: Cog6ToothIcon,
-  trading: CurrencyDollarIcon,
-  planner: CalendarDaysIcon,
-  statistics: ChartBarIcon,
+type NavIcon = typeof SparklesIcon;
+
+const navIcons: Record<NavView, { Icon: NavIcon; ActiveIcon: NavIcon }> = {
+  articles: { Icon: NewspaperIcon, ActiveIcon: NewspaperSolidIcon },
+  reddit: { Icon: GlobeAltIcon, ActiveIcon: GlobeAltSolidIcon },
+  replies: { Icon: ChatBubbleLeftRightIcon, ActiveIcon: ChatBubbleLeftRightSolidIcon },
+  studio: { Icon: SparklesIcon, ActiveIcon: SparklesSolidIcon },
+  config: { Icon: Cog6ToothIcon, ActiveIcon: Cog6ToothSolidIcon },
+  trading: { Icon: CurrencyDollarIcon, ActiveIcon: CurrencyDollarSolidIcon },
+  planner: { Icon: CalendarDaysIcon, ActiveIcon: CalendarDaysSolidIcon },
+  statistics: { Icon: ChartBarIcon, ActiveIcon: ChartBarSolidIcon },
 };
 
 export const TopNav: React.FC<TopNavProps> = ({
@@ -87,21 +99,22 @@ export const TopNav: React.FC<TopNavProps> = ({
 
       <div className="shell-sidebar-nav__items">
         {navItems.map(({ label, view }) => {
-          const Icon = navIcons[view];
+          const isActive = currentView === view;
+          const Icon = isActive ? navIcons[view].ActiveIcon : navIcons[view].Icon;
           return (
             <button
               key={view}
               className={[
                 "shell-sidebar-nav__item",
-                currentView === view ? "shell-sidebar-nav__item--active" : "",
+                isActive ? "shell-sidebar-nav__item--active" : "",
               ].join(" ")}
               onClick={() => onNavigate(view)}
               ref={(node) => {
-                if (currentView === view) {
+                if (isActive) {
                   activeNavRef.current = node;
                 }
               }}
-              aria-current={currentView === view ? "page" : undefined}
+              aria-current={isActive ? "page" : undefined}
               aria-label={label}
               title={collapsed ? label : undefined}
             >

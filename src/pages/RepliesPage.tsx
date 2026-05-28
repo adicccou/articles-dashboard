@@ -5,6 +5,7 @@ import { FaFacebookF, FaLinkedinIn } from "react-icons/fa6";
 import { SiInstagram, SiReddit, SiThreads, SiX, SiYoutube } from "react-icons/si";
 import { api } from "../lib/api";
 import { ModalCloseButton } from "../components/ModalCloseButton";
+import { SectionTabs } from "../components/SectionTabs";
 import type { RedditAccount, SocialAccount, SocialComment } from "../lib/types";
 import { formatDisplayDateTime } from "../lib/datetime";
 import { getDisplayPostImageUrls, isVideoMediaUrl } from "../lib/socialPostMedia";
@@ -609,20 +610,21 @@ export function RepliesPage() {
       <section className="panel replies-panel replies-overview">
         {visiblePlatforms.length > 0 ? (
           <div className="social-platform-bar replies-toolbar replies-overview__bar">
-            <div className="ui-tabs__list social-platform-tabs">
-              {visiblePlatforms.map((item) => (
-                <button
-                  key={item.id}
-                  className={`ui-tab social-tab ${platform === item.id ? "ui-tab--active social-tab--active" : ""}`}
-                  onClick={() => setPlatform(item.id)}
-                  type="button"
-                >
-                  <item.Icon className={`social-tab__icon social-tab__icon--${item.id}`} aria-hidden="true" />
-                  {item.label}
-                  <span className="ui-tab__badge replies-tab__badge">{isCommentPlatform(item.id) ? commentsByPlatform[item.id].length : 0}</span>
-                </button>
-              ))}
-            </div>
+            <SectionTabs
+              activeId={platform}
+              ariaLabel="Reply platforms"
+              className="social-platform-tabs"
+              tabClassName="social-tab"
+              activeTabClassName="social-tab--active"
+              badgeClassName="replies-tab__badge"
+              onChange={setPlatform}
+              items={visiblePlatforms.map((item) => ({
+                id: item.id,
+                label: item.label,
+                leading: <item.Icon className={`social-tab__icon social-tab__icon--${item.id}`} aria-hidden="true" />,
+                badge: isCommentPlatform(item.id) ? commentsByPlatform[item.id].length : 0,
+              }))}
+            />
 
             <div className="social-platform-actions">
               <label className="replies-account-select">

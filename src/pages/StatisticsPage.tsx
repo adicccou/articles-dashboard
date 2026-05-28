@@ -17,6 +17,7 @@ import { formatDisplayDateTime } from "../lib/datetime";
 import { normalizeDashboardMediaUrl } from "../lib/mediaUrl";
 import { getDisplayPostImageUrls, isVideoMediaUrl } from "../lib/socialPostMedia";
 import { ModalCloseButton } from "../components/ModalCloseButton";
+import { SectionTabs } from "../components/SectionTabs";
 import "../styles/statistics-page.css";
 
 type Platform = SocialPost["platform"];
@@ -470,37 +471,26 @@ export function StatisticsPage() {
               <div className="stats-tabs-group">
                 <span className="stats-tabs-label">Platform</span>
                 <div className="stats-tabs-row">
-                  <div className="ui-tabs__list social-platform-tabs stats-tabs-list" role="tablist" aria-label="Social platform statistics">
-                    <button
-                      type="button"
-                      className={`ui-tab social-tab ${selectedPlatform === "all" ? "ui-tab--active social-tab--active" : ""}`}
-                      onClick={() => {
-                        setSelectedPlatform("all");
-                        setSelectedAccountKey("all");
-                      }}
-                    >
-                      All platforms
-                      <span className="ui-tab__badge">{statsByAccount.length}</span>
-                    </button>
-                    {platformTabs.map((platform) => {
-                      const count = statsByAccount.filter((item) => item.account.platform === platform).length;
-                      return (
-                        <button
-                          type="button"
-                          className={`ui-tab social-tab ${selectedPlatform === platform ? "ui-tab--active social-tab--active" : ""}`}
-                          key={platform}
-                          onClick={() => {
-                            setSelectedPlatform(platform);
-                            setSelectedAccountKey("all");
-                          }}
-                        >
-                          <PlatformIcon platform={platform} />
-                          {platformLabel(platform)}
-                          <span className="ui-tab__badge">{count}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <SectionTabs<PlatformSelection>
+                    activeId={selectedPlatform}
+                    ariaLabel="Social platform statistics"
+                    className="social-platform-tabs stats-tabs-list"
+                    tabClassName="social-tab"
+                    activeTabClassName="social-tab--active"
+                    onChange={(nextPlatform) => {
+                      setSelectedPlatform(nextPlatform);
+                      setSelectedAccountKey("all");
+                    }}
+                    items={[
+                      { id: "all", label: "All platforms", badge: statsByAccount.length },
+                      ...platformTabs.map((platform) => ({
+                        id: platform,
+                        label: platformLabel(platform),
+                        leading: <PlatformIcon platform={platform} />,
+                        badge: statsByAccount.filter((item) => item.account.platform === platform).length,
+                      })),
+                    ]}
+                  />
                   <button
                     className="button-secondary dashboard-icon-button stats-refresh-button"
                     onClick={() => void load({ silent: true })}
@@ -516,29 +506,28 @@ export function StatisticsPage() {
               {selectedPlatform !== "all" ? (
                 <div className="stats-tabs-group">
                   <span className="stats-tabs-label">Account</span>
-                  <div className="ui-tabs__list social-platform-tabs stats-tabs-list" role="tablist" aria-label="Social account statistics">
-                    <button
-                      type="button"
-                      className={`ui-tab social-tab ${selectedAccountKey === "all" ? "ui-tab--active social-tab--active" : ""}`}
-                      onClick={() => setSelectedAccountKey("all")}
-                    >
-                      <PlatformIcon platform={selectedPlatform} />
-                      All {platformLabel(selectedPlatform)} accounts
-                      <span className="ui-tab__badge">{platformStats.length}</span>
-                    </button>
-                    {platformStats.map((item) => (
-                      <button
-                        type="button"
-                        className={`ui-tab social-tab ${selectedAccountKey === accountKey(item.account) ? "ui-tab--active social-tab--active" : ""}`}
-                        key={accountKey(item.account)}
-                        onClick={() => setSelectedAccountKey(accountKey(item.account))}
-                      >
-                        <PlatformIcon platform={item.account.platform} />
-                        {item.account.username ? `@${item.account.username}` : `Account ${item.account.id}`}
-                        <span className="ui-tab__badge">{item.totalPosts}</span>
-                      </button>
-                    ))}
-                  </div>
+                  <SectionTabs
+                    activeId={selectedAccountKey}
+                    ariaLabel="Social account statistics"
+                    className="social-platform-tabs stats-tabs-list"
+                    tabClassName="social-tab"
+                    activeTabClassName="social-tab--active"
+                    onChange={setSelectedAccountKey}
+                    items={[
+                      {
+                        id: "all",
+                        label: `All ${platformLabel(selectedPlatform)} accounts`,
+                        leading: <PlatformIcon platform={selectedPlatform} />,
+                        badge: platformStats.length,
+                      },
+                      ...platformStats.map((item) => ({
+                        id: accountKey(item.account),
+                        label: item.account.username ? `@${item.account.username}` : `Account ${item.account.id}`,
+                        leading: <PlatformIcon platform={item.account.platform} />,
+                        badge: item.totalPosts,
+                      })),
+                    ]}
+                  />
                 </div>
               ) : null}
             </section>
@@ -630,24 +619,18 @@ export function StatisticsPage() {
                   <p>{selectedPostStatus === "posted" ? "Published posts with per-post engagement metrics" : "Scheduled posts waiting to publish"} for {selectedScopeLabel}.</p>
                 </div>
               </div>
-              <div className="ui-tabs__list social-platform-tabs stats-tabs-list" role="tablist" aria-label="Post status statistics">
-                <button
-                  type="button"
-                  className={`ui-tab social-tab ${selectedPostStatus === "posted" ? "ui-tab--active social-tab--active" : ""}`}
-                  onClick={() => setSelectedPostStatus("posted")}
-                >
-                  Published
-                  <span className="ui-tab__badge">{postStatusCounts.posted}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`ui-tab social-tab ${selectedPostStatus === "scheduled" ? "ui-tab--active social-tab--active" : ""}`}
-                  onClick={() => setSelectedPostStatus("scheduled")}
-                >
-                  Scheduled
-                  <span className="ui-tab__badge">{postStatusCounts.scheduled}</span>
-                </button>
-              </div>
+              <SectionTabs
+                activeId={selectedPostStatus}
+                ariaLabel="Post status statistics"
+                className="social-platform-tabs stats-tabs-list"
+                tabClassName="social-tab"
+                activeTabClassName="social-tab--active"
+                onChange={setSelectedPostStatus}
+                items={[
+                  { id: "posted", label: "Published", badge: postStatusCounts.posted },
+                  { id: "scheduled", label: "Scheduled", badge: postStatusCounts.scheduled },
+                ]}
+              />
               {recentPosts.length === 0 ? (
                 <p className="stats-empty">No {selectedPostStatus === "posted" ? "published" : "scheduled"} posts yet.</p>
               ) : (

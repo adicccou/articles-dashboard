@@ -5,6 +5,7 @@
 .trading-hub__topbar {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
   gap: 16px;
   justify-content: space-between;
 }

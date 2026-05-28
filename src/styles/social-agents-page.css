@@ -21,17 +21,7 @@
 
 /* Platform tab bar */
 .social-platform-tabs {
-  display: flex;
-  flex: 1 1 100%;
-  flex-wrap: wrap;
-  gap: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 14px 14px 0 0;
-  min-width: 0;
-  padding: 0 16px;
-  max-width: 100%;
-  width: 100%;
+  flex: 1 1 auto;
 }
 
 .social-platform-actions {
@@ -123,8 +113,8 @@
 }
 
 .social-tab--active .social-tab__badge {
-  background: rgba(255, 255, 255, 0.18);
-  color: rgba(255, 255, 255, 0.8);
+  background: #f1f5f9;
+  color: #334155;
 }
 
 /* Tab content */
@@ -306,19 +296,15 @@
   background: #f59e0b;
 }
 
-.social-panel-shell {
+.panel.social-panel-shell {
   display: grid;
-  gap: 18px;
+  gap: 16px;
   min-width: 0;
+  padding: 0 0 16px;
 }
 
-.social-panel-tabs {
-  border: 1px solid var(--border);
-  border-radius: 14px 14px 0 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0;
-  padding: 0 16px;
+.social-panel-shell .social-panel-tabs {
+  --ui-tabs-padding-inline: 0;
   min-width: 0;
 }
 
@@ -351,6 +337,7 @@
 .social-panel-section {
   display: grid;
   gap: 16px;
+  padding: 16px;
 }
 
 .social-composer {

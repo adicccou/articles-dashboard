@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { Bars3Icon, ExclamationTriangleIcon, PencilSquareIcon, TrashIcon } from "@heroicons/react/24/solid";
+import { Bars3Icon, ChevronLeftIcon, ChevronRightIcon, ExclamationTriangleIcon, PencilSquareIcon, TrashIcon } from "@heroicons/react/24/solid";
 import type { IconType } from "react-icons";
 import { FaFacebookF, FaLinkedinIn } from "react-icons/fa6";
 import { SiInstagram, SiReddit, SiThreads, SiX, SiYoutube } from "react-icons/si";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collections";
 import { ModalCloseButton } from "../components/ModalCloseButton";
+import { SectionTabs } from "../components/SectionTabs";
 import { formatDisplayDateTime, formatDisplayTime, formatMonthDay, formatMonthYear, formatWeekRange, formatWeekdayShort } from "../lib/datetime";
 import { normalizeDashboardMediaUrl } from "../lib/mediaUrl";
 import { getPostImageUrls, isVideoMediaUrl, serializePostMediaUrls } from "../lib/socialPostMedia";
@@ -1533,29 +1534,19 @@ export function PlannerPage() {
       <section className="panel scheduler-overview">
         <div className="scheduler-hero scheduler-hero--minimal scheduler-overview__bar">
           <div className="scheduler-hero__content">
-            <div className="ui-tabs__list scheduler-tabs scheduler-tabs--header">
-              <button
-                className={view === "calendar" ? "ui-tab scheduler-tab ui-tab--active scheduler-tab--active" : "ui-tab scheduler-tab"}
-                onClick={() => selectView("calendar")}
-                type="button"
-              >
-                Calendar
-              </button>
-              <button
-                className={view === "week" ? "ui-tab scheduler-tab ui-tab--active scheduler-tab--active" : "ui-tab scheduler-tab"}
-                onClick={() => selectView("week")}
-                type="button"
-              >
-                Week
-              </button>
-              <button
-                className={view === "list" ? "ui-tab scheduler-tab ui-tab--active scheduler-tab--active" : "ui-tab scheduler-tab"}
-                onClick={() => selectView("list")}
-                type="button"
-              >
-                List
-              </button>
-            </div>
+            <SectionTabs
+              activeId={view}
+              ariaLabel="Planner views"
+              className="scheduler-tabs scheduler-tabs--header"
+              tabClassName="scheduler-tab"
+              activeTabClassName="scheduler-tab--active"
+              onChange={selectView}
+              items={[
+                { id: "calendar", label: "Calendar" },
+                { id: "week", label: "Week" },
+                { id: "list", label: "List" },
+              ]}
+            />
             <div className="scheduler-hero__search">
               <input
                 aria-label="Search schedules"
@@ -1564,9 +1555,9 @@ export function PlannerPage() {
                 placeholder="Search schedules"
               />
             </div>
-          </div>
-          <div className="scheduler-hero__actions">
-            <button onClick={() => openCreateModal()}>New</button>
+            <div className="scheduler-hero__actions">
+              <button onClick={() => openCreateModal()}>New</button>
+            </div>
           </div>
         </div>
 
@@ -1647,10 +1638,12 @@ export function PlannerPage() {
             </div>
             <div className="scheduler-calendar__nav">
               <button
-                className="button-secondary"
+                className="button-secondary dashboard-icon-button"
                 onClick={() => setCalendarDate((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))}
+                aria-label="Previous month"
+                title="Previous month"
               >
-                Prev
+                <ChevronLeftIcon aria-hidden="true" />
               </button>
               <button
                 className="button-secondary"
@@ -1659,10 +1652,12 @@ export function PlannerPage() {
                 Today
               </button>
               <button
-                className="button-secondary"
+                className="button-secondary dashboard-icon-button"
                 onClick={() => setCalendarDate((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))}
+                aria-label="Next month"
+                title="Next month"
               >
-                Next
+                <ChevronRightIcon aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -1734,10 +1729,12 @@ export function PlannerPage() {
             </div>
             <div className="scheduler-calendar__nav">
               <button
-                className="button-secondary"
+                className="button-secondary dashboard-icon-button"
                 onClick={() => setCalendarDate((current) => new Date(current.getFullYear(), current.getMonth(), current.getDate() - 7))}
+                aria-label="Previous week"
+                title="Previous week"
               >
-                Prev Week
+                <ChevronLeftIcon aria-hidden="true" />
               </button>
               <button
                 className="button-secondary"
@@ -1746,10 +1743,12 @@ export function PlannerPage() {
                 Today
               </button>
               <button
-                className="button-secondary"
+                className="button-secondary dashboard-icon-button"
                 onClick={() => setCalendarDate((current) => new Date(current.getFullYear(), current.getMonth(), current.getDate() + 7))}
+                aria-label="Next week"
+                title="Next week"
               >
-                Next Week
+                <ChevronRightIcon aria-hidden="true" />
               </button>
             </div>
           </div>

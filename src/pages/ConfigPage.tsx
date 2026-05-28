@@ -5,6 +5,7 @@ import { FaFacebookF, FaLinkedinIn } from "react-icons/fa6";
 import { SiInstagram, SiReddit, SiThreads, SiX, SiYoutube } from "react-icons/si";
 import { ModalCloseButton } from "../components/ModalCloseButton";
 import { APIConnectionPanel, type SettingsTabId } from "../components/APIConnectionPanel";
+import { SectionTabs } from "../components/SectionTabs";
 import type { RedditAccount, Site, SocialAccount, SocialAccountInput, StudioApp, AppSettings, AppSettingsInput } from "../lib/types";
 import type { DashboardSurface } from "../lib/surface";
 import { api } from "../lib/api";
@@ -1168,19 +1169,15 @@ export function ConfigPage({ surface, settings, syncMessage, onSaveSettings, onS
 
       <section className="panel config-overview">
         <div className="ui-tabs config-tabs config-overview__tabs">
-          <div className="ui-tabs__list config-tabs__list">
-            {configTabs.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={`ui-tab config-tab ${tab === item.id ? "ui-tab--active config-tab--active" : ""}`}
-                onClick={() => setTab(item.id)}
-              >
-                {item.label}
-                {item.badge ? <span className="ui-tab__badge">{item.badge}</span> : null}
-              </button>
-            ))}
-          </div>
+          <SectionTabs
+            activeId={tab}
+            ariaLabel="Config sections"
+            className="config-tabs__list"
+            tabClassName="config-tab"
+            activeTabClassName="config-tab--active"
+            onChange={setTab}
+            items={configTabs}
+          />
           <div className="ui-tabs__actions config-tabs__actions">
             <button
               className="button-secondary dashboard-icon-button"

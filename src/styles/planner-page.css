@@ -52,8 +52,8 @@
 .scheduler-hero--minimal {
   background: #ffffff;
   color: #1f2937;
-  border-bottom: 1px solid #e5e7eb;
-  padding: 16px 0 !important;
+  border-bottom: 0;
+  padding: 0 !important;
   align-items: center;
 }
 
@@ -64,9 +64,11 @@
 
 .scheduler-hero--minimal .scheduler-hero__content {
   flex: 1;
+  flex-wrap: wrap;
+  gap: 16px;
 }
 
-.scheduler-overview {
+.panel.scheduler-overview {
   overflow: hidden;
   padding: 0;
 }
@@ -78,11 +80,11 @@
 .scheduler-view-panel {
   display: grid;
   gap: 0;
-  padding: 0;
+  padding: 16px;
 }
 
 .scheduler-view-panel > .panel__title-row {
-  padding: 20px 0 16px;
+  padding: 0 0 16px;
 }
 
 .scheduler-tabs {
@@ -92,8 +94,12 @@
 }
 
 .scheduler-tabs--header {
+  flex: 1 1 100%;
   margin-right: 0;
-  flex-shrink: 0;
+}
+
+.scheduler-overview .scheduler-tabs--header {
+  --ui-tabs-padding-inline: 0;
 }
 
 .scheduler-tab {
@@ -111,8 +117,16 @@
 
 .scheduler-hero__search {
   flex: 1;
+  margin-left: 16px;
+  margin-top: 16px;
   min-width: 220px;
   max-width: 420px;
+}
+
+.scheduler-hero--minimal .scheduler-hero__actions {
+  margin-left: auto;
+  margin-right: 16px;
+  margin-top: 16px;
 }
 
 .scheduler-hero__search input {
@@ -128,7 +142,7 @@
   color: var(--text-soft);
   font-size: 0.9rem;
   margin: 0;
-  padding: 12px 0 0;
+  padding: 16px 16px 0;
 }
 
 .scheduler-list {
@@ -279,6 +293,12 @@
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 0;
   min-width: 980px;
+}
+
+.scheduler-calendar > .scheduler-calendar__grid,
+.scheduler-week > .scheduler-week__timetable {
+  margin-inline: -16px;
+  width: calc(100% + 32px);
 }
 
 .scheduler-calendar__grid--header {

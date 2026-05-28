@@ -5,17 +5,18 @@
 
 .social-platform-bar.replies-toolbar {
   align-items: center;
-  padding-left: 0;
-  padding-right: 0;
+  padding: 0 0 16px;
 }
 
 .replies-toolbar .social-platform-tabs {
-  flex: 0 1 auto;
-  width: fit-content;
+  --ui-tabs-padding-inline: 0;
+  flex: 1 1 100%;
+  width: 100%;
 }
 
 .replies-toolbar .social-platform-actions {
   margin-left: auto;
+  padding-inline: 16px;
 }
 
 .replies-account-select {
@@ -53,7 +54,7 @@
   gap: 18px;
 }
 
-.replies-overview {
+.panel.replies-overview {
   gap: 0;
   overflow: hidden;
   padding: 0;
@@ -66,11 +67,11 @@
 .replies-overview__content {
   display: grid;
   gap: 0;
-  padding: 0;
+  padding: 16px;
 }
 
 .replies-overview__content > .panel__title-row {
-  padding: 20px 0 16px;
+  padding: 0 0 16px;
 }
 
 .replies-panel__header {

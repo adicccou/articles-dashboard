@@ -6,9 +6,9 @@
   align-items: center;
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 16px;
   justify-content: space-between;
-  padding: 16px 0;
+  padding: 0 0 16px;
 }
 
 .config-tabs__list,
@@ -19,7 +19,18 @@
   gap: 0;
 }
 
-.config-overview {
+.config-tabs .config-tabs__list {
+  --ui-tabs-padding-inline: 0;
+  flex: 1 1 100%;
+  width: 100%;
+}
+
+.config-tabs .config-tabs__actions {
+  margin-left: auto;
+  padding-inline: 16px;
+}
+
+.panel.config-overview {
   display: grid;
   gap: 0;
   overflow: hidden;
@@ -36,12 +47,12 @@
   border: 0;
   border-radius: 0;
   box-shadow: none;
-  padding: 0;
+  padding: 16px;
   gap: 0;
 }
 
 .config-overview__content > .panel__title-row {
-  padding: 20px 20px 16px;
+  padding: 0 0 16px;
 }
 
 .config-overview .config-list {

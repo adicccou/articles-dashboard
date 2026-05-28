@@ -82,7 +82,7 @@
   padding: 16px 0;
 }
 
-.studio-overview {
+.panel.studio-overview {
   overflow: hidden;
   padding: 0;
 }
@@ -95,25 +95,28 @@
 .studio-overview__campaigns {
   display: grid;
   gap: 0;
-  padding: 0;
+  padding: 16px;
 }
 
 .studio-crawler-tabs {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 16px;
   justify-content: flex-start;
   padding: 0 0 16px;
 }
 
-.studio-crawler-tabs__list {
-  flex: 0 0 auto;
-  width: auto;
+.studio-crawler-tabs .studio-crawler-tabs__list {
+  --ui-tabs-padding-inline: 0;
+  flex: 1 1 100%;
+  width: 100%;
 }
 
 .studio-crawler-tabs .studio-tabs__actions {
   flex: 0 0 auto;
+  margin-left: auto;
+  padding-inline: 16px;
 }
 
 .studio-tabs__heading {

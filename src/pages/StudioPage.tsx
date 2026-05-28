@@ -7,6 +7,7 @@ import {
   XMarkIcon,
 } from "@heroicons/react/24/solid";
 import { ModalCloseButton } from "../components/ModalCloseButton";
+import { SectionTabs } from "../components/SectionTabs";
 import { api } from "../lib/api";
 import type { StudioAccount, StudioCampaign, StudioCrawlerRun, StudioSignal, StudioStrategistPost, StudioSummary } from "../lib/types";
 import { formatDisplayDateTime } from "../lib/datetime";
@@ -1272,19 +1273,19 @@ export function StudioPage({ onUpload }: StudioPageProps) {
       ) : (
         <section className="panel studio-overview">
           <div className="studio-crawler-tabs ui-tabs">
-            <div className="ui-tabs__list studio-crawler-tabs__list" role="tablist" aria-label="Studio crawler type">
-              {CRAWLER_TABS.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  className={`ui-tab social-tab ${selectedCrawlerTab === tab.id ? "ui-tab--active social-tab--active" : ""}`}
-                  onClick={() => setSelectedCrawlerTab(tab.id)}
-                >
-                  {tab.label}
-                  <span className="ui-tab__badge">{campaignCountsByCrawlerTab[tab.id]}</span>
-                </button>
-              ))}
-            </div>
+            <SectionTabs
+              activeId={selectedCrawlerTab}
+              ariaLabel="Studio crawler type"
+              className="studio-crawler-tabs__list"
+              tabClassName="social-tab"
+              activeTabClassName="social-tab--active"
+              onChange={setSelectedCrawlerTab}
+              items={CRAWLER_TABS.map((tab) => ({
+                id: tab.id,
+                label: tab.label,
+                badge: campaignCountsByCrawlerTab[tab.id],
+              }))}
+            />
             <div className="ui-tabs__actions studio-tabs__actions">
               <button type="button" onClick={() => openCampaignModal(selectedCrawlerTab)}>
                 Create {selectedCrawlerTabConfig.label.toLowerCase()}

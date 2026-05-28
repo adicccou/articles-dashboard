@@ -3,7 +3,7 @@
   gap: 24px;
 }
 
-.statistics-overview {
+.panel.statistics-overview {
   gap: 0;
   overflow: hidden;
   padding: 0;
@@ -22,7 +22,7 @@
 .statistics-overview__content {
   display: grid;
   gap: 24px;
-  padding: 24px;
+  padding: 16px;
 }
 
 .stats-tabs-panel {
@@ -44,13 +44,18 @@
   text-transform: uppercase;
 }
 
-.stats-tabs-list {
-  width: fit-content;
+.stats-tabs-panel .stats-tabs-list,
+.stats-recent-section .stats-tabs-list {
+  --ui-tabs-margin-inline: -16px;
+  --ui-tabs-max-width: calc(100% + 32px);
+  --ui-tabs-padding-inline: 0;
+  --ui-tabs-width: calc(100% + 32px);
 }
 
 .stats-tabs-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 12px;
 }

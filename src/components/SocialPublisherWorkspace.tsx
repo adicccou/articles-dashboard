@@ -13,6 +13,7 @@ import {
   TrashIcon,
 } from "@heroicons/react/24/solid";
 import { ModalCloseButton } from "./ModalCloseButton";
+import { SectionTabs } from "./SectionTabs";
 import type { IconType } from "react-icons";
 import type { SocialAccount, SocialPost } from "../lib/types";
 import { formatDisplayDate, formatDisplayDateTime } from "../lib/datetime";
@@ -460,18 +461,15 @@ export const SocialPublisherWorkspace = forwardRef<SocialAgentToolbarHandle, Soc
       ) : null}
 
       <section className="panel social-panel-shell">
-        <div className="ui-tabs__list social-panel-tabs">
-          {tabs.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`ui-tab social-panel-tab ${tab === item.id ? "ui-tab--active social-panel-tab--active" : ""}`}
-              onClick={() => setTab(item.id)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
+        <SectionTabs
+          activeId={tab}
+          ariaLabel={`${platformLabel} workspace sections`}
+          className="social-panel-tabs"
+          tabClassName="social-panel-tab"
+          activeTabClassName="social-panel-tab--active"
+          onChange={setTab}
+          items={tabs}
+        />
 
         {tab === "posts" ? (
           <div className="social-panel-section stack">
@@ -549,18 +547,15 @@ export const SocialPublisherWorkspace = forwardRef<SocialAgentToolbarHandle, Soc
               <ModalCloseButton onClick={() => setIsSetupOpen(false)} label={`Close ${platformLabel} setup`} />
             </div>
 
-            <div className="ui-tabs__list social-panel-tabs social-panel-tabs--modal">
-              {setupTabs.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={`ui-tab social-panel-tab ${setupTab === item.id ? "ui-tab--active social-panel-tab--active" : ""}`}
-                  onClick={() => setSetupTab(item.id)}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
+            <SectionTabs
+              activeId={setupTab}
+              ariaLabel={`${platformLabel} setup sections`}
+              className="social-panel-tabs social-panel-tabs--modal"
+              tabClassName="social-panel-tab"
+              activeTabClassName="social-panel-tab--active"
+              onChange={setSetupTab}
+              items={setupTabs}
+            />
 
             {setupTab === "overview" ? (
               <section className="social-panel-section">
