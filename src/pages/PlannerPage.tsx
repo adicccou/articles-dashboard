@@ -1526,6 +1526,23 @@ export function PlannerPage() {
     }
   }
 
+  const schedulerSearchControl = (
+    <div className="scheduler-hero__search">
+      <input
+        aria-label="Search schedules"
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+        placeholder="Search schedules"
+      />
+    </div>
+  );
+
+  const schedulerNewAction = (
+    <div className="scheduler-hero__actions">
+      <button onClick={() => openCreateModal()}>New</button>
+    </div>
+  );
+
   return (
     <div className="scheduler-page">
       {error ? <p className="error panel">{error}</p> : null}
@@ -1547,17 +1564,6 @@ export function PlannerPage() {
                 { id: "list", label: "List" },
               ]}
             />
-            <div className="scheduler-hero__search">
-              <input
-                aria-label="Search schedules"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search schedules"
-              />
-            </div>
-            <div className="scheduler-hero__actions">
-              <button onClick={() => openCreateModal()}>New</button>
-            </div>
           </div>
         </div>
 
@@ -1565,8 +1571,16 @@ export function PlannerPage() {
 
         {view === "list" ? (
         <div className="scheduler-view-panel">
-          <div className="panel__title-row">
-            <h2>Schedule List</h2>
+          <div className="panel__title-row scheduler-calendar__header">
+            <div className="scheduler-calendar__heading">
+              <div className="scheduler-calendar__title-block">
+                <h2>Schedule List</h2>
+              </div>
+            </div>
+            <div className="scheduler-calendar__actions">
+              {schedulerSearchControl}
+              {schedulerNewAction}
+            </div>
           </div>
           {filteredItems.length === 0 ? (
             <p className="scheduler-empty">No schedules yet. Create one from the New button.</p>
@@ -1633,32 +1647,38 @@ export function PlannerPage() {
       ) : view === "calendar" ? (
         <div className="scheduler-view-panel scheduler-calendar">
           <div className="panel__title-row scheduler-calendar__header">
-            <div>
-              <h2>{formatMonthYear(calendarDate)}</h2>
+            <div className="scheduler-calendar__heading">
+              <div className="scheduler-calendar__title-block">
+                <h2>{formatMonthYear(calendarDate)}</h2>
+              </div>
+              <div className="scheduler-calendar__nav">
+                <button
+                  className="button-secondary dashboard-icon-button"
+                  onClick={() => setCalendarDate((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))}
+                  aria-label="Previous month"
+                  title="Previous month"
+                >
+                  <ChevronLeftIcon aria-hidden="true" />
+                </button>
+                <button
+                  className="button-secondary"
+                  onClick={() => setCalendarDate(new Date())}
+                >
+                  Today
+                </button>
+                <button
+                  className="button-secondary dashboard-icon-button"
+                  onClick={() => setCalendarDate((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))}
+                  aria-label="Next month"
+                  title="Next month"
+                >
+                  <ChevronRightIcon aria-hidden="true" />
+                </button>
+              </div>
             </div>
-            <div className="scheduler-calendar__nav">
-              <button
-                className="button-secondary dashboard-icon-button"
-                onClick={() => setCalendarDate((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))}
-                aria-label="Previous month"
-                title="Previous month"
-              >
-                <ChevronLeftIcon aria-hidden="true" />
-              </button>
-              <button
-                className="button-secondary"
-                onClick={() => setCalendarDate(new Date())}
-              >
-                Today
-              </button>
-              <button
-                className="button-secondary dashboard-icon-button"
-                onClick={() => setCalendarDate((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))}
-                aria-label="Next month"
-                title="Next month"
-              >
-                <ChevronRightIcon aria-hidden="true" />
-              </button>
+            <div className="scheduler-calendar__actions">
+              {schedulerSearchControl}
+              {schedulerNewAction}
             </div>
           </div>
           <div className="scheduler-calendar__grid scheduler-calendar__grid--header">
@@ -1723,33 +1743,39 @@ export function PlannerPage() {
       ) : (
         <div className="scheduler-view-panel scheduler-week">
           <div className="panel__title-row scheduler-week__header">
-            <div>
-              <h2>{formatMonthYear(calendarDate)}</h2>
-              <p className="scheduler-week__range">{weekRangeLabel}</p>
+            <div className="scheduler-calendar__heading">
+              <div className="scheduler-calendar__title-block">
+                <h2>{formatMonthYear(calendarDate)}</h2>
+                <p className="scheduler-week__range">{weekRangeLabel}</p>
+              </div>
+              <div className="scheduler-calendar__nav">
+                <button
+                  className="button-secondary dashboard-icon-button"
+                  onClick={() => setCalendarDate((current) => new Date(current.getFullYear(), current.getMonth(), current.getDate() - 7))}
+                  aria-label="Previous week"
+                  title="Previous week"
+                >
+                  <ChevronLeftIcon aria-hidden="true" />
+                </button>
+                <button
+                  className="button-secondary"
+                  onClick={() => setCalendarDate(new Date())}
+                >
+                  Today
+                </button>
+                <button
+                  className="button-secondary dashboard-icon-button"
+                  onClick={() => setCalendarDate((current) => new Date(current.getFullYear(), current.getMonth(), current.getDate() + 7))}
+                  aria-label="Next week"
+                  title="Next week"
+                >
+                  <ChevronRightIcon aria-hidden="true" />
+                </button>
+              </div>
             </div>
-            <div className="scheduler-calendar__nav">
-              <button
-                className="button-secondary dashboard-icon-button"
-                onClick={() => setCalendarDate((current) => new Date(current.getFullYear(), current.getMonth(), current.getDate() - 7))}
-                aria-label="Previous week"
-                title="Previous week"
-              >
-                <ChevronLeftIcon aria-hidden="true" />
-              </button>
-              <button
-                className="button-secondary"
-                onClick={() => setCalendarDate(new Date())}
-              >
-                Today
-              </button>
-              <button
-                className="button-secondary dashboard-icon-button"
-                onClick={() => setCalendarDate((current) => new Date(current.getFullYear(), current.getMonth(), current.getDate() + 7))}
-                aria-label="Next week"
-                title="Next week"
-              >
-                <ChevronRightIcon aria-hidden="true" />
-              </button>
+            <div className="scheduler-calendar__actions">
+              {schedulerSearchControl}
+              {schedulerNewAction}
             </div>
           </div>
           <div className="scheduler-week__timetable">
