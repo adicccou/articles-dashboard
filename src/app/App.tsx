@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { ArrowRightOnRectangleIcon, Bars3Icon, XMarkIcon } from "@heroicons/react/24/solid";
+import { useEffect, useRef, useState } from "react";
+import { Bars3Icon, ChevronDownIcon, XMarkIcon } from "@heroicons/react/24/solid";
 import { api } from "../lib/api";
 import type { ArticleRecord, AuthState, Site, ArticleCategory, AppSettings, AppSettingsInput } from "../lib/types";
 import { LoginCard } from "../components/LoginCard";
@@ -73,6 +73,16 @@ function syncViewUrl(surface: DashboardSurface, view: NavView) {
   }
 }
 
+function userDisplayName(auth: AuthState): string {
+  return auth.user?.display_name?.trim() || auth.user?.username?.trim() || auth.username?.trim() || "Account";
+}
+
+function userInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const initials = parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : name.slice(0, 2);
+  return initials.toUpperCase();
+}
+
 export function App() {
   const [surface] = useState<DashboardSurface>(() => getDashboardSurface());
   const loginMode: "google" | "fallback" =
@@ -94,6 +104,8 @@ export function App() {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true";
   });
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings>({
     ai_api_connected: false,
     gemini_api_connected: false,
@@ -176,6 +188,26 @@ export function App() {
     window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(sidebarCollapsed));
   }, [sidebarCollapsed]);
 
+  useEffect(() => {
+    if (!accountMenuOpen || typeof window === "undefined") return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (!accountMenuRef.current?.contains(event.target as Node)) {
+        setAccountMenuOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAccountMenuOpen(false);
+    };
+
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [accountMenuOpen]);
+
   async function saveSettings(payload: AppSettingsInput) {
     const next = await api.updateSettings(payload);
     setAppSettings(next);
@@ -186,6 +218,14 @@ export function App() {
   async function syncAgentSettings() {
     const result = await api.syncTradingAgentSettings();
     setSettingsMessage(result.message);
+  }
+
+  async function handleSignOut() {
+    const confirmed = window.confirm("Sign out now?");
+    if (!confirmed) return;
+    await api.logout();
+    setAccountMenuOpen(false);
+    setAuth({ authenticated: false });
   }
 
   if (loading) {
@@ -226,6 +266,9 @@ export function App() {
     );
   }
 
+  const accountName = userDisplayName(auth);
+  const avatarUrl = auth.user?.avatar_url?.trim() || "";
+
   return (
     <div className="app-layout">
       <Shell
@@ -248,20 +291,42 @@ export function App() {
               <h1>{getNavLabel(view)}</h1>
             </div>
             <div className="shell-header-shell__actions">
-              <button
-                type="button"
-                className="dashboard-icon-button"
-                onClick={async () => {
-                  const confirmed = window.confirm("Sign out now?");
-                  if (!confirmed) return;
-                  await api.logout();
-                  setAuth({ authenticated: false });
-                }}
-                aria-label="Sign out"
-                title="Sign out"
-              >
-                <ArrowRightOnRectangleIcon aria-hidden="true" />
-              </button>
+              <div className="account-menu" ref={accountMenuRef}>
+                <button
+                  type="button"
+                  className="account-menu__trigger"
+                  onClick={() => setAccountMenuOpen((current) => !current)}
+                  aria-haspopup="menu"
+                  aria-expanded={accountMenuOpen}
+                >
+                  <span className="account-menu__avatar" aria-hidden="true">
+                    {avatarUrl ? <img src={avatarUrl} alt="" /> : <span>{userInitials(accountName)}</span>}
+                  </span>
+                  <span className="account-menu__name">{accountName}</span>
+                  <ChevronDownIcon className="account-menu__chevron" aria-hidden="true" />
+                </button>
+                {accountMenuOpen ? (
+                  <div className="account-menu__dropdown" role="menu">
+                    <button
+                      type="button"
+                      className="account-menu__item"
+                      role="menuitem"
+                      onClick={() => {
+                        setView("config");
+                        setAccountMenuOpen(false);
+                      }}
+                    >
+                      Account
+                    </button>
+                    <a className="account-menu__item" href="/legal/terms" target="_blank" rel="noreferrer" role="menuitem">
+                      Terms of use
+                    </a>
+                    <button type="button" className="account-menu__item account-menu__item--danger" role="menuitem" onClick={handleSignOut}>
+                      Sign out
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
         }
