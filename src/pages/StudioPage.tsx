@@ -391,16 +391,87 @@ function sortRunsNewestFirst(runs: StudioCrawlerRun[]) {
   });
 }
 
+function latestRunForCampaign(runs: StudioCrawlerRun[]) {
+  return sortRunsNewestFirst(runs)[0] ?? null;
+}
+
+function isActiveCrawlerRun(run: StudioCrawlerRun | null | undefined) {
+  return run?.status === "pending" || run?.status === "running";
+}
+
+function formatElapsedTime(value: string | null | undefined) {
+  if (!value) return "";
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return "";
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (elapsedSeconds < 60) return "just now";
+  const minutes = Math.floor(elapsedSeconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m ago`;
+}
+
+function runProgressState(run: StudioCrawlerRun, campaign?: StudioCampaign | null) {
+  const startedAt = run.started_at || run.created_at;
+  const elapsedMinutes = startedAt
+    ? Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 60000))
+    : 0;
+  const isReply = (campaign?.campaign_type ?? run.campaign_type) === "reply";
+  const resultLabel = isReply ? "reply targets" : "pain signals and post ideas";
+  const platforms = (campaign?.platforms ?? run.platforms).map(platformLabel).join(", ") || "selected platforms";
+
+  if (run.status === "pending") {
+    return {
+      label: "Queued",
+      detail: `Waiting for the crawler worker to start ${platforms}.`,
+      elapsed: formatElapsedTime(run.created_at),
+      step: 0,
+      resultLabel,
+    };
+  }
+
+  if (elapsedMinutes >= 6) {
+    return {
+      label: "Deep retry search",
+      detail: `Still searching ${platforms} and re-checking weak results with AI filters.`,
+      elapsed: formatElapsedTime(startedAt),
+      step: 2,
+      resultLabel,
+    };
+  }
+
+  if (elapsedMinutes >= 3) {
+    return {
+      label: "Filtering with AI",
+      detail: `Reading captured pages and scoring useful ${resultLabel}.`,
+      elapsed: formatElapsedTime(startedAt),
+      step: 2,
+      resultLabel,
+    };
+  }
+
+  return {
+    label: "Searching connected accounts",
+    detail: `Searching ${platforms} with the selected connected accounts.`,
+    elapsed: formatElapsedTime(startedAt),
+    step: 1,
+    resultLabel,
+  };
+}
+
 function getCampaignDisplayStatus(
   campaign: StudioCampaign,
   runs: StudioCrawlerRun[],
 ): { label: string; tone: string } {
-  const latestRun = sortRunsNewestFirst(runs)[0];
+  const latestRun = latestRunForCampaign(runs);
   if (!latestRun) {
     return { label: campaign.status, tone: statusTone(campaign.status) };
   }
-  if (latestRun.status === "pending" || latestRun.status === "running") {
-    return { label: "Working", tone: statusTone("running") };
+  if (latestRun.status === "pending") {
+    return { label: "Queued", tone: statusTone("pending") };
+  }
+  if (latestRun.status === "running") {
+    return { label: "Searching", tone: statusTone("running") };
   }
   if (latestRun.status === "completed") {
     return { label: "Ready", tone: statusTone("completed") };
@@ -604,6 +675,19 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     () => new Map(summary.crawler_runs.map((run) => [run.id, run])),
     [summary.crawler_runs],
   );
+
+  const activeStudioRuns = useMemo(
+    () => summary.crawler_runs.filter(isActiveCrawlerRun),
+    [summary.crawler_runs],
+  );
+
+  useEffect(() => {
+    if (campaignModalOpen || activeStudioRuns.length === 0) return;
+    const refreshId = window.setInterval(() => {
+      void load({ silent: true });
+    }, 12000);
+    return () => window.clearInterval(refreshId);
+  }, [activeStudioRuns.length, campaignModalOpen]);
 
   const availableApps = useMemo(
     () => summary.apps.filter((app) => app.status === "active"),
@@ -996,7 +1080,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
             result_limit: resultLimit,
           });
           setSelectedCampaignId(editingCampaignId);
-          setFeedback(`${studioId("CMP", editingCampaignId)} updated and ${studioId("CR", run.id)} queued.`);
+          setFeedback(`${studioId("CMP", editingCampaignId)} updated and ${studioId("CR", run.id)} queued. Progress will auto-refresh while the agent searches.`);
         } else {
           setFeedback(`${studioId("CMP", editingCampaignId)} updated.`);
         }
@@ -1007,7 +1091,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
           result_limit: resultLimit,
         });
         setSelectedCampaignId(campaign.id);
-        setFeedback(`${studioId("CMP", campaign.id)} created and ${studioId("CR", run.id)} queued.`);
+        setFeedback(`${studioId("CMP", campaign.id)} created and ${studioId("CR", run.id)} queued. Progress will auto-refresh while the agent searches.`);
       }
 
       closeCampaignModal();
@@ -1042,7 +1126,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
       setRerunningCampaignId(campaign.id);
       setError(null);
       const run = await api.createStudioCrawlerRun({ campaign_id: campaign.id });
-      setFeedback(`${studioId("CR", run.id)} queued. Crawler will run again and generate new strategist options.`);
+      setFeedback(`${studioId("CR", run.id)} queued. Progress will auto-refresh while the agent searches.`);
       await load({ silent: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to rerun crawler");
@@ -1632,17 +1716,25 @@ export function StudioPage({ onUpload }: StudioPageProps) {
   const selectedCampaignResults = selectedCampaign
     ? campaignResultsById.get(selectedCampaign.id) ?? { runs: [], signals: [], posts: [] }
     : null;
+  const selectedLatestRun = selectedCampaignResults ? latestRunForCampaign(selectedCampaignResults.runs) : null;
+  const selectedRunProgress = selectedLatestRun && isActiveCrawlerRun(selectedLatestRun)
+    ? runProgressState(selectedLatestRun, selectedCampaign)
+    : null;
   const selectedVisibleSignals = selectedCampaign && selectedCampaignResults
     ? selectedCampaignResults.signals.filter((signal) => isVisibleSignal(signal, selectedCampaign))
     : [];
   const selectedCampaignResultLimit = selectedCampaign && selectedCampaignResults
-    ? selectedCampaignResults.runs[0]?.result_limit ?? selectedCampaign.result_limit ?? DEFAULT_CAMPAIGN_RESULT_LIMIT
+    ? selectedLatestRun?.result_limit ?? selectedCampaign.result_limit ?? DEFAULT_CAMPAIGN_RESULT_LIMIT
     : DEFAULT_CAMPAIGN_RESULT_LIMIT;
   const selectedCampaignDisplayStatus = selectedCampaign && selectedCampaignResults
     ? getCampaignDisplayStatus(selectedCampaign, selectedCampaignResults.runs)
     : null;
   const selectedCrawlerTabConfig = CRAWLER_TABS.find((tab) => tab.id === selectedCrawlerTab) ?? CRAWLER_TABS[0];
   const visibleCampaigns = summary.campaigns.filter((campaign) => campaign.campaign_type === selectedCrawlerTabConfig.campaignType);
+  const visibleActiveRunCount = visibleCampaigns.reduce((count, campaign) => {
+    const runs = campaignResultsById.get(campaign.id)?.runs ?? [];
+    return count + (runs.some(isActiveCrawlerRun) ? 1 : 0);
+  }, 0);
   const campaignCountsByCrawlerTab = CRAWLER_TABS.reduce<Record<CrawlerTab, number>>((counts, tab) => {
     counts[tab.id] = summary.campaigns.filter((campaign) => campaign.campaign_type === tab.campaignType).length;
     return counts;
@@ -1738,6 +1830,32 @@ export function StudioPage({ onUpload }: StudioPageProps) {
                 <p>{selectedCampaign.instructions || "No instructions saved."}</p>
               </div>
             </div>
+            {selectedRunProgress && selectedLatestRun ? (
+              <div className="studio-run-progress" aria-live="polite">
+                <div className="studio-run-progress__main">
+                  <span className="studio-run-spinner" aria-hidden="true" />
+                  <div>
+                    <span className="studio-id">{studioId("CR", selectedLatestRun.id)}</span>
+                    <h3>{selectedRunProgress.label}</h3>
+                    <p>{selectedRunProgress.detail}</p>
+                  </div>
+                </div>
+                <div className="studio-run-progress__meta">
+                  <span>{selectedRunProgress.elapsed ? `Started ${selectedRunProgress.elapsed}` : "Starting now"}</span>
+                  <span>Auto-refreshing every 12s</span>
+                </div>
+                <div className="studio-run-steps" aria-label="Crawler progress">
+                  {["Queued", "Searching", "Filtering", "Results"].map((step, index) => (
+                    <span
+                      className={`studio-run-step ${index <= selectedRunProgress.step ? "studio-run-step--active" : ""}`}
+                      key={step}
+                    >
+                      {step}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </section>
 
           <section className="panel studio-strategist-page">
@@ -1798,6 +1916,16 @@ export function StudioPage({ onUpload }: StudioPageProps) {
             </div>
           </div>
 
+          {visibleActiveRunCount > 0 ? (
+            <div className="studio-run-banner" aria-live="polite">
+              <span className="studio-run-spinner" aria-hidden="true" />
+              <div>
+                <strong>{visibleActiveRunCount} agent {visibleActiveRunCount === 1 ? "run is" : "runs are"} working</strong>
+                <p>Studio is searching connected accounts, filtering weak results, and will refresh this list automatically.</p>
+              </div>
+            </div>
+          ) : null}
+
           <div className="studio-overview__campaigns studio-campaigns">
             {visibleCampaigns.length === 0 ? (
               <div className="studio-empty">No {selectedCrawlerTabConfig.label.toLowerCase()} campaigns yet.</div>
@@ -1815,6 +1943,10 @@ export function StudioPage({ onUpload }: StudioPageProps) {
                 </div>
                 {visibleCampaigns.map((campaign) => {
                   const campaignResults = campaignResultsById.get(campaign.id) ?? { runs: [], signals: [], posts: [] };
+                  const latestRun = latestRunForCampaign(campaignResults.runs);
+                  const runProgress = latestRun && isActiveCrawlerRun(latestRun)
+                    ? runProgressState(latestRun, campaign)
+                    : null;
                   const displayStatus = getCampaignDisplayStatus(campaign, campaignResults.runs);
                   const runCount = campaignResults.runs.length;
                   const signalLabel = campaign.campaign_type === "reply" ? "targets" : "signals";
@@ -1855,7 +1987,16 @@ export function StudioPage({ onUpload }: StudioPageProps) {
                         <span>{runCount === 1 ? "run" : "runs"}</span>
                       </div>
                       <p className="studio-card__copy">{campaign.instructions || "No instructions saved."}</p>
-                      <span className={`studio-pill studio-pill--${displayStatus.tone}`}>{displayStatus.label}</span>
+                      <div className="studio-status-stack">
+                        <span className={`studio-pill studio-pill--${displayStatus.tone}`}>{displayStatus.label}</span>
+                        {runProgress ? (
+                          <span className="studio-run-mini">
+                            <span className="studio-run-spinner" aria-hidden="true" />
+                            <span>{runProgress.label}</span>
+                            {runProgress.elapsed ? <small>{runProgress.elapsed}</small> : null}
+                          </span>
+                        ) : null}
+                      </div>
                       <div className="studio-row-actions">
                         <button
                           className="button-secondary"
