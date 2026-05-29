@@ -42,7 +42,7 @@
     "DASHBOARD_SURFACE": "marketing",
     "ADMIN_USERNAME": "admin",
     "DASHBOARD_OWNER_EMAIL": "adiccou@gmail.com",
-    "GOOGLE_ALLOWED_EMAILS": "adiccou@gmail.com",
+    "GOOGLE_ALLOWED_EMAILS": "adiccou@gmail.com,adilet.melisov@gmail.com",
     "GOOGLE_REDIRECT_URI": "https://oilor.app/api/auth/google/callback",
     "META_APP_ID": "26753414114307541",
     "INSTAGRAM_APP_ID": "1707531783621555",

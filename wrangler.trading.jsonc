@@ -29,7 +29,7 @@
     "DASHBOARD_SURFACE": "trading",
     "ADMIN_USERNAME": "admin",
     "DASHBOARD_OWNER_EMAIL": "adiccou@gmail.com",
-    "GOOGLE_ALLOWED_EMAILS": "adiccou@gmail.com",
+    "GOOGLE_ALLOWED_EMAILS": "adiccou@gmail.com,adilet.melisov@gmail.com",
     "GOOGLE_REDIRECT_URI": "https://trading-dashboard.adilet-melisov.workers.dev/api/auth/google/callback"
   }
 }
