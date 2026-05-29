@@ -101,7 +101,7 @@ function googleAuthError(message: string, status = 400): Response {
     "Set-Cookie": clearStateCookie(),
   });
   return new Response(
-    `<!doctype html><html><body><h1>Google sign-in failed</h1><p>${escapeHtml(message)}</p><p><a href="/">Return to dashboard</a></p></body></html>`,
+    `<!doctype html><html><body><h1>Google sign-in failed</h1><p>${escapeHtml(message)}</p><p><a href="/signin">Return to sign in</a></p></body></html>`,
     { status, headers },
   );
 }
@@ -141,9 +141,14 @@ export function buildGoogleAuthorizationUrl(env: Env, requestUrl: string, state:
 }
 
 export async function authorizeGoogleDashboardLogin(request: Request, env: Env): Promise<Response> {
+  const requestedReturnTo = safeReturnPath(new URL(request.url).searchParams.get("return_to"));
+  const fallbackReturnTo = requestedReturnTo || "/dashboard";
   if (!isGoogleAuthConfigured(env)) {
-    const fallbackUrl = new URL("/", request.url);
+    const fallbackUrl = new URL("/signin", request.url);
     fallbackUrl.searchParams.set("auth_error", "google_not_configured");
+    if (requestedReturnTo) {
+      fallbackUrl.searchParams.set("return_to", requestedReturnTo);
+    }
     return new Response(null, {
       status: 303,
       headers: {
@@ -154,10 +159,9 @@ export async function authorizeGoogleDashboardLogin(request: Request, env: Env):
   }
 
   const state = crypto.randomUUID();
-  const returnTo = safeReturnPath(new URL(request.url).searchParams.get("return_to"));
   const headers = new Headers({
     Location: buildGoogleAuthorizationUrl(env, request.url, state),
-    "Set-Cookie": stateCookie(state, returnTo),
+    "Set-Cookie": stateCookie(state, fallbackReturnTo),
   });
   return new Response(null, { status: 302, headers });
 }
@@ -221,7 +225,7 @@ export async function handleGoogleDashboardCallback(request: Request, env: Env):
     picture: userInfo.picture,
   });
 
-  const headers = new Headers({ Location: expectedState.return_to || "/" });
+  const headers = new Headers({ Location: expectedState.return_to || "/dashboard" });
   headers.append("Set-Cookie", await createSessionCookie(user, env, true));
   headers.append("Set-Cookie", clearStateCookie());
   return new Response(null, { status: 303, headers });

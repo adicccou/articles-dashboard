@@ -1,6 +1,8 @@
 import { callAiText } from "../lib/ai";
+import { buildAiRuleSections, readResolvedAiSettings } from "../lib/ai-settings";
 import { callGeminiImage, formatGeminiUserError } from "../lib/gemini";
 import { errorResponse, jsonResponse, parseJson } from "../lib/http";
+import { DEFAULT_USER_ID } from "../lib/ownership";
 import type { Env } from "../lib/types";
 
 type ArticleAssistField = "meta_title" | "meta_description" | "excerpt" | "category";
@@ -21,35 +23,6 @@ type ArticleCoverPayload = Omit<ArticleAssistPayload, "field"> & {
 };
 
 type ArticleStylePayload = Omit<ArticleAssistPayload, "field">;
-
-type AiSettings = {
-  geminiApiKey: string;
-  geminiFlashModel: string;
-  geminiProModel: string;
-  globalAiRules: string;
-};
-
-async function readAiSettings(env: Env): Promise<AiSettings> {
-  const rows = await env.DB.prepare(
-    "SELECT key, value FROM app_settings WHERE key IN ('gemini_api_key', 'gemini_flash_model', 'gemini_pro_model', 'global_ai_rules')",
-  ).all<{ key: string; value: string }>();
-
-  const settings: AiSettings = {
-    geminiApiKey: "",
-    geminiFlashModel: "gemini-3.1-flash-preview",
-    geminiProModel: "gemini-3.1-pro-preview",
-    globalAiRules: "",
-  };
-
-  for (const row of rows.results ?? []) {
-    if (row.key === "gemini_api_key" && row.value) settings.geminiApiKey = row.value;
-    if (row.key === "gemini_flash_model" && row.value) settings.geminiFlashModel = row.value;
-    if (row.key === "gemini_pro_model" && row.value) settings.geminiProModel = row.value;
-    if (row.key === "global_ai_rules" && row.value) settings.globalAiRules = row.value;
-  }
-
-  return settings;
-}
 
 function stripHtml(value: string): string {
   return value
@@ -194,9 +167,9 @@ function sanitizeEditorHtml(html: string): string {
     .trim();
 }
 
-export async function suggestArticleField(env: Env, request: Request): Promise<Response> {
+export async function suggestArticleField(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
-    const settings = await readAiSettings(env);
+    const settings = await readResolvedAiSettings(env, userId);
     if (!settings.geminiApiKey) {
       return errorResponse("No Gemini API key is configured", 500);
     }
@@ -215,7 +188,7 @@ export async function suggestArticleField(env: Env, request: Request): Promise<R
         "You are an expert editor for a founder-run marketing dashboard.",
         "Read the article and generate one precise field value.",
         "Return raw JSON only, exactly: {\"value\":\"...\"}.",
-        settings.globalAiRules ? `Global AI rules: ${settings.globalAiRules}` : "",
+        ...buildAiRuleSections(settings),
       ].filter(Boolean).join("\n"),
       messages: [
         {
@@ -237,9 +210,9 @@ export async function suggestArticleField(env: Env, request: Request): Promise<R
   }
 }
 
-export async function styleArticleContent(env: Env, request: Request): Promise<Response> {
+export async function styleArticleContent(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
-    const settings = await readAiSettings(env);
+    const settings = await readResolvedAiSettings(env, userId);
     if (!settings.geminiApiKey) {
       return errorResponse("No Gemini API key is configured", 500);
     }
@@ -262,7 +235,7 @@ export async function styleArticleContent(env: Env, request: Request): Promise<R
         "Do not invent facts, numbers, names, links, quotes, claims, or conclusions. Preserve the article's meaning and voice.",
         "Improve structure only: split long paragraphs, add useful h2/h3 headings when the article clearly supports them, turn obvious sequences into lists, lightly bold important phrases, and use blockquotes only for existing standout lines.",
         "Return raw JSON only, exactly: {\"html\":\"<p>...</p>\"}.",
-        settings.globalAiRules ? `Global AI rules: ${settings.globalAiRules}` : "",
+        ...buildAiRuleSections(settings),
       ].filter(Boolean).join("\n"),
       messages: [
         {
@@ -289,9 +262,9 @@ export async function styleArticleContent(env: Env, request: Request): Promise<R
   }
 }
 
-export async function generateArticleCover(env: Env, request: Request): Promise<Response> {
+export async function generateArticleCover(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
-    const settings = await readAiSettings(env);
+    const settings = await readResolvedAiSettings(env, userId);
     if (!settings.geminiApiKey) {
       return errorResponse("No Gemini API key is configured", 500);
     }
@@ -306,6 +279,9 @@ export async function generateArticleCover(env: Env, request: Request): Promise<
       "Do not include distorted tiny labels, fake UI text, watermarks, brand logos you do not know, or unreadable text blocks.",
       `Website style and branding context: ${siteNames}; domains: ${siteDomains}.`,
       payload.cover_style_reference ? `User style reference: ${payload.cover_style_reference}` : "",
+      ...buildAiRuleSections(settings, {
+        globalHeading: "Global AI rules that must also shape the image direction",
+      }),
       `Article context:\n${articleContext(payload)}`,
     ].filter(Boolean).join("\n");
 

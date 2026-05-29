@@ -384,6 +384,7 @@ export const api = {
     campaign_type: "post" | "reply";
     result_limit: number;
     account_refs: string[];
+    search_surfaces?: string[];
     platforms: string[];
     instructions: string;
   }) =>
@@ -406,6 +407,7 @@ export const api = {
     campaign_type?: "post" | "reply";
     result_limit?: number;
     account_refs?: string[];
+    search_surfaces?: string[];
     platforms?: string[];
     instructions?: string;
   }) =>

@@ -1,3 +1,5 @@
+import type { StudioAppProfile } from "./studioAppProfile";
+
 export type DashboardUser = {
   id: number;
   username: string;
@@ -553,6 +555,11 @@ export type MlTradingSettings = {
 
 export type AppSettings = {
   ai_api_connected: boolean;
+  ai_api_mode?: "oilor_default" | "custom";
+  ai_api_provider_label?: string;
+  ai_model?: string;
+  custom_ai_api_key_saved?: boolean;
+  default_ai_api_connected?: boolean;
   gemini_api_connected?: boolean;
   gemini_flash_model?: string;
   gemini_pro_model?: string;
@@ -589,6 +596,9 @@ export type AppSettings = {
 };
 
 export type AppSettingsInput = {
+  ai_api_mode?: "oilor_default" | "custom";
+  ai_model?: string;
+  custom_ai_api_key?: string;
   gemini_api_key?: string;
   gemini_flash_model?: string;
   gemini_pro_model?: string;
@@ -838,6 +848,7 @@ export type StudioApp = {
   articles_api_url?: string | null;
   description: string;
   ai_context: string;
+  app_profile: StudioAppProfile;
   status: "active" | "inactive" | "archived";
   created_at: string;
   updated_at: string;
@@ -851,6 +862,7 @@ export type StudioCampaign = {
   campaign_type: "post" | "reply";
   result_limit: number;
   account_refs: string[];
+  search_surfaces?: string[];
   platforms: Array<"twitter" | "threads" | "reddit" | "instagram" | "linkedin">;
   instructions: string;
   status: "active" | "paused" | "archived";
@@ -867,6 +879,7 @@ export type StudioCrawlerRun = {
   campaign_type: "post" | "reply";
   result_limit: number;
   account_refs: string[];
+  search_surfaces?: string[];
   platforms: Array<"twitter" | "threads" | "reddit" | "instagram" | "linkedin">;
   instructions: string;
   status: "pending" | "running" | "completed" | "failed";

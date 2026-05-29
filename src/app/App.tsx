@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Bars3Icon, ChevronDownIcon, XMarkIcon } from "@heroicons/react/24/solid";
 import { api } from "../lib/api";
-import type { ArticleRecord, AuthState, Site, ArticleCategory, AppSettings, AppSettingsInput } from "../lib/types";
+import type { ArticleRecord, AuthState } from "../lib/types";
 import { LoginCard } from "../components/LoginCard";
 import { Shell } from "../components/Shell";
 import { TopNav, getNavLabel, type NavView } from "../components/TopNav";
 import { DashboardPage } from "../pages/DashboardPage";
+import { useDashboardState } from "./useDashboardState";
 import {
   getDashboardSurface,
   getDefaultView,
@@ -91,14 +92,8 @@ export function App() {
       : "google";
   const [returnTo] = useState<string>(() => readReturnTo());
   const [authNotice] = useState<string | null>(() => readAuthNotice());
-  const [auth, setAuth] = useState<AuthState>({ authenticated: false });
-  const [sites, setSites] = useState<Site[]>([]);
-  const [articles, setArticles] = useState<ArticleRecord[]>([]);
-  const [categories, setCategories] = useState<ArticleCategory[]>([]);
   const [view, setView] = useState<NavView>(() => readStoredView(surface));
   const [selectedArticle, setSelectedArticle] = useState<ArticleRecord | undefined>();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -106,53 +101,21 @@ export function App() {
   });
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
-  const [appSettings, setAppSettings] = useState<AppSettings>({
-    ai_api_connected: false,
-    gemini_api_connected: false,
-    gemini_flash_model: "",
-    gemini_pro_model: "",
-    global_ai_rules: "",
-    social_agent_rules: "",
-    workspace_timezone: "Asia/Kuala_Lumpur",
-    trading_agent_url: "",
-    trading_agent_connected: false,
-    trading_agent_token_saved: false,
-    ctrader_client_id: "",
-    ctrader_account_id: "",
-    ctrader_demo_account_id: "",
-    ctrader_live_account_id: "",
-    ctrader_connected: false,
-    ctrader_client_secret_saved: false,
-    ctrader_access_token_saved: false,
-  });
-  const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
-
-  async function load() {
-    setLoading(true);
-    try {
-      const data = await api.bootstrap();
-      setAuth(data.auth);
-      setSites(data.sites);
-      setArticles(data.articles);
-      if (data.auth.authenticated) {
-        void Promise.all([
-          api.getCategories().then(setCategories),
-          api.getSettings().then(setAppSettings),
-        ]).catch((err) => {
-          setError(err instanceof Error ? err.message : "Failed to load dashboard settings");
-        });
-      }
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load dashboard");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    void load();
-  }, []);
+  const {
+    auth,
+    sites,
+    articles,
+    categories,
+    loading,
+    error,
+    appSettings,
+    settingsMessage,
+    load,
+    saveSettings,
+    syncAgentSettings,
+    handlePasswordLogin,
+    handleLogout,
+  } = useDashboardState({ loginMode, returnTo });
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -208,24 +171,11 @@ export function App() {
     };
   }, [accountMenuOpen]);
 
-  async function saveSettings(payload: AppSettingsInput) {
-    const next = await api.updateSettings(payload);
-    setAppSettings(next);
-    setSettingsMessage(next.sync_result?.message ?? "Settings saved.");
-    return next;
-  }
-
-  async function syncAgentSettings() {
-    const result = await api.syncTradingAgentSettings();
-    setSettingsMessage(result.message);
-  }
-
   async function handleSignOut() {
     const confirmed = window.confirm("Sign out now?");
     if (!confirmed) return;
-    await api.logout();
+    await handleLogout();
     setAccountMenuOpen(false);
-    setAuth({ authenticated: false });
   }
 
   if (loading) {
@@ -239,19 +189,6 @@ export function App() {
     return <div className="loading-screen">Loading dashboard...</div>;
   }
 
-  async function handlePasswordLogin(username: string, password: string, remember: boolean) {
-    const nextAuth = await api.login(username, password, remember);
-    if (returnTo && typeof window !== "undefined") {
-      window.location.href = returnTo;
-      return;
-    }
-    if (loginMode === "fallback" && typeof window !== "undefined") {
-      window.history.replaceState(window.history.state, "", "/");
-    }
-    setAuth(nextAuth);
-    await load();
-  }
-
   if (loginMode === "fallback" || !auth.authenticated) {
     return (
       <div className="login-screen">
@@ -260,6 +197,7 @@ export function App() {
           mode={loginMode}
           googleAuthConfigured={auth.google_auth_configured !== false}
           notice={authNotice}
+          returnTo={returnTo}
           onSubmit={handlePasswordLogin}
         />
       </div>
@@ -343,6 +281,7 @@ export function App() {
         {error ? <p className="error panel">{error}</p> : null}
         <DashboardPage
           view={view}
+          onNavigate={setView}
           articles={articles}
           sites={sites}
           categories={categories}

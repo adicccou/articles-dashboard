@@ -288,6 +288,7 @@ export async function parseTradingStrategyToJSON(
   strategyText: string,
   geminiApiKey: string,
   model = "gemini-3.1-pro-preview",
+  globalAiRules?: string,
 ): Promise<ParsedStrategy> {
   const systemPrompt = `You are an expert trading system parser. Your job is to read raw prose strategy instructions and extract them into a strict JSON playbook.
 Do not output anything other than raw JSON.
@@ -306,7 +307,7 @@ You must return the JSON matching this exact structure:
   },
   "understanding_summary": "string"
 }
-For the understanding_summary, write a single clear sentence summarizing what the strategy looks for.`;
+For the understanding_summary, write a single clear sentence summarizing what the strategy looks for.${globalAiRules?.trim() ? `\n\nGlobal AI rules to respect without breaking the required JSON schema:\n${globalAiRules.trim()}` : ""}`;
 
   const responseText = await callGeminiText({
     apiKey: geminiApiKey,

@@ -11,6 +11,10 @@ export type Env = {
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   GOOGLE_REDIRECT_URI?: string;
+  OILOR_AI_API_KEY?: string;
+  GEMINI_API_KEY?: string;
+  GOOGLE_AI_API_KEY?: string;
+  AI_API_KEY?: string;
   PUBLIC_MEDIA_BASE_URL?: string;
   TWITTER_API_KEY?: string;
   TWITTER_API_SECRET?: string;

@@ -1,10 +1,12 @@
 import type { Env } from "../lib/types";
 import { errorResponse, jsonResponse, parseJson } from "../lib/http";
 import { callAiText } from "../lib/ai";
+import { buildAiRuleSections, readResolvedAiSettings } from "../lib/ai-settings";
 import { getSocialPostSchemaCapabilities } from "./twitter";
 import { plannerHasSocialPostLinks } from "./planner";
-import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, scopedInsertColumnsFromRecord, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
+import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, scopedInsertColumnsFromRecord, tableHasUserId } from "../lib/ownership";
 import { readAccountTags } from "../lib/account-tags";
+import { formatStudioAppProfile, normalizeStudioAppProfile, summarizeStudioAppProfile } from "../../src/lib/studioAppProfile";
 
 type StudioStatus = "active" | "inactive" | "archived";
 type StudioCampaignType = "post" | "reply";
@@ -21,6 +23,7 @@ type StudioAppPayload = {
   articles_api_url?: string | null;
   description?: string | null;
   ai_context?: string | null;
+  app_profile?: unknown;
   status?: StudioStatus;
 };
 
@@ -30,6 +33,7 @@ type StudioCampaignPayload = {
   campaign_type?: StudioCampaignType;
   result_limit?: number;
   account_refs?: unknown;
+  search_surfaces?: unknown;
   platforms?: unknown;
   instructions?: string | null;
   status?: StudioCampaignStatus;
@@ -41,6 +45,7 @@ type StudioCrawlerPayload = {
   campaign_type?: StudioCampaignType;
   result_limit?: number;
   account_refs?: unknown;
+  search_surfaces?: unknown;
   platforms?: unknown;
   instructions?: string | null;
   status?: StudioCrawlerStatus;
@@ -105,13 +110,6 @@ type StudioNotificationPayload = {
   error_message?: string | null;
 };
 
-type StudioAiSettings = {
-  geminiApiKey: string;
-  geminiFlashModel: string;
-  geminiProModel: string;
-  globalAiRules: string;
-};
-
 type StudioCrawlerBrief = {
   user_instructions: string;
   technical_instructions: string;
@@ -142,6 +140,13 @@ const PLATFORM_LABELS: Record<string, string> = {
 
 const STUDIO_PLATFORMS: StudioPlatform[] = ["twitter", "threads", "reddit", "instagram", "linkedin"];
 const REPLY_CAPABLE_STUDIO_PLATFORMS = new Set<StudioPlatform>(["twitter", "threads", "reddit"]);
+const SEARCH_SURFACES_BY_PLATFORM: Record<StudioPlatform, string[]> = {
+  twitter: ["twitter_recent_posts", "twitter_live_replies"],
+  threads: ["threads_keyword_top", "threads_conversation_replies"],
+  reddit: ["reddit_subreddit_posts", "reddit_comment_threads"],
+  instagram: [],
+  linkedin: [],
+};
 
 const columnCapabilityCache = new Map<string, boolean>();
 
@@ -192,6 +197,37 @@ function normalizePlatforms(value: unknown): string[] {
     platforms.push(platform);
   }
   return platforms;
+}
+
+function defaultSearchSurfaces(platforms: string[]): string[] {
+  const surfaces: string[] = [];
+  for (const platform of platforms) {
+    const defaults = SEARCH_SURFACES_BY_PLATFORM[platform as StudioPlatform] ?? [];
+    if (defaults[0]) surfaces.push(defaults[0]);
+  }
+  return surfaces;
+}
+
+function normalizeSearchSurfaces(value: unknown, platforms: string[]): string[] {
+  const source = Array.isArray(value)
+    ? value
+    : typeof value === "string" && value.trim().startsWith("[")
+      ? safeParseJson(value, [])
+      : typeof value === "string"
+        ? value.split(",")
+        : [];
+  const allowed = new Set(
+    platforms.flatMap((platform) => SEARCH_SURFACES_BY_PLATFORM[platform as StudioPlatform] ?? []),
+  );
+  const surfaces: string[] = [];
+  const seen = new Set<string>();
+  for (const item of source) {
+    const surface = cleanText(item);
+    if (!surface || !allowed.has(surface) || seen.has(surface)) continue;
+    seen.add(surface);
+    surfaces.push(surface);
+  }
+  return surfaces.length > 0 ? surfaces : defaultSearchSurfaces(platforms);
 }
 
 function normalizeRefs(value: unknown): string[] {
@@ -313,49 +349,24 @@ function sourcePostKey(platform: string, value: { target_url?: unknown; target_e
   return externalId ? `${normalizedPlatform}:external:${externalId}` : `${normalizedPlatform}:unknown`;
 }
 
-async function readStudioAiSettings(env: Env, userId = DEFAULT_USER_ID): Promise<StudioAiSettings> {
-  const hasWorkspaceId = await tableHasWorkspaceId(env, "app_settings");
-  const hasUserId = await tableHasUserId(env, "app_settings");
-  const rows = await env.DB.prepare(
-    hasWorkspaceId
-      ? "SELECT key, value FROM app_settings WHERE workspace_id = ? AND key IN ('gemini_api_key', 'gemini_flash_model', 'gemini_pro_model', 'global_ai_rules')"
-      : hasUserId
-      ? "SELECT key, value FROM app_settings WHERE user_id = ? AND key IN ('gemini_api_key', 'gemini_flash_model', 'gemini_pro_model', 'global_ai_rules')"
-      : "SELECT key, value FROM app_settings WHERE key IN ('gemini_api_key', 'gemini_flash_model', 'gemini_pro_model', 'global_ai_rules')",
-  ).bind(...(hasWorkspaceId ? [workspaceId(userId)] : hasUserId ? [ownerId(userId)] : [])).all<{ key: string; value: string }>();
-
-  const settings: StudioAiSettings = {
-    geminiApiKey: "",
-    geminiFlashModel: "gemini-3.1-flash-preview",
-    geminiProModel: "gemini-3.1-pro-preview",
-    globalAiRules: "",
-  };
-
-  for (const row of rows.results ?? []) {
-    if (row.key === "gemini_api_key" && row.value) settings.geminiApiKey = row.value;
-    if (row.key === "gemini_flash_model" && row.value) settings.geminiFlashModel = row.value;
-    if (row.key === "gemini_pro_model" && row.value) settings.geminiProModel = row.value;
-    if (row.key === "global_ai_rules" && row.value) settings.globalAiRules = row.value;
-  }
-
-  return settings;
-}
-
 function fallbackCrawlerBrief({
   app,
   campaignType,
   instructions,
   platforms,
+  searchSurfaces,
   resultLimit,
 }: {
   app: Record<string, unknown> | null;
   campaignType: StudioCampaignType;
   instructions: string;
   platforms: string[];
+  searchSurfaces: string[];
   resultLimit: number;
 }): StudioCrawlerBrief {
   const appName = cleanText(app?.name) || "the selected app";
-  const appContext = [cleanText(app?.description), cleanText(app?.ai_context)].filter(Boolean).join(" ");
+  const appProfile = normalizeStudioAppProfile(app?.app_profile_json);
+  const appContext = [cleanText(app?.description), cleanText(app?.ai_context), summarizeStudioAppProfile(appProfile)].filter(Boolean).join(" ");
   const replyMode = campaignType === "reply";
   const targetSuggestions = normalizeResultLimit(resultLimit);
   const baseSearches = replyMode
@@ -376,6 +387,7 @@ function fallbackCrawlerBrief({
     user_instructions: instructions,
     technical_instructions: [
       `Interpret the user's request as the crawler objective for ${appName}.`,
+      searchSurfaces.length > 0 ? `Search surfaces selected: ${searchSurfaces.join(", ")}.` : "Search surfaces selected: default platform search APIs.",
       "Generate query variants from the intent, app positioning, target audience, synonyms, competitor alternatives, and concrete problem language.",
       "Fetch enough results across the selected platforms, then ask AI to filter noisy or off-topic results before saving signals.",
       "If the first result set is weak, broaden or rephrase the queries and run another search iteration before saving final signals.",
@@ -474,19 +486,25 @@ async function buildCrawlerBrief({
   campaignType,
   instructions,
   platforms,
+  searchSurfaces,
   resultLimit,
+  userId = DEFAULT_USER_ID,
 }: {
   env: Env;
   app: Record<string, unknown> | null;
   campaignType: StudioCampaignType;
   instructions: string;
   platforms: string[];
+  searchSurfaces: string[];
   resultLimit: number;
+  userId?: number;
 }): Promise<{ brief: StudioCrawlerBrief; generatedByAi: boolean; aiError?: string }> {
-  const fallback = fallbackCrawlerBrief({ app, campaignType, instructions, platforms, resultLimit });
+  const fallback = fallbackCrawlerBrief({ app, campaignType, instructions, platforms, searchSurfaces, resultLimit });
   try {
-    const settings = await readStudioAiSettings(env);
+    const settings = await readResolvedAiSettings(env, userId);
     if (!settings.geminiApiKey) return { brief: fallback, generatedByAi: false, aiError: "No Gemini API key configured" };
+    const appProfile = normalizeStudioAppProfile(app?.app_profile_json);
+    const appProfileText = formatStudioAppProfile(appProfile);
     const responseText = await callAiText({
       apiKey: settings.geminiApiKey,
       model: settings.geminiProModel,
@@ -499,7 +517,11 @@ async function buildCrawlerBrief({
         "Reply campaigns must never suggest more than 2 comment replies under the same source post. If two comments under one post are already useful, search other posts.",
         "Respect the requested strategist suggestion count in strategist_rules.max_suggestions.",
         "Return JSON only with keys: user_instructions, technical_instructions, search_queries, negative_queries, quality_rules, retry_policy, strategist_rules.",
-        settings.globalAiRules ? `Global AI rules: ${settings.globalAiRules}` : "",
+        ...buildAiRuleSections(settings, {
+          includeSocial: true,
+          globalHeading: "Global AI rules",
+          socialHeading: "Social/content rules",
+        }),
       ].filter(Boolean).join("\n"),
       messages: [
         {
@@ -508,12 +530,14 @@ async function buildCrawlerBrief({
             `Campaign type: ${campaignType}`,
             `Requested strategist suggestions: ${resultLimit}`,
             `Platforms: ${platforms.join(", ")}`,
+            `Selected search surfaces: ${searchSurfaces.join(", ") || "default platform search APIs"}`,
             `App name: ${cleanText(app?.name) || "Unknown"}`,
             `App website: ${cleanText(app?.website_url) || "Unknown"}`,
             `App store URL: ${cleanText(app?.app_store_url) || "Unknown"}`,
             `Articles API: ${cleanText(app?.articles_api_url) || "Unknown"}`,
             `App description: ${cleanText(app?.description) || "None"}`,
             `App AI context: ${cleanText(app?.ai_context) || "None"}`,
+            `App knowledge base:\n${appProfileText || "None"}`,
             `Founder instructions: ${instructions}`,
             "Make the search plan specific, technical, and optimized for high-quality pain signals.",
           ].join("\n"),
@@ -576,13 +600,15 @@ function assessCrawlerSignalQuality(
 }
 
 function mapApp(row: Record<string, unknown>) {
+  const { app_profile_json, ...rest } = row;
   return {
-    ...row,
+    ...rest,
     website_url: row.website_url ?? "",
     app_store_url: row.app_store_url ?? "",
     articles_api_url: row.articles_api_url ?? "",
     description: row.description ?? "",
     ai_context: row.ai_context ?? "",
+    app_profile: normalizeStudioAppProfile(app_profile_json),
   };
 }
 
@@ -592,6 +618,7 @@ function mapCampaign(row: Record<string, unknown>) {
     campaign_type: row.campaign_type || "post",
     result_limit: normalizeResultLimit(row.result_limit),
     account_refs: decodeList(row.account_refs),
+    search_surfaces: decodeList(row.search_surfaces),
     platforms: decodeList(row.platforms),
   };
 }
@@ -603,6 +630,9 @@ function mapCrawlerRun(row: Record<string, unknown>) {
     campaign_type: row.campaign_type || "post",
     result_limit: normalizeResultLimit(row.result_limit ?? rawData.requested_results),
     account_refs: decodeList(row.account_refs),
+    search_surfaces: decodeList(row.search_surfaces).length
+      ? decodeList(row.search_surfaces)
+      : decodeList(rawData.search_surfaces),
     platforms: decodeList(row.platforms),
     raw_data: row.raw_data ? rawData : null,
   };
@@ -959,6 +989,7 @@ export async function createStudioApp(env: Env, request: Request, userId = DEFAU
     if (!name) return errorResponse("App name is required", 400);
     const now = nowIso();
     const hasArticlesApiUrl = await tableHasColumn(env, "studio_apps", "articles_api_url");
+    const hasAppProfileJson = await tableHasColumn(env, "studio_apps", "app_profile_json");
     const scoped = await scopedInsertColumns(env, "studio_apps", userId);
     const columns = [...scoped.columns, "name", "website_url", "app_store_url"];
     const placeholders = [...scoped.columns.map(() => "?"), "?", "?", "?"];
@@ -972,6 +1003,11 @@ export async function createStudioApp(env: Env, request: Request, userId = DEFAU
       columns.push("articles_api_url");
       placeholders.push("?");
       values.push(cleanText(payload.articles_api_url) || null);
+    }
+    if (hasAppProfileJson) {
+      columns.push("app_profile_json");
+      placeholders.push("?");
+      values.push(JSON.stringify(normalizeStudioAppProfile(payload.app_profile)));
     }
     columns.push("description", "ai_context", "status", "created_at", "updated_at");
     placeholders.push("?", "?", "?", "?", "?");
@@ -1009,6 +1045,10 @@ export async function updateStudioApp(env: Env, appId: string, request: Request,
     if (payload.articles_api_url !== undefined && await tableHasColumn(env, "studio_apps", "articles_api_url")) {
       updates.push("articles_api_url = ?");
       values.push(cleanText(payload.articles_api_url) || null);
+    }
+    if (payload.app_profile !== undefined && await tableHasColumn(env, "studio_apps", "app_profile_json")) {
+      updates.push("app_profile_json = ?");
+      values.push(JSON.stringify(normalizeStudioAppProfile(payload.app_profile)));
     }
     if (payload.description !== undefined) { updates.push("description = ?"); values.push(cleanText(payload.description)); }
     if (payload.ai_context !== undefined) { updates.push("ai_context = ?"); values.push(cleanText(payload.ai_context)); }
@@ -1075,6 +1115,7 @@ export async function createStudioCampaign(
     const resultLimit = normalizeResultLimit(payload.result_limit);
     const platforms = normalizePlatforms(payload.platforms);
     const accountRefs = normalizeRefs(payload.account_refs);
+    const searchSurfaces = normalizeSearchSurfaces(payload.search_surfaces, platforms);
     if (!Number.isFinite(appId) || appId <= 0) return errorResponse("App selection is required", 400);
     if (!name) return errorResponse("Campaign name is required", 400);
     if (platforms.length === 0) return errorResponse("Select at least one social platform", 400);
@@ -1085,6 +1126,7 @@ export async function createStudioCampaign(
     const now = nowIso();
     const hasCampaignType = await tableHasColumn(env, "studio_campaigns", "campaign_type");
     const hasResultLimit = await tableHasColumn(env, "studio_campaigns", "result_limit");
+    const hasSearchSurfaces = await tableHasColumn(env, "studio_campaigns", "search_surfaces");
     const hasCreatedByUserId = await tableHasColumn(env, "studio_campaigns", "created_by_user_id");
     const scoped = await scopedInsertColumns(env, "studio_campaigns", userId);
     const columns = [...scoped.columns];
@@ -1107,6 +1149,11 @@ export async function createStudioCampaign(
       columns.push("result_limit");
       placeholders.push("?");
       values.push(resultLimit);
+    }
+    if (hasSearchSurfaces) {
+      columns.push("search_surfaces");
+      placeholders.push("?");
+      values.push(stringifyJson(searchSurfaces));
     }
     columns.push("account_refs", "platforms", "instructions", "status", "created_at", "updated_at");
     placeholders.push("?", "?", "?", "?", "?", "?");
@@ -1137,6 +1184,16 @@ export async function updateStudioCampaign(env: Env, campaignId: string, request
     const id = Number(campaignId);
     if (!Number.isFinite(id)) return errorResponse("Invalid campaign ID", 400);
     const payload = await parseJson<StudioCampaignPayload>(request);
+    let currentCampaign: Record<string, unknown> | null = null;
+    if (payload.search_surfaces !== undefined && payload.platforms === undefined) {
+      const currentFilters = ["id = ?"];
+      const currentValues: unknown[] = [id];
+      await appendScopedFilter(env, "studio_campaigns", currentFilters, currentValues, userId);
+      currentCampaign = await env.DB.prepare(`SELECT * FROM studio_campaigns WHERE ${currentFilters.join(" AND ")}`)
+        .bind(...currentValues)
+        .first<Record<string, unknown>>();
+      if (!currentCampaign) return errorResponse("Campaign not found", 404);
+    }
     const updates: string[] = [];
     const values: unknown[] = [];
     if (payload.app_id !== undefined) { updates.push("app_id = ?"); values.push(Number(payload.app_id)); }
@@ -1151,11 +1208,19 @@ export async function updateStudioCampaign(env: Env, campaignId: string, request
     }
     const nextCampaignType = payload.campaign_type === "reply" ? "reply" : payload.campaign_type === "post" ? "post" : undefined;
     const nextPlatforms = payload.platforms !== undefined ? normalizePlatforms(payload.platforms) : undefined;
+    const searchSurfacePlatforms = nextPlatforms ?? decodeList(currentCampaign?.platforms);
+    const nextSearchSurfaces = payload.search_surfaces !== undefined
+      ? normalizeSearchSurfaces(payload.search_surfaces, searchSurfacePlatforms)
+      : undefined;
     if (nextCampaignType === "reply" && nextPlatforms?.some((platform) => !isReplyCapableStudioPlatform(platform))) {
       return errorResponse("Reply campaigns are available for Twitter/X, Threads, and Reddit only.", 400);
     }
     if (payload.account_refs !== undefined) { updates.push("account_refs = ?"); values.push(stringifyJson(normalizeRefs(payload.account_refs))); }
     if (nextPlatforms !== undefined) { updates.push("platforms = ?"); values.push(stringifyJson(nextPlatforms)); }
+    if (nextSearchSurfaces !== undefined && await tableHasColumn(env, "studio_campaigns", "search_surfaces")) {
+      updates.push("search_surfaces = ?");
+      values.push(stringifyJson(nextSearchSurfaces));
+    }
     if (payload.instructions !== undefined) { updates.push("instructions = ?"); values.push(cleanText(payload.instructions)); }
     if (payload.status !== undefined) { updates.push("status = ?"); values.push(payload.status); }
     if (updates.length === 0) return errorResponse("No campaign fields to update", 400);
@@ -1225,6 +1290,7 @@ export async function createStudioCrawlerRun(
     let appId = Number(payload.app_id || 0);
     let accountRefs = normalizeRefs(payload.account_refs);
     let platforms = normalizePlatforms(payload.platforms);
+    let searchSurfaces = normalizeSearchSurfaces(payload.search_surfaces, platforms);
     let instructions = cleanText(payload.instructions);
     let campaignType: StudioCampaignType = payload.campaign_type === "reply" ? "reply" : "post";
     let resultLimit = normalizeResultLimit(payload.result_limit);
@@ -1241,6 +1307,7 @@ export async function createStudioCrawlerRun(
       appId = Number(campaign.app_id);
       if (accountRefs.length === 0) accountRefs = decodeList(campaign.account_refs);
       if (platforms.length === 0) platforms = decodeList(campaign.platforms);
+      if (searchSurfaces.length === 0) searchSurfaces = normalizeSearchSurfaces(campaign.search_surfaces, platforms);
       if (!instructions) instructions = cleanText(campaign.instructions);
       campaignType = campaign.campaign_type === "reply" ? "reply" : "post";
       resultLimit = normalizeResultLimit(campaign.result_limit, resultLimit);
@@ -1268,6 +1335,8 @@ export async function createStudioCrawlerRun(
       instructions,
       platforms,
       resultLimit,
+      userId,
+      searchSurfaces,
     });
     const crawlerInstructions = crawlerBriefToInstructions(brief);
     const now = nowIso();
@@ -1275,6 +1344,7 @@ export async function createStudioCrawlerRun(
       user_instructions: instructions,
       requested_results: resultLimit,
       requested_by_user_id: requestedByUserId,
+      search_surfaces: searchSurfaces,
       crawler_playbook: brief,
       crawler_playbook_generated_by_ai: generatedByAi,
       crawler_playbook_error: aiError ?? null,
@@ -1282,6 +1352,7 @@ export async function createStudioCrawlerRun(
     });
     const hasCampaignType = await tableHasColumn(env, "studio_crawler_runs", "campaign_type");
     const hasResultLimit = await tableHasColumn(env, "studio_crawler_runs", "result_limit");
+    const hasSearchSurfaces = await tableHasColumn(env, "studio_crawler_runs", "search_surfaces");
     const hasRequestedByUserId = await tableHasColumn(env, "studio_crawler_runs", "requested_by_user_id");
     const scoped = await scopedInsertColumns(env, "studio_crawler_runs", userId);
     const columns = [...scoped.columns];
@@ -1304,6 +1375,11 @@ export async function createStudioCrawlerRun(
       columns.push("result_limit");
       placeholders.push("?");
       values.push(resultLimit);
+    }
+    if (hasSearchSurfaces) {
+      columns.push("search_surfaces");
+      placeholders.push("?");
+      values.push(stringifyJson(searchSurfaces));
     }
     columns.push("account_refs", "platforms", "instructions", "status", "raw_data", "created_at", "updated_at");
     placeholders.push("?", "?", "?", "'pending'", "?", "?", "?");
@@ -1672,6 +1748,7 @@ export async function regenerateStudioStrategistPost(env: Env, postId: string, u
     await appendScopedFilter(env, "studio_strategist_posts", filters, values, userId, "ssp");
     const post = await env.DB.prepare(
       `SELECT ssp.*, sa.name AS app_name, sa.description AS app_description, sa.ai_context AS app_ai_context,
+              sa.app_profile_json AS app_profile_json,
               sc.name AS campaign_name, sc.instructions AS campaign_instructions,
               scr.instructions AS crawler_instructions, scr.campaign_type AS crawler_campaign_type
        FROM studio_strategist_posts ssp
@@ -1685,18 +1762,20 @@ export async function regenerateStudioStrategistPost(env: Env, postId: string, u
     if (!post) return errorResponse("Strategist post not found", 404);
     if (post.status === "posted") return errorResponse("Posted suggestions cannot be regenerated.", 400);
 
-    const settings = await readStudioAiSettings(env, userId);
+    const settings = await readResolvedAiSettings(env, userId);
     if (!settings.geminiApiKey) return errorResponse("No Gemini API key is configured", 500);
 
     const campaignType: StudioCampaignType = post.crawler_campaign_type === "reply" ? "reply" : "post";
     const isReply = campaignType === "reply"
       || Boolean(cleanText(post.target_external_id) || cleanText(post.target_url) || cleanText(post.target_text));
+    const appProfileText = formatStudioAppProfile(normalizeStudioAppProfile(post.app_profile_json));
     const promptLines = isReply
       ? [
           `Platform: ${normalizePlatform(post.platform)}`,
           `App: ${cleanText(post.app_name)}`,
           `App description: ${cleanText(post.app_description) || "None"}`,
           `App AI context: ${cleanText(post.app_ai_context) || "None"}`,
+          `App knowledge base:\n${appProfileText || "None"}`,
           `Campaign: ${cleanText(post.campaign_name) || "Unknown"}`,
           `Campaign instructions: ${cleanText(post.campaign_instructions) || cleanText(post.crawler_instructions) || "None"}`,
           `Comment author: ${cleanText(post.target_author) || "Unknown"}`,
@@ -1710,6 +1789,7 @@ export async function regenerateStudioStrategistPost(env: Env, postId: string, u
           `App: ${cleanText(post.app_name)}`,
           `App description: ${cleanText(post.app_description) || "None"}`,
           `App AI context: ${cleanText(post.app_ai_context) || "None"}`,
+          `App knowledge base:\n${appProfileText || "None"}`,
           `Campaign: ${cleanText(post.campaign_name) || "Unknown"}`,
           `Campaign instructions: ${cleanText(post.campaign_instructions) || cleanText(post.crawler_instructions) || "None"}`,
           `Previous post suggestion: ${cleanText(post.post_text) || "None"}`,
@@ -1731,7 +1811,11 @@ export async function regenerateStudioStrategistPost(env: Env, postId: string, u
           : "Keep it natural, useful, concise, non-spammy, and specific to the campaign context.",
         "Do not mention that you are AI. Do not use hashtags unless the context clearly needs them.",
         "Return JSON only: {\"post_text\":\"...\",\"idea\":\"...\",\"rationale\":\"...\"}.",
-        settings.globalAiRules ? `Global AI rules: ${settings.globalAiRules}` : "",
+        ...buildAiRuleSections(settings, {
+          includeSocial: true,
+          globalHeading: "Global AI rules",
+          socialHeading: "Social/content rules",
+        }),
       ].filter(Boolean).join("\n"),
       messages: [
         {

@@ -1,6 +1,8 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
+import { readResolvedAiSettings } from "../lib/ai-settings";
 import { parseTradingStrategyToJSON, type ParsedStrategy } from "../lib/gemini";
+import { DEFAULT_USER_ID } from "../lib/ownership";
 
 interface CreateStrategyPayload {
   name: string;
@@ -70,19 +72,6 @@ function normalizeAssets(input: unknown): string[] {
   }
 
   return [];
-}
-
-async function readDashboardGeminiKey(env: Env): Promise<string> {
-  const rows = await env.DB.prepare(
-    "SELECT key, value FROM app_settings WHERE key = 'gemini_api_key'",
-  ).all<{ key: string; value: string }>();
-
-  for (const row of rows.results ?? []) {
-    if (row.key === "gemini_api_key" && row.value) {
-      return row.value;
-    }
-  }
-  return "";
 }
 
 function logStrategyEvent(event: string, strategy: TradingStrategyRow | null, extra: Record<string, unknown> = {}) {
@@ -223,7 +212,7 @@ export async function getStrategy(env: Env, strategyId: string): Promise<Respons
   }
 }
 
-export async function createStrategy(env: Env, request: Request): Promise<Response> {
+export async function createStrategy(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const payload = await parseJson<CreateStrategyPayload>(request);
     const assets = normalizeAssets(payload.assets);
@@ -248,9 +237,14 @@ export async function createStrategy(env: Env, request: Request): Promise<Respon
     let parsedStrategyStr: string | null = null;
     if (String(payload.strategy_text || "").trim()) {
       try {
-        const geminiKey = await readDashboardGeminiKey(env);
-        if (geminiKey) {
-          const parsed = await parseTradingStrategyToJSON(payload.strategy_text!, geminiKey);
+        const aiSettings = await readResolvedAiSettings(env, userId);
+        if (aiSettings.geminiApiKey) {
+          const parsed = await parseTradingStrategyToJSON(
+            payload.strategy_text!,
+            aiSettings.geminiApiKey,
+            aiSettings.geminiProModel,
+            aiSettings.globalAiRules,
+          );
           parsedStrategyStr = JSON.stringify(parsed);
         }
       } catch (err) {
@@ -350,6 +344,7 @@ export async function updateStrategy(
   env: Env,
   strategyId: string,
   request: Request,
+  userId = DEFAULT_USER_ID,
 ): Promise<Response> {
   try {
     const id = Number(strategyId);
@@ -382,9 +377,14 @@ export async function updateStrategy(
 
       let parsedStrategyStr: string | null = null;
       try {
-        const geminiKey = await readDashboardGeminiKey(env);
-        if (geminiKey) {
-          const parsed = await parseTradingStrategyToJSON(text, geminiKey);
+        const aiSettings = await readResolvedAiSettings(env, userId);
+        if (aiSettings.geminiApiKey) {
+          const parsed = await parseTradingStrategyToJSON(
+            text,
+            aiSettings.geminiApiKey,
+            aiSettings.geminiProModel,
+            aiSettings.globalAiRules,
+          );
           parsedStrategyStr = JSON.stringify(parsed);
         }
       } catch (err) {

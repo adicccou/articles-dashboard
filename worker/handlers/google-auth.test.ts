@@ -53,7 +53,7 @@ describe("Google dashboard auth", () => {
 
     expect(response.status).toBe(303);
     expect(response.headers.get("Location")).toBe(
-      "https://oilor.app/?auth_error=google_not_configured",
+      "https://oilor.app/signin?auth_error=google_not_configured",
     );
   });
 

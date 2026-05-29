@@ -542,6 +542,31 @@
   width: min(680px, 100%);
 }
 
+.config-modal--app {
+  max-height: min(92vh, 1100px);
+  width: min(960px, 100%);
+}
+
+.config-form-section {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+}
+
+.config-form-section__header h3 {
+  color: #0f172a;
+  font-size: 1rem;
+  line-height: 1.3;
+  margin: 0;
+}
+
+.config-form-section__body {
+  display: grid;
+  gap: 14px;
+}
+
 .config-modal__actions {
   align-items: center;
   display: flex;

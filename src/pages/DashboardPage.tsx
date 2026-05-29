@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { TrashIcon } from "@heroicons/react/24/solid";
 import type { ArticleRecord, Site, ArticleCategory, AppSettings, AppSettingsInput } from "../lib/types";
 import type { NavView } from "../components/TopNav";
 import type { DashboardSurface } from "../lib/surface";
+import { ArticlesOverview } from "../components/ArticlesOverview";
 import { ArticleEditor } from "../components/ArticleEditor";
 import { SocialAgentsPage } from "./SocialAgentsPage";
 import { StudioPage } from "./StudioPage";
@@ -12,13 +12,12 @@ import { PlannerPage } from "./PlannerPage";
 import { ViewErrorBoundary } from "../components/ViewErrorBoundary";
 import { StatisticsPage } from "./StatisticsPage";
 import { RepliesPage } from "./RepliesPage";
-import { formatDisplayDate, formatDisplayTime } from "../lib/datetime";
-import { normalizeDashboardMediaUrl } from "../lib/mediaUrl";
 import "../styles/articles-page.css";
 import "../styles/trading-page.css";
 
 type DashboardPageProps = {
   view: NavView;
+  onNavigate: (view: NavView) => void;
   articles: ArticleRecord[];
   sites: Site[];
   categories: ArticleCategory[];
@@ -55,6 +54,7 @@ type DashboardPageProps = {
 
 export function DashboardPage({
   view,
+  onNavigate,
   articles,
   sites,
   categories,
@@ -100,7 +100,7 @@ export function DashboardPage({
     }
 
     if (view === "studio") {
-      return <StudioPage onUpload={onUpload} />;
+      return <StudioPage onUpload={onUpload} onNavigate={onNavigate} />;
     }
 
     if (view === "config") {
@@ -128,79 +128,17 @@ export function DashboardPage({
     }
 
     return (
-      <section className="panel articles-overview">
-        <div className="articles-overview__content">
-          <div className="panel__title-row">
-            <div className="actions">
-              <button onClick={() => {
-                onSelectArticle(undefined);
-                setIsCreatingArticle(true);
-              }}>New article</button>
-            </div>
-          </div>
-          <div className="table articles-table">
-            <div className="table__row table__row--header">
-              <span>Title</span>
-              <span>Category</span>
-              <span>Status</span>
-              <span>Sites</span>
-              <span>Updated</span>
-            </div>
-            {articles.map((article) => (
-              <div className="table__row article-row" key={article.id} onClick={() => onSelectArticle(article)}>
-                <span className="article-row__title">
-                  {article.cover_image ? (
-                    <img
-                      className="article-row__thumbnail"
-                      src={normalizeDashboardMediaUrl(article.cover_image)}
-                      alt=""
-                      loading="lazy"
-                    />
-                  ) : null}
-                  <span className="article-row__title-copy">
-                    <span className="article-row__title-text">{article.title}</span>
-                    <span className="article-row__title-meta">
-                      <span className="article-row__slug">/{article.slug}</span>
-                      {article.excerpt ? (
-                        <span className="article-row__excerpt">{article.excerpt}</span>
-                      ) : null}
-                    </span>
-                  </span>
-                </span>
-                <span className="article-row__category">{article.category?.name || "Uncategorized"}</span>
-                <span>
-                  <span className={`social-status-pill article-status-pill article-status-pill--${article.status}`}>
-                    {article.status}
-                  </span>
-                </span>
-                <span>
-                  <span className="social-status-pill article-sites-pill">
-                    {article.site_ids.length} {article.site_ids.length === 1 ? "site" : "sites"}
-                  </span>
-                </span>
-                <span className="article-row__updated">
-                  <strong>{formatDisplayDate(article.updated_at, false)}</strong>
-                  <small>{formatDisplayTime(article.updated_at)}</small>
-                </span>
-                <button
-                  className="article-row__delete dashboard-icon-button"
-                  type="button"
-                  aria-label={`Delete ${article.title}`}
-                  title={`Delete ${article.title}`}
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    if (confirm(`Delete "${article.title}"? This cannot be undone.`)) {
-                      await onDeleteArticle(article.id);
-                    }
-                  }}
-                >
-                  <TrashIcon aria-hidden="true" />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+      <ArticlesOverview
+        articles={articles}
+        onNewArticle={() => {
+          onSelectArticle(undefined);
+          setIsCreatingArticle(true);
+        }}
+        onSelectArticle={onSelectArticle}
+        onDeleteArticle={async (article) => {
+          await onDeleteArticle(article.id);
+        }}
+      />
     );
   }
   return <ViewErrorBoundary resetKey={`${view}-${selectedArticle?.id ?? "none"}-main`} >{renderView()}</ViewErrorBoundary>;

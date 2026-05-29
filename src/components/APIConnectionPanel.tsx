@@ -4,12 +4,19 @@ import type { DashboardSurface } from "../lib/surface";
 import "../styles/api-connection-panel.css";
 
 export type SettingsTabId = "general" | "ai" | "rules" | "trading" | "agent";
+type AiApiMode = "oilor_default" | "custom";
+
+const DEFAULT_AI_MODEL = "gemini-3.1-flash-preview";
 
 interface APIConnectionPanelProps {
   activeTab?: SettingsTabId;
   surface?: DashboardSurface;
   aiApiConnected?: boolean;
-  geminiApiConnected?: boolean;
+  aiApiMode?: AiApiMode;
+  aiApiProviderLabel?: string;
+  aiModel?: string;
+  customAiApiKeySaved?: boolean;
+  defaultAiApiConnected?: boolean;
   geminiFlashModel?: string;
   geminiProModel?: string;
   globalAiRules?: string;
@@ -27,6 +34,9 @@ interface APIConnectionPanelProps {
   ctraderAccessTokenSaved?: boolean;
   syncMessage?: string | null;
   onSave?: (payload: {
+    ai_api_mode?: AiApiMode;
+    ai_model?: string;
+    custom_ai_api_key?: string;
     gemini_api_key?: string;
     gemini_flash_model?: string;
     gemini_pro_model?: string;
@@ -62,7 +72,11 @@ export function APIConnectionPanel({
   activeTab = "general",
   surface = "marketing",
   aiApiConnected,
-  geminiApiConnected,
+  aiApiMode = "oilor_default",
+  aiApiProviderLabel,
+  aiModel,
+  customAiApiKeySaved,
+  defaultAiApiConnected,
   geminiFlashModel = "",
   geminiProModel = "",
   globalAiRules = "",
@@ -85,9 +99,10 @@ export function APIConnectionPanel({
   description = "Shared settings used across all tools. Keep one AI API configuration here instead of repeating it in each section.",
   showIntro = true,
 }: APIConnectionPanelProps) {
-  const [geminiKey, setGeminiKey] = useState("");
-  const [geminiFlash, setGeminiFlash] = useState(geminiFlashModel);
-  const [geminiPro, setGeminiPro] = useState(geminiProModel);
+  const currentAiModel = aiModel || geminiFlashModel || geminiProModel || DEFAULT_AI_MODEL;
+  const [selectedAiMode, setSelectedAiMode] = useState<AiApiMode>(aiApiMode);
+  const [customAiKey, setCustomAiKey] = useState("");
+  const [aiModelValue, setAiModelValue] = useState(currentAiModel);
   const [globalRules, setGlobalRules] = useState(globalAiRules);
   const [socialRules, setSocialRules] = useState(socialAgentRules);
   const [timezoneValue, setTimezoneValue] = useState(workspaceTimezone);
@@ -99,19 +114,19 @@ export function APIConnectionPanel({
   const [ctraderAccountIdValue, setCtraderAccountIdValue] = useState(ctraderAccountId);
   const [ctraderDemoAccountIdValue, setCtraderDemoAccountIdValue] = useState(ctraderDemoAccountId);
   const [ctraderLiveAccountIdValue, setCtraderLiveAccountIdValue] = useState(ctraderLiveAccountId);
-  const [testingConnection, setTestingConnection] = useState<string | null>(null);
+  const [savingAi, setSavingAi] = useState(false);
   const [savingAgent, setSavingAgent] = useState(false);
   const [savingCtrader, setSavingCtrader] = useState(false);
   const [savingGeneral, setSavingGeneral] = useState(false);
   const [savingRules, setSavingRules] = useState(false);
 
   useEffect(() => {
-    setGeminiFlash(geminiFlashModel);
-  }, [geminiFlashModel]);
+    setSelectedAiMode(aiApiMode);
+  }, [aiApiMode]);
 
   useEffect(() => {
-    setGeminiPro(geminiProModel);
-  }, [geminiProModel]);
+    setAiModelValue(currentAiModel);
+  }, [currentAiModel]);
 
   useEffect(() => {
     setAgentUrl(tradingAgentUrl);
@@ -145,16 +160,12 @@ export function APIConnectionPanel({
     setCtraderLiveAccountIdValue(ctraderLiveAccountId);
   }, [ctraderLiveAccountId]);
 
-  const handleTestConnection = async (service: string) => {
-    setTestingConnection(service);
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    setTestingConnection(null);
-  };
-
   const buildPayload = () => ({
-    gemini_api_key: geminiKey || undefined,
-    gemini_flash_model: geminiFlash,
-    gemini_pro_model: geminiPro,
+    ai_api_mode: selectedAiMode,
+    ai_model: aiModelValue.trim() || DEFAULT_AI_MODEL,
+    custom_ai_api_key: customAiKey.trim() || undefined,
+    gemini_flash_model: aiModelValue.trim() || DEFAULT_AI_MODEL,
+    gemini_pro_model: aiModelValue.trim() || DEFAULT_AI_MODEL,
     global_ai_rules: globalRules,
     social_agent_rules: socialRules,
     workspace_timezone: timezoneValue.trim() || "Asia/Kuala_Lumpur",
@@ -171,12 +182,12 @@ export function APIConnectionPanel({
   const hasUnsavedAgentChanges =
     agentUrl !== tradingAgentUrl ||
     agentToken.trim().length > 0 ||
-    geminiFlash !== geminiFlashModel ||
-    geminiPro !== geminiProModel ||
+    selectedAiMode !== aiApiMode ||
+    aiModelValue !== currentAiModel ||
     globalRules !== globalAiRules ||
     socialRules !== socialAgentRules ||
     timezoneValue !== workspaceTimezone ||
-    geminiKey.trim().length > 0;
+    customAiKey.trim().length > 0;
 
   const tabMeta: Record<SettingsTabId, { title: string; description: string }> = {
     general: {
@@ -209,6 +220,12 @@ export function APIConnectionPanel({
 
   const currentTab = tabMeta[activeTab];
   const showTabIntro = showIntro && activeTab !== "general";
+  const defaultApiReady = defaultAiApiConnected ?? (aiApiMode === "oilor_default" ? Boolean(aiApiConnected) : true);
+  const customApiReady = Boolean(customAiApiKeySaved);
+  const customModeNeedsKey = selectedAiMode === "custom" && !customApiReady && customAiKey.trim().length === 0;
+  const activeProviderLabel =
+    selectedAiMode === "custom" ? "Custom AI API" : aiApiProviderLabel ?? "Oilor.app free AI API";
+  const activeAiConnected = selectedAiMode === "custom" ? customApiReady || customAiKey.trim().length > 0 : defaultApiReady;
 
   return (
     <div className="api-panel">
@@ -256,54 +273,113 @@ export function APIConnectionPanel({
       <div className={`api-panel__section ${activeTab === "ai" ? "" : "api-panel__section--hidden"}`}>
         <div className="api-panel__header">
           <h4>Shared AI API Settings</h4>
-          <span className={`api-panel__status ${aiApiConnected ? "connected" : "disconnected"}`}>
-            <ConnectionStatus connected={Boolean(aiApiConnected)} />
+          <span className={`api-panel__status ${activeAiConnected ? "connected" : "disconnected"}`}>
+            <ConnectionStatus connected={Boolean(activeAiConnected)} />
           </span>
         </div>
         <div className="api-panel__inputs">
-          <input
-            type="password"
-            placeholder="Primary AI API Key"
-            value={geminiKey}
-            onChange={(e) => setGeminiKey(e.target.value)}
-            className="api-panel__input"
-          />
-          <input
-            type="text"
-            placeholder="Primary scan model"
-            value={geminiFlash}
-            onChange={(e) => setGeminiFlash(e.target.value)}
-            className="api-panel__input"
-          />
-          <input
-            type="text"
-            placeholder="Primary reasoning model"
-            value={geminiPro}
-            onChange={(e) => setGeminiPro(e.target.value)}
-            className="api-panel__input"
-          />
-          <button
-            onClick={async () => {
-              await onSave?.(buildPayload());
-              setGeminiKey("");
-              setAgentToken("");
-              setCtraderClientSecret("");
-              setCtraderAccessToken("");
-              handleTestConnection("ai");
-            }}
-            disabled={testingConnection === "ai"}
-            className="api-panel__button"
-          >
-            {testingConnection === "ai" ? "Testing..." : "Save AI Settings"}
-          </button>
+          <div className="api-panel__choice-row" role="radiogroup" aria-label="AI API source">
+            <button
+              type="button"
+              className={`api-panel__choice ${selectedAiMode === "oilor_default" ? "api-panel__choice--active" : ""}`}
+              onClick={() => setSelectedAiMode("oilor_default")}
+              aria-pressed={selectedAiMode === "oilor_default"}
+            >
+              <span>Oilor.app free API</span>
+              <small>{defaultApiReady ? "Connected by default" : "Default key not configured"}</small>
+            </button>
+            <button
+              type="button"
+              className={`api-panel__choice ${selectedAiMode === "custom" ? "api-panel__choice--active" : ""}`}
+              onClick={() => setSelectedAiMode("custom")}
+              aria-pressed={selectedAiMode === "custom"}
+            >
+              <span>Use my API key</span>
+              <small>{customApiReady ? "Custom key saved" : "Connect your own key"}</small>
+            </button>
+          </div>
+
+          <label className="api-panel__field">
+            <span className="api-panel__field-label">AI API</span>
+            <input
+              type="password"
+              placeholder={
+                selectedAiMode === "custom"
+                  ? customApiReady
+                    ? "Custom API key saved. Enter a new key only to replace it."
+                    : "Paste your Gemini API key"
+                  : "Oilor.app free AI API is connected. No key needed."
+              }
+              value={customAiKey}
+              onChange={(e) => setCustomAiKey(e.target.value)}
+              disabled={selectedAiMode === "oilor_default"}
+              className="api-panel__input"
+            />
+          </label>
+
+          <label className="api-panel__field">
+            <span className="api-panel__field-label">AI Model</span>
+            <input
+              type="text"
+              placeholder={DEFAULT_AI_MODEL}
+              value={aiModelValue}
+              onChange={(e) => setAiModelValue(e.target.value)}
+              className="api-panel__input"
+            />
+          </label>
+
+          <div className="api-panel__button-row">
+            <button
+              onClick={async () => {
+                setSavingAi(true);
+                try {
+                  await onSave?.({
+                    ai_api_mode: selectedAiMode,
+                    ai_model: aiModelValue.trim() || DEFAULT_AI_MODEL,
+                    custom_ai_api_key: customAiKey.trim() || undefined,
+                    gemini_flash_model: aiModelValue.trim() || DEFAULT_AI_MODEL,
+                    gemini_pro_model: aiModelValue.trim() || DEFAULT_AI_MODEL,
+                  });
+                  setCustomAiKey("");
+                } finally {
+                  setSavingAi(false);
+                }
+              }}
+              disabled={savingAi || customModeNeedsKey}
+              className="api-panel__button"
+            >
+              {savingAi ? "Saving..." : "Save AI Settings"}
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                setSavingAi(true);
+                try {
+                  setSelectedAiMode("oilor_default");
+                  setCustomAiKey("");
+                  await onSave?.({
+                    ai_api_mode: "oilor_default",
+                    ai_model: aiModelValue.trim() || DEFAULT_AI_MODEL,
+                    custom_ai_api_key: "",
+                    gemini_flash_model: aiModelValue.trim() || DEFAULT_AI_MODEL,
+                    gemini_pro_model: aiModelValue.trim() || DEFAULT_AI_MODEL,
+                  });
+                } finally {
+                  setSavingAi(false);
+                }
+              }}
+              disabled={savingAi}
+              className="api-panel__button api-panel__button--secondary"
+            >
+              Reset to Free Oilor API
+            </button>
+          </div>
         </div>
         <p className="api-panel__helper">
-          {surface === "trading"
-            ? "Gemini Flash-Lite handles low-cost diagnostics, while Gemini Pro handles deeper trading reasoning."
-            : "Gemini Flash-Lite handles low-cost scan triage, while Gemini Pro handles deeper marketing and social reasoning."}
+          Active source: {activeProviderLabel}. The default Oilor API stays hidden and free for users; custom keys are stored privately when a user chooses their own API.
         </p>
         <p className="api-panel__helper">
-          Current status: Gemini {geminiApiConnected ? "connected" : "not connected"}.
+          Current status: {activeProviderLabel} {activeAiConnected ? "connected" : "not connected"}.
         </p>
       </div>
 

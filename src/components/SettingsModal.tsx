@@ -8,6 +8,11 @@ type SettingsModalProps = {
   surface: DashboardSurface;
   settings: {
     ai_api_connected: boolean;
+    ai_api_mode?: "oilor_default" | "custom";
+    ai_api_provider_label?: string;
+    ai_model?: string;
+    custom_ai_api_key_saved?: boolean;
+    default_ai_api_connected?: boolean;
     gemini_api_connected?: boolean;
     gemini_flash_model?: string;
     gemini_pro_model?: string;
@@ -55,7 +60,7 @@ export function SettingsModal({
           id: "ai" as const,
           label: "AI API",
           eyebrow: "AI API",
-          status: settings.ai_api_connected ? "Connected" : "Needs setup",
+          status: settings.ai_api_connected ? settings.ai_api_provider_label ?? "Connected" : "Needs setup",
           tone: settings.ai_api_connected ? "connected" : "disconnected",
         },
         {
@@ -86,6 +91,7 @@ export function SettingsModal({
     },
     [
       settings.ai_api_connected,
+      settings.ai_api_provider_label,
       settings.ctrader_connected,
       settings.global_ai_rules,
       settings.social_agent_rules,
@@ -132,7 +138,11 @@ export function SettingsModal({
           activeTab={activeTab}
           surface={surface}
           aiApiConnected={settings.ai_api_connected}
-          geminiApiConnected={settings.gemini_api_connected}
+          aiApiMode={settings.ai_api_mode}
+          aiApiProviderLabel={settings.ai_api_provider_label}
+          aiModel={settings.ai_model}
+          customAiApiKeySaved={settings.custom_ai_api_key_saved}
+          defaultAiApiConnected={settings.default_ai_api_connected}
           geminiFlashModel={settings.gemini_flash_model}
           geminiProModel={settings.gemini_pro_model}
           globalAiRules={settings.global_ai_rules}

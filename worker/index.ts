@@ -244,6 +244,443 @@ function renderLegalPage(title: string, description: string, body: string): Resp
   });
 }
 
+function renderMarketingHomePage(includeBody = true): Response {
+  const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Oilor Studio | Plan, draft, and publish in one place</title>
+    <meta
+      name="description"
+      content="Oilor Studio brings research, drafting, scheduling, and publishing into one clean workflow for small app teams."
+    />
+    <link rel="icon" type="image/png" sizes="256x256" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/favicon.png" />
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f6f1;
+        --panel: rgba(255, 255, 255, 0.82);
+        --panel-strong: #ffffff;
+        --text: #13211d;
+        --muted: #5f6f68;
+        --border: rgba(19, 33, 29, 0.1);
+        --accent: #1f7a5a;
+        --accent-strong: #15553e;
+        --accent-soft: rgba(31, 122, 90, 0.12);
+        --shadow: 0 24px 80px rgba(19, 33, 29, 0.12);
+      }
+      * { box-sizing: border-box; }
+      html { background: var(--bg); }
+      body {
+        margin: 0;
+        color: var(--text);
+        font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(31, 122, 90, 0.16), transparent 28%),
+          radial-gradient(circle at top right, rgba(226, 165, 67, 0.12), transparent 24%),
+          linear-gradient(180deg, #fbfcf8 0%, var(--bg) 100%);
+      }
+      a { color: inherit; text-decoration: none; }
+      .page {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 24px 20px 56px;
+      }
+      .nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 8px 0 28px;
+      }
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+      }
+      .brand-mark {
+        width: 40px;
+        height: 40px;
+        border-radius: 14px;
+        display: grid;
+        place-items: center;
+        color: white;
+        background: linear-gradient(135deg, var(--accent) 0%, #0f3e2e 100%);
+        box-shadow: 0 14px 30px rgba(21, 85, 62, 0.24);
+      }
+      .brand-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .brand-copy small {
+        color: var(--muted);
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .nav-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .button,
+      .button-ghost {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 46px;
+        padding: 0 18px;
+        border-radius: 999px;
+        font-weight: 700;
+        font-size: 0.95rem;
+        transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease, border-color 140ms ease;
+      }
+      .button {
+        background: var(--accent);
+        color: white;
+        box-shadow: 0 18px 32px rgba(21, 85, 62, 0.24);
+      }
+      .button:hover,
+      .button-ghost:hover {
+        transform: translateY(-1px);
+      }
+      .button-ghost {
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.66);
+        backdrop-filter: blur(18px);
+      }
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+        gap: 28px;
+        align-items: stretch;
+      }
+      .hero-copy,
+      .hero-preview,
+      .feature-card,
+      .cta-strip {
+        border: 1px solid var(--border);
+        background: var(--panel);
+        backdrop-filter: blur(18px);
+        box-shadow: var(--shadow);
+      }
+      .hero-copy {
+        border-radius: 34px;
+        padding: 34px;
+      }
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        margin-bottom: 18px;
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      h1 {
+        margin: 0;
+        max-width: 12ch;
+        font-size: clamp(2.9rem, 6vw, 5.5rem);
+        line-height: 0.94;
+        letter-spacing: -0.05em;
+      }
+      .hero-copy p {
+        margin: 20px 0 0;
+        max-width: 44rem;
+        color: var(--muted);
+        font-size: 1.06rem;
+        line-height: 1.75;
+      }
+      .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+        margin-top: 28px;
+      }
+      .hero-notes {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 26px;
+      }
+      .note-chip {
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.72);
+        border: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+      .hero-preview {
+        border-radius: 34px;
+        padding: 22px;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+      .preview-topline {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+      .preview-screen {
+        flex: 1;
+        border-radius: 26px;
+        padding: 20px;
+        background: linear-gradient(180deg, #13211d 0%, #1d312b 100%);
+        color: #eff7f2;
+        display: grid;
+        gap: 14px;
+      }
+      .preview-panel {
+        border-radius: 18px;
+        padding: 16px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .preview-panel strong,
+      .preview-list strong {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 0.95rem;
+      }
+      .preview-panel p,
+      .preview-list li {
+        margin: 0;
+        color: rgba(239, 247, 242, 0.82);
+        font-size: 0.92rem;
+        line-height: 1.55;
+      }
+      .preview-list {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .preview-list ul {
+        margin: 0;
+        padding-left: 18px;
+      }
+      .section {
+        margin-top: 24px;
+      }
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 18px;
+      }
+      .feature-card {
+        border-radius: 26px;
+        padding: 24px;
+      }
+      .feature-card h2 {
+        margin: 0 0 12px;
+        font-size: 1.2rem;
+      }
+      .feature-card p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+      .cta-strip {
+        margin-top: 24px;
+        border-radius: 30px;
+        padding: 24px 26px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+      }
+      .cta-strip h3 {
+        margin: 0 0 8px;
+        font-size: 1.3rem;
+      }
+      .cta-strip p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.65;
+      }
+      .footer {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 18px;
+        padding: 8px 2px 0;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+      .footer-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+      }
+      @media (max-width: 960px) {
+        .hero,
+        .feature-grid,
+        .preview-list,
+        .cta-strip {
+          grid-template-columns: 1fr;
+        }
+        .cta-strip {
+          display: grid;
+        }
+      }
+      @media (max-width: 720px) {
+        .page {
+          padding: 18px 16px 40px;
+        }
+        .nav {
+          align-items: flex-start;
+          flex-direction: column;
+          padding-bottom: 20px;
+        }
+        .nav-actions,
+        .hero-actions {
+          width: 100%;
+        }
+        .nav-actions a,
+        .hero-actions a {
+          flex: 1 1 220px;
+        }
+        .hero-copy,
+        .hero-preview,
+        .feature-card,
+        .cta-strip {
+          border-radius: 24px;
+          padding: 22px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="nav">
+        <a class="brand" href="/">
+          <span class="brand-mark">O</span>
+          <span class="brand-copy">
+            <span>Oilor Studio</span>
+            <small>Marketing OS</small>
+          </span>
+        </a>
+        <div class="nav-actions">
+          <a class="button-ghost" href="/signin">Sign in</a>
+          <a class="button" href="/dashboard">Open dashboard</a>
+        </div>
+      </header>
+
+      <section class="hero">
+        <div class="hero-copy">
+          <span class="eyebrow">Plan, draft, schedule, publish</span>
+          <h1>Run your app marketing from one calm workspace.</h1>
+          <p>
+            Oilor Studio keeps your research, content ideas, post drafts, and publishing calendar in one place.
+            It is built for small app teams that want a simple system instead of juggling notes, spreadsheets, and social tabs.
+          </p>
+          <div class="hero-actions">
+            <a class="button" href="/signin">Sign in</a>
+            <a class="button-ghost" href="/dashboard">Open dashboard</a>
+          </div>
+          <div class="hero-notes">
+            <span class="note-chip">Studio agents for idea generation</span>
+            <span class="note-chip">Planner for cross-channel scheduling</span>
+            <span class="note-chip">One workspace for content ops</span>
+          </div>
+        </div>
+
+        <div class="hero-preview">
+          <div class="preview-topline">
+            <span>What the workflow looks like</span>
+            <strong>Simple by design</strong>
+          </div>
+          <div class="preview-screen">
+            <div class="preview-panel">
+              <strong>Studio agents</strong>
+              <p>Turn pain points, audience signals, and product angles into post ideas that are ready for your calendar.</p>
+            </div>
+            <div class="preview-list">
+              <div class="preview-panel">
+                <strong>Planner</strong>
+                <ul>
+                  <li>See the week at a glance</li>
+                  <li>Keep one posting rhythm across channels</li>
+                </ul>
+              </div>
+              <div class="preview-panel">
+                <strong>Publishing flow</strong>
+                <ul>
+                  <li>Draft once</li>
+                  <li>Schedule with less manual work</li>
+                </ul>
+              </div>
+            </div>
+            <div class="preview-panel">
+              <strong>Built for focused teams</strong>
+              <p>Keep the operating system light: decide what to say, shape the message, and ship it without building a bigger process than you need.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section feature-grid">
+        <article class="feature-card">
+          <h2>Find the right content angle</h2>
+          <p>Use Studio agents to collect audience pain points, shape post ideas, and keep your messaging tied to what people are already talking about.</p>
+        </article>
+        <article class="feature-card">
+          <h2>Stay consistent without overbuilding</h2>
+          <p>Planner gives you one simple place to organize daily posts, manage assets, and keep the next slot clear across social channels.</p>
+        </article>
+        <article class="feature-card">
+          <h2>Keep the operation understandable</h2>
+          <p>Instead of scattered tools and hidden context, Oilor keeps the workflow readable so you can move faster and still know what is going on.</p>
+        </article>
+      </section>
+
+      <section class="cta-strip">
+        <div>
+          <h3>Ready to get back into the workspace?</h3>
+          <p>Open the dashboard, continue planning, and keep your publishing pipeline moving.</p>
+        </div>
+        <div class="nav-actions">
+          <a class="button-ghost" href="/signin">Sign in</a>
+          <a class="button" href="/dashboard">Go to dashboard</a>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <span>Oilor Studio for app marketing workflows</span>
+        <div class="footer-links">
+          <a href="/legal/terms">Terms</a>
+          <a href="/legal/privacy">Privacy</a>
+          <a href="/legal/data-deletion">Data deletion</a>
+        </div>
+      </footer>
+    </main>
+  </body>
+</html>`;
+
+  return new Response(includeBody ? html : null, {
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "public, max-age=300",
+    },
+  });
+}
+
 function handleLegalPage(pathname: string): Response | null {
   if (pathname === "/legal/privacy") {
     return renderLegalPage(
@@ -313,6 +750,30 @@ function handleLegalPage(pathname: string): Response | null {
   }
 
   return null;
+}
+
+async function handleMarketingHomeRequest(request: Request, env: Env): Promise<Response | null> {
+  if (getWorkerSurface(env) !== "marketing") return null;
+  const url = new URL(request.url);
+  if (url.pathname !== "/" || (request.method !== "GET" && request.method !== "HEAD")) return null;
+
+  if (await validateSession(request, env)) {
+    return Response.redirect(new URL("/dashboard", request.url).toString(), 303);
+  }
+
+  return renderMarketingHomePage(request.method === "GET");
+}
+
+async function handleMarketingSignInRequest(request: Request, env: Env): Promise<Response | null> {
+  if (getWorkerSurface(env) !== "marketing") return null;
+  const url = new URL(request.url);
+  if (url.pathname !== "/signin" || (request.method !== "GET" && request.method !== "HEAD")) return null;
+
+  if (await validateSession(request, env)) {
+    return Response.redirect(new URL("/dashboard", request.url).toString(), 303);
+  }
+
+  return env.ASSETS.fetch(request);
 }
 
 async function requireAuth(request: Request, env: Env): Promise<Response | null> {
@@ -1081,6 +1542,16 @@ export default {
         return handleMcpRequest(request, env, ctx);
       }
 
+      const marketingHome = await handleMarketingHomeRequest(request, env);
+      if (marketingHome) {
+        return marketingHome;
+      }
+
+      const marketingSignIn = await handleMarketingSignInRequest(request, env);
+      if (marketingSignIn) {
+        return marketingSignIn;
+      }
+
       const legalPage = handleLegalPage(url.pathname);
       if (legalPage && request.method === "GET") {
         return legalPage;
@@ -1457,7 +1928,7 @@ export default {
     if (url.pathname === "/api/internal/settings/ctrader/complete" && request.method === "POST") {
       const unauthorized = await requireAgentAuth(request, env);
       if (unauthorized) return unauthorized;
-      return await completeCtraderConnectionFromAgent(env, request, url.origin);
+      return await completeCtraderConnectionFromAgent(env, request, url.origin, getWorkerSurface(env));
     }
 
     if (url.pathname.startsWith("/api/internal/social/threads/campaign-results/") && request.method === "PUT") {
@@ -1644,21 +2115,21 @@ export default {
     }
 
     if (url.pathname === "/api/articles/assist" && request.method === "POST") {
-      const unauthorized = await requireAuth(request, env);
-      if (unauthorized) return unauthorized;
-      return suggestArticleField(env, request);
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      return suggestArticleField(env, request, activeScopeId(user));
     }
 
     if (url.pathname === "/api/articles/generate-cover" && request.method === "POST") {
-      const unauthorized = await requireAuth(request, env);
-      if (unauthorized) return unauthorized;
-      return generateArticleCover(env, request);
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      return generateArticleCover(env, request, activeScopeId(user));
     }
 
     if (url.pathname === "/api/articles/style-content" && request.method === "POST") {
-      const unauthorized = await requireAuth(request, env);
-      if (unauthorized) return unauthorized;
-      return styleArticleContent(env, request);
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      return styleArticleContent(env, request, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/articles/") && request.method === "DELETE") {
@@ -1711,19 +2182,19 @@ export default {
     if (url.pathname === "/api/settings" && request.method === "GET") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return getAppSettings(env, activeScopeId(user));
+      return getAppSettings(env, activeScopeId(user), getWorkerSurface(env));
     }
 
     if (url.pathname === "/api/settings" && request.method === "PUT") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return updateAppSettings(env, request, url.origin, activeScopeId(user));
+      return updateAppSettings(env, request, url.origin, activeScopeId(user), getWorkerSurface(env));
     }
 
     if (url.pathname === "/api/settings/sync-agent" && request.method === "POST") {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
-      return syncAgentFromSettings(env, url.origin, activeScopeId(user));
+      return syncAgentFromSettings(env, url.origin, activeScopeId(user), getWorkerSurface(env));
     }
 
     if (url.pathname.startsWith("/api/media/") && (request.method === "GET" || request.method === "HEAD")) {
@@ -1917,9 +2388,9 @@ export default {
     }
 
     if (url.pathname === "/api/trading/strategies" && request.method === "POST") {
-      const unauthorized = await requireAuth(request, env);
-      if (unauthorized) return unauthorized;
-      return await createStrategy(env, request);
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      return await createStrategy(env, request, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/trading/strategies/") && request.method === "GET" && !url.pathname.includes("/stats") && !url.pathname.includes("/executions")) {
@@ -1930,33 +2401,33 @@ export default {
     }
 
     if (url.pathname.startsWith("/api/trading/strategies/") && request.method === "PUT") {
-      const unauthorized = await requireAuth(request, env);
-      if (unauthorized) return unauthorized;
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
-      return await updateStrategy(env, id, request);
+      return await updateStrategy(env, id, request, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/trading/strategies/") && url.pathname.endsWith("/activate") && request.method === "POST") {
-      const unauthorized = await requireAuth(request, env);
-      if (unauthorized) return unauthorized;
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
       const response = await activateStrategy(env, id);
       if (!response.ok) {
         return response;
       }
-      await syncAgentFromSettings(env, url.origin);
+      await syncAgentFromSettings(env, url.origin, activeScopeId(user), getWorkerSurface(env));
       return response;
     }
 
     if (url.pathname.startsWith("/api/trading/strategies/") && url.pathname.endsWith("/deactivate") && request.method === "POST") {
-      const unauthorized = await requireAuth(request, env);
-      if (unauthorized) return unauthorized;
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
       const id = url.pathname.split("/")[4];
       const response = await deactivateStrategy(env, id);
       if (!response.ok) {
         return response;
       }
-      await syncAgentFromSettings(env, url.origin);
+      await syncAgentFromSettings(env, url.origin, activeScopeId(user), getWorkerSurface(env));
       return response;
     }
 

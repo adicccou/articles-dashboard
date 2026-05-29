@@ -1,8 +1,21 @@
 import { errorResponse, jsonResponse, parseJson } from "../lib/http";
+import {
+  CUSTOM_AI_API_MODE,
+  DEFAULT_AI_API_MODE,
+  DEFAULT_AI_MODEL,
+  normalizeAiApiMode,
+  resolveAiModel,
+  resolveAiSettings,
+} from "../lib/ai-settings";
 import { DEFAULT_USER_ID, ownerId, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
 import type { Env } from "../lib/types";
 
+type DashboardSurface = "marketing" | "trading";
+
 type StoredSettings = {
+  ai_api_mode: string;
+  ai_model: string;
+  custom_ai_api_key: string;
   gemini_api_key: string;
   gemini_flash_model: string;
   gemini_pro_model: string;
@@ -46,9 +59,12 @@ type StoredSettings = {
 type SettingsPayload = Partial<StoredSettings>;
 
 const DEFAULTS: StoredSettings = {
+  ai_api_mode: DEFAULT_AI_API_MODE,
+  ai_model: DEFAULT_AI_MODEL,
+  custom_ai_api_key: "",
   gemini_api_key: "",
-  gemini_flash_model: "",
-  gemini_pro_model: "",
+  gemini_flash_model: DEFAULT_AI_MODEL,
+  gemini_pro_model: DEFAULT_AI_MODEL,
   global_ai_rules: "",
   social_agent_rules: "",
   workspace_timezone: "Asia/Kuala_Lumpur",
@@ -153,12 +169,21 @@ async function upsertSetting(
     .run();
 }
 
-function publicSettings(settings: StoredSettings) {
+function publicSettings(env: Env, settings: StoredSettings) {
+  const aiSettings = resolveAiSettings(env, settings);
+  const aiApiConnected = aiSettings.aiApiMode === CUSTOM_AI_API_MODE
+    ? aiSettings.customApiKeySaved
+    : aiSettings.defaultApiAvailable;
   return {
-    ai_api_connected: Boolean(settings.gemini_api_key),
-    gemini_api_connected: Boolean(settings.gemini_api_key),
-    gemini_flash_model: settings.gemini_flash_model,
-    gemini_pro_model: settings.gemini_pro_model,
+    ai_api_connected: aiApiConnected,
+    ai_api_mode: aiSettings.aiApiMode,
+    ai_api_provider_label: aiSettings.aiApiMode === CUSTOM_AI_API_MODE ? "Custom AI API" : "Oilor.app free AI API",
+    ai_model: aiSettings.aiModel,
+    custom_ai_api_key_saved: aiSettings.customApiKeySaved,
+    default_ai_api_connected: aiSettings.defaultApiAvailable,
+    gemini_api_connected: aiApiConnected,
+    gemini_flash_model: aiSettings.geminiFlashModel,
+    gemini_pro_model: aiSettings.geminiProModel,
     global_ai_rules: settings.global_ai_rules,
     social_agent_rules: settings.social_agent_rules,
     workspace_timezone: settings.workspace_timezone,
@@ -198,16 +223,57 @@ function publicSettings(settings: StoredSettings) {
   };
 }
 
+function publicSettingsForSurface(
+  env: Env,
+  settings: StoredSettings,
+  surface: DashboardSurface,
+) {
+  const payload = publicSettings(env, settings);
+  if (surface === "trading") {
+    return payload;
+  }
+
+  return {
+    ai_api_connected: payload.ai_api_connected,
+    ai_api_mode: payload.ai_api_mode,
+    ai_api_provider_label: payload.ai_api_provider_label,
+    ai_model: payload.ai_model,
+    custom_ai_api_key_saved: payload.custom_ai_api_key_saved,
+    default_ai_api_connected: payload.default_ai_api_connected,
+    gemini_api_connected: payload.gemini_api_connected,
+    gemini_flash_model: payload.gemini_flash_model,
+    gemini_pro_model: payload.gemini_pro_model,
+    global_ai_rules: payload.global_ai_rules,
+    social_agent_rules: payload.social_agent_rules,
+    workspace_timezone: payload.workspace_timezone,
+    trading_agent_url: "",
+    trading_agent_connected: false,
+    trading_agent_token_saved: false,
+    ctrader_client_id: "",
+    ctrader_account_id: "",
+    ctrader_demo_account_id: "",
+    ctrader_live_account_id: "",
+    ctrader_connected: false,
+    ctrader_client_secret_saved: false,
+    ctrader_access_token_saved: false,
+    updated_at: payload.updated_at ?? null,
+  };
+}
+
 function internalAgentSettings(
+  env: Env,
   settings: StoredSettings,
   strategy?: Pick<ActiveStrategy, "execution_mode">,
 ) {
   const customLean = publicCustomLeanSettings(settings);
   const mlTrading = publicMlTradingSettings(settings);
+  const aiSettings = resolveAiSettings(env, settings);
   return {
-    gemini_api_key: settings.gemini_api_key,
-    gemini_flash_model: settings.gemini_flash_model,
-    gemini_pro_model: settings.gemini_pro_model,
+    ai_api_mode: aiSettings.aiApiMode,
+    ai_model: aiSettings.aiModel,
+    gemini_api_key: aiSettings.geminiApiKey,
+    gemini_flash_model: aiSettings.geminiFlashModel,
+    gemini_pro_model: aiSettings.geminiProModel,
     global_ai_rules: settings.global_ai_rules,
     social_agent_rules: settings.social_agent_rules,
     timezone: settings.workspace_timezone,
@@ -503,6 +569,7 @@ type ActiveStrategy = {
 };
 
 async function syncTradingAgent(
+  env: Env,
   settings: StoredSettings,
   strategy?: ActiveStrategy,
   dashboardOrigin?: string,
@@ -518,12 +585,15 @@ async function syncTradingAgent(
   }
   const customLean = publicCustomLeanSettings(settings);
   const mlTrading = publicMlTradingSettings(settings);
+  const aiSettings = resolveAiSettings(env, settings);
 
   const payload: Record<string, unknown> = {
     dashboard_api_url: dashboardOrigin ?? "",
-    gemini_api_key: settings.gemini_api_key,
-    gemini_flash_model: settings.gemini_flash_model,
-    gemini_pro_model: settings.gemini_pro_model,
+    ai_api_mode: aiSettings.aiApiMode,
+    ai_model: aiSettings.aiModel,
+    gemini_api_key: aiSettings.geminiApiKey,
+    gemini_flash_model: aiSettings.geminiFlashModel,
+    gemini_pro_model: aiSettings.geminiProModel,
     strategy_active: Boolean(strategy),
     strategy_name: "",
     timezone: settings.workspace_timezone,
@@ -638,10 +708,14 @@ async function getActiveStrategy(env: Env): Promise<ActiveStrategy | undefined> 
   }
 }
 
-export async function getAppSettings(env: Env, userId = DEFAULT_USER_ID): Promise<Response> {
+export async function getAppSettings(
+  env: Env,
+  userId = DEFAULT_USER_ID,
+  surface: DashboardSurface = "marketing",
+): Promise<Response> {
   try {
     const settings = await readSettings(env, userId);
-    return jsonResponse(publicSettings(settings));
+    return jsonResponse(publicSettingsForSurface(env, settings, surface));
   } catch {
     return errorResponse("Failed to load app settings", 500);
   }
@@ -651,7 +725,7 @@ export async function getInternalAgentSettings(env: Env): Promise<Response> {
   try {
     const settings = await readSettings(env);
     const activeStrategy = await getActiveStrategy(env);
-    return jsonResponse(internalAgentSettings(settings, activeStrategy));
+    return jsonResponse(internalAgentSettings(env, settings, activeStrategy));
   } catch {
     return errorResponse("Failed to load internal agent settings", 500);
   }
@@ -662,6 +736,7 @@ export async function updateAppSettings(
   request: Request,
   dashboardOrigin?: string,
   userId = DEFAULT_USER_ID,
+  surface: DashboardSurface = "marketing",
 ): Promise<Response> {
   try {
     const settingUserId = ownerId(userId);
@@ -671,14 +746,54 @@ export async function updateAppSettings(
     const normalizedPayload = Object.fromEntries(
       Object.entries(payload).filter(([, value]) => value !== undefined && value !== null),
     ) as Record<string, unknown>;
+    if (surface !== "trading") {
+      delete normalizedPayload.trading_agent_url;
+      delete normalizedPayload.trading_agent_token;
+      delete normalizedPayload.ctrader_client_id;
+      delete normalizedPayload.ctrader_client_secret;
+      delete normalizedPayload.ctrader_access_token;
+      delete normalizedPayload.ctrader_account_id;
+      delete normalizedPayload.ctrader_demo_account_id;
+      delete normalizedPayload.ctrader_live_account_id;
+      delete normalizedPayload.custom_lean_active;
+      delete normalizedPayload.custom_lean_risk_usd_min;
+      delete normalizedPayload.custom_lean_risk_usd_max;
+      delete normalizedPayload.custom_lean_worker_risk_overrides;
+      delete normalizedPayload.custom_lean_worker_confidence_overrides;
+      delete normalizedPayload.custom_lean_max_open_trades_per_worker;
+      delete normalizedPayload.custom_lean_execution_mode;
+      delete normalizedPayload.custom_lean_disabled_worker_ids;
+      delete normalizedPayload.custom_lean_deleted_worker_ids;
+      delete normalizedPayload.ml_trading_active;
+      delete normalizedPayload.ml_trading_risk_usd_min;
+      delete normalizedPayload.ml_trading_risk_usd_max;
+      delete normalizedPayload.ml_trading_asset_risk_overrides;
+      delete normalizedPayload.ml_trading_asset_confidence_overrides;
+      delete normalizedPayload.ml_trading_enabled_assets;
+    }
     const next: StoredSettings = {
       ...current,
       ...(normalizedPayload as Partial<StoredSettings>),
     };
+    if (payload.gemini_api_key !== undefined && payload.custom_ai_api_key === undefined) {
+      next.custom_ai_api_key = String(payload.gemini_api_key ?? "").trim();
+      next.ai_api_mode = CUSTOM_AI_API_MODE;
+      next.gemini_api_key = current.gemini_api_key;
+    }
+    next.ai_api_mode = normalizeAiApiMode(next.ai_api_mode);
+    if (payload.ai_api_mode !== undefined && normalizeAiApiMode(payload.ai_api_mode) === DEFAULT_AI_API_MODE) {
+      next.custom_ai_api_key = "";
+    }
+    next.ai_model = resolveAiModel(next);
+    next.gemini_flash_model = next.ai_model;
+    next.gemini_pro_model = next.ai_model;
     const updatedAt = new Date().toISOString();
     const saveSetting = (key: keyof StoredSettings, value: string) =>
       upsertSetting(env, key, value, updatedAt, settingUserId);
 
+    await saveSetting("ai_api_mode", next.ai_api_mode);
+    await saveSetting("ai_model", next.ai_model);
+    await saveSetting("custom_ai_api_key", next.custom_ai_api_key);
     await saveSetting("gemini_api_key", next.gemini_api_key);
     await saveSetting("gemini_flash_model", next.gemini_flash_model);
     await saveSetting("gemini_pro_model", next.gemini_pro_model);
@@ -712,8 +827,10 @@ export async function updateAppSettings(
     await saveSetting("threads_access_token", next.threads_access_token);
     await saveSetting("threads_user_id", next.threads_user_id);
 
-    let syncResult: { ok: boolean; message: string } | null = null;
-    if (
+    const shouldSyncTradingRuntime = surface === "trading" && (
+      payload.ai_api_mode !== undefined ||
+      payload.ai_model !== undefined ||
+      payload.custom_ai_api_key !== undefined ||
       payload.gemini_api_key !== undefined ||
       payload.gemini_flash_model !== undefined ||
       payload.gemini_pro_model !== undefined ||
@@ -744,9 +861,12 @@ export async function updateAppSettings(
       payload.twitter_access_secret !== undefined ||
       payload.threads_access_token !== undefined ||
       payload.threads_user_id !== undefined
-    ) {
+    );
+
+    let syncResult: { ok: boolean; message: string } | null = null;
+    if (shouldSyncTradingRuntime) {
       try {
-        syncResult = await syncTradingAgent(next, savedActiveStrategy, dashboardOrigin);
+        syncResult = await syncTradingAgent(env, next, savedActiveStrategy, dashboardOrigin);
       } catch (error) {
         syncResult = {
           ok: false,
@@ -756,7 +876,7 @@ export async function updateAppSettings(
     }
 
     return jsonResponse({
-      ...publicSettings({ ...next, updated_at: updatedAt }),
+      ...publicSettingsForSurface(env, { ...next, updated_at: updatedAt }, surface),
       sync_result: syncResult,
     });
   } catch {
@@ -907,7 +1027,7 @@ export async function updateCustomLeanSettings(
 
     let syncResult: { ok: boolean; message: string } | null = null;
     try {
-      syncResult = await syncTradingAgent(next, activeStrategy, dashboardOrigin);
+      syncResult = await syncTradingAgent(env, next, activeStrategy, dashboardOrigin);
     } catch (error) {
       syncResult = {
         ok: false,
@@ -949,7 +1069,7 @@ export async function updateMlTradingSettings(
 
     let syncResult: { ok: boolean; message: string } | null = null;
     try {
-      syncResult = await syncTradingAgent(next, activeStrategy, dashboardOrigin);
+      syncResult = await syncTradingAgent(env, next, activeStrategy, dashboardOrigin);
     } catch (error) {
       syncResult = {
         ok: false,
@@ -970,11 +1090,15 @@ export async function syncAgentFromSettings(
   env: Env,
   dashboardOrigin?: string,
   userId = DEFAULT_USER_ID,
+  surface: DashboardSurface = "marketing",
 ): Promise<Response> {
+  if (surface !== "trading") {
+    return errorResponse("Not found", 404);
+  }
   try {
     const settings = await readSettings(env, userId);
     const activeStrategy = await getActiveStrategy(env);
-    const result = await syncTradingAgent(settings, activeStrategy, dashboardOrigin);
+    const result = await syncTradingAgent(env, settings, activeStrategy, dashboardOrigin);
     return jsonResponse(result);
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Failed to sync trading agent", 500);
@@ -985,7 +1109,11 @@ export async function completeCtraderConnectionFromAgent(
   env: Env,
   request: Request,
   dashboardOrigin?: string,
+  surface: DashboardSurface = "marketing",
 ): Promise<Response> {
+  if (surface !== "trading") {
+    return errorResponse("Not found", 404);
+  }
   try {
     const payload = await parseJson<{
       ctrader_client_id?: string;
@@ -1040,7 +1168,7 @@ export async function completeCtraderConnectionFromAgent(
     let syncResult: { ok: boolean; message: string } | null = null;
     try {
       const activeStrategy = await getActiveStrategy(env);
-      syncResult = await syncTradingAgent(next, activeStrategy, dashboardOrigin);
+      syncResult = await syncTradingAgent(env, next, activeStrategy, dashboardOrigin);
     } catch (error) {
       syncResult = {
         ok: false,
@@ -1049,7 +1177,7 @@ export async function completeCtraderConnectionFromAgent(
     }
 
     return jsonResponse({
-      ...publicSettings({ ...next, updated_at: updatedAt }),
+      ...publicSettings(env, { ...next, updated_at: updatedAt }),
       sync_result: syncResult,
     });
   } catch (error) {

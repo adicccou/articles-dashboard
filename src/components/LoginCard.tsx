@@ -8,6 +8,7 @@ type LoginCardProps = {
   mode?: "google" | "fallback";
   googleAuthConfigured?: boolean;
   notice?: string | null;
+  returnTo?: string;
   onSubmit: (username: string, password: string, remember: boolean) => Promise<void>;
 };
 
@@ -16,6 +17,7 @@ export function LoginCard({
   mode = "google",
   googleAuthConfigured = true,
   notice,
+  returnTo = "",
   onSubmit,
 }: LoginCardProps) {
   const [username, setUsername] = useState("admin");
@@ -25,6 +27,10 @@ export function LoginCard({
   const [error, setError] = useState<string | null>(null);
   const isFallbackMode = mode === "fallback";
   const dashboardLabel = surface === "trading" ? "Trading Dashboard" : "Marketing Dashboard";
+  const effectiveReturnTo = returnTo || "/dashboard";
+  const googleLoginHref = `/api/auth/google/authorize?return_to=${encodeURIComponent(effectiveReturnTo)}`;
+  const fallbackHref = `/fallbacksign?return_to=${encodeURIComponent(effectiveReturnTo)}`;
+  const signInHref = `/signin${returnTo ? `?return_to=${encodeURIComponent(returnTo)}` : ""}`;
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -40,7 +46,7 @@ export function LoginCard({
   }
 
   function handleGoogleLogin() {
-    window.location.href = "/api/auth/google/authorize";
+    window.location.href = googleLoginHref;
   }
 
   return (
@@ -95,7 +101,7 @@ export function LoginCard({
               {busy ? "Signing in..." : "Sign in"}
             </button>
           </form>
-          <a className="login-card__fallback-link" href="/">
+          <a className="login-card__fallback-link" href={signInHref}>
             Back to Google sign in
           </a>
         </>
@@ -116,7 +122,7 @@ export function LoginCard({
             <FcGoogle aria-hidden="true" />
             {googleAuthConfigured ? "Continue with Google" : "Google sign-in not configured"}
           </button>
-          <a className="login-card__fallback-link" href="/fallbacksign">
+          <a className="login-card__fallback-link" href={fallbackHref}>
             Use password fallback
           </a>
         </>

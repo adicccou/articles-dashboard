@@ -8,7 +8,9 @@ import {
 } from "@heroicons/react/24/solid";
 import { ModalCloseButton } from "../components/ModalCloseButton";
 import { SectionTabs } from "../components/SectionTabs";
+import type { NavView } from "../components/TopNav";
 import { api } from "../lib/api";
+import { hasStudioAppConnection, STUDIO_APP_CONNECTION_REQUIREMENT } from "../lib/studioApps";
 import type { StudioAccount, StudioCampaign, StudioCrawlerRun, StudioSignal, StudioStrategistPost, StudioSummary } from "../lib/types";
 import { formatDisplayDateTime } from "../lib/datetime";
 import { normalizeDashboardMediaUrl } from "../lib/mediaUrl";
@@ -18,6 +20,7 @@ type Platform = "twitter" | "threads" | "reddit" | "instagram" | "linkedin";
 
 type StudioPageProps = {
   onUpload: (file: File) => Promise<{ key: string; url: string }>;
+  onNavigate?: (view: NavView) => void;
 };
 
 type CampaignForm = {
@@ -67,6 +70,16 @@ type PainTemplate = {
   output_mode?: PainOutputMode;
   depth?: PainDepth;
   search_surfaces?: string[];
+};
+
+type StudioSetupGate = {
+  blocked: boolean;
+  headline: string;
+  details: string[];
+  missingApp: boolean;
+  missingAccount: boolean;
+  appActionLabel: string;
+  accountActionLabel: string;
 };
 
 const PLATFORMS: Array<{ id: Platform; label: string }> = [
@@ -376,6 +389,47 @@ function buildPainSearchPlan(form: CampaignForm, appName?: string | null) {
   };
 }
 
+function buildStudioSetupGate(
+  tab: CrawlerTab,
+  activeAppCount: number,
+  configuredAppCount: number,
+  replyAccountCount: number,
+  searchPlatformCount: number,
+): StudioSetupGate {
+  const missingApp = configuredAppCount === 0;
+  const missingAccount = tab === "comments" ? replyAccountCount === 0 : searchPlatformCount === 0;
+  const details: string[] = [];
+
+  if (missingApp) {
+    details.push(
+      activeAppCount > 0
+        ? `Finish app setup first. Active apps need at least one ${STUDIO_APP_CONNECTION_REQUIREMENT} before Studio can use them.`
+        : `Add an active app with at least one ${STUDIO_APP_CONNECTION_REQUIREMENT} before starting Studio.`,
+    );
+  }
+
+  if (missingAccount) {
+    details.push(
+      tab === "comments"
+        ? "Connect at least one active Twitter/X, Threads, or Reddit account before creating a comment searcher."
+        : "Connect at least one active Twitter/X, Threads, or Reddit account with search access before creating a pain-point agent.",
+    );
+  }
+
+  return {
+    blocked: missingApp || missingAccount,
+    headline:
+      tab === "comments"
+        ? "Complete setup before creating a comment searcher."
+        : "Complete setup before creating a pain-point agent.",
+    details,
+    missingApp,
+    missingAccount,
+    appActionLabel: activeAppCount > 0 ? "Finish app setup" : "Add app",
+    accountActionLabel: tab === "comments" ? "Connect reply account" : "Connect search account",
+  };
+}
+
 function statusTone(status: string) {
   if (["active", "completed", "scheduled", "posted"].includes(status)) return "success";
   if (["pending", "running", "suggested", "asset_needed", "candidate", "filtered"].includes(status)) return "info";
@@ -599,7 +653,7 @@ function StudioIcon({ name }: { name: StudioIconName }) {
   return <Icon aria-hidden="true" className="h-4 w-4" />;
 }
 
-export function StudioPage({ onUpload }: StudioPageProps) {
+export function StudioPage({ onUpload, onNavigate }: StudioPageProps) {
   const [summary, setSummary] = useState<StudioSummary>({
     accounts: [],
     apps: [],
@@ -689,9 +743,14 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     return () => window.clearInterval(refreshId);
   }, [activeStudioRuns.length, campaignModalOpen]);
 
-  const availableApps = useMemo(
+  const activeApps = useMemo(
     () => summary.apps.filter((app) => app.status === "active"),
     [summary.apps],
+  );
+
+  const availableApps = useMemo(
+    () => activeApps.filter(hasStudioAppConnection),
+    [activeApps],
   );
 
   const availableAccounts = useMemo(
@@ -775,6 +834,31 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     [availableAccounts],
   );
 
+  const setupGatesByTab = useMemo<Record<CrawlerTab, StudioSetupGate>>(() => ({
+    comments: buildStudioSetupGate("comments", activeApps.length, availableApps.length, availableReplyAccounts.length, availableSearchPlatforms.length),
+    "pain-points": buildStudioSetupGate("pain-points", activeApps.length, availableApps.length, availableReplyAccounts.length, availableSearchPlatforms.length),
+  }), [activeApps.length, availableApps.length, availableReplyAccounts.length, availableSearchPlatforms.length]);
+
+  function openConfigSetup(tab: "apps" | "accounts", modal: "app" | "account") {
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("config_tab", tab);
+      url.searchParams.set("config_modal", modal);
+      const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+      const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (nextUrl !== currentUrl) {
+        window.history.replaceState(window.history.state, "", nextUrl);
+      }
+      if (!onNavigate) {
+        window.location.assign(nextUrl);
+        return;
+      }
+    }
+    setError(null);
+    setFeedback(null);
+    onNavigate?.("config");
+  }
+
   function buildEmptyCampaignForm(tab: CrawlerTab = selectedCrawlerTab): CampaignForm {
     const tabConfig = CRAWLER_TABS.find((item) => item.id === tab) ?? CRAWLER_TABS[0];
     const replyAccount = availableReplyAccounts[0] ?? null;
@@ -806,6 +890,12 @@ export function StudioPage({ onUpload }: StudioPageProps) {
 
   function openCampaignModal(tab: CrawlerTab = selectedCrawlerTab) {
     setSelectedCrawlerTab(tab);
+    const setupGate = setupGatesByTab[tab];
+    if (setupGate.blocked) {
+      setError(setupGate.details.join(" "));
+      setFeedback(null);
+      return;
+    }
     setCampaignForm(buildEmptyCampaignForm(tab));
     setEditingCampaignId(null);
     setCampaignModalOpen(true);
@@ -999,16 +1089,9 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     event.preventDefault();
     const isReplyCampaign = campaignForm.campaign_type === "reply";
     const isPainAgent = !isReplyCampaign;
-    if (availableApps.length === 0) {
-      setError("Add an active app in Config first so Studio can attach crawler results.");
-      return;
-    }
-    if (isReplyCampaign && availableReplyAccounts.length === 0) {
-      setError("Connect an active Twitter/X, Threads, or Reddit account in Config first.");
-      return;
-    }
-    if (isPainAgent && availableSearchPlatforms.length === 0) {
-      setError("Connect an active Twitter/X, Threads, or Reddit account with search access first.");
+    const setupGate = setupGatesByTab[isReplyCampaign ? "comments" : "pain-points"];
+    if (setupGate.blocked) {
+      setError(setupGate.details.join(" "));
       return;
     }
     if (isPainAgent && !campaignForm.objective.trim()) {
@@ -1067,6 +1150,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
         campaign_type: campaignForm.campaign_type,
         result_limit: resultLimit,
         account_refs: accountRefs,
+        search_surfaces: campaignForm.search_surfaces,
         platforms: campaignForm.platforms,
         instructions,
         status: campaignForm.status,
@@ -1078,6 +1162,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
           const run = await api.createStudioCrawlerRun({
             campaign_id: editingCampaignId,
             result_limit: resultLimit,
+            search_surfaces: campaignForm.search_surfaces,
           });
           setSelectedCampaignId(editingCampaignId);
           setFeedback(`${studioId("CMP", editingCampaignId)} updated and ${studioId("CR", run.id)} queued. Progress will auto-refresh while the agent searches.`);
@@ -1089,6 +1174,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
         const run = await api.createStudioCrawlerRun({
           campaign_id: campaign.id,
           result_limit: resultLimit,
+          search_surfaces: campaignForm.search_surfaces,
         });
         setSelectedCampaignId(campaign.id);
         setFeedback(`${studioId("CMP", campaign.id)} created and ${studioId("CR", run.id)} queued. Progress will auto-refresh while the agent searches.`);
@@ -1122,10 +1208,21 @@ export function StudioPage({ onUpload }: StudioPageProps) {
   }
 
   async function rerunCampaign(campaign: StudioCampaign) {
+    const setupGate = setupGatesByTab[campaign.campaign_type === "reply" ? "comments" : "pain-points"];
+    if (setupGate.blocked) {
+      setError(setupGate.details.join(" "));
+      return;
+    }
+
     try {
       setRerunningCampaignId(campaign.id);
       setError(null);
-      const run = await api.createStudioCrawlerRun({ campaign_id: campaign.id });
+      const run = await api.createStudioCrawlerRun({
+        campaign_id: campaign.id,
+        search_surfaces: campaign.search_surfaces?.length
+          ? campaign.search_surfaces
+          : defaultSearchSurfacesForPlatforms(campaign.platforms as Platform[]),
+      });
       setFeedback(`${studioId("CR", run.id)} queued. Progress will auto-refresh while the agent searches.`);
       await load({ silent: true });
     } catch (err) {
@@ -1730,6 +1827,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     ? getCampaignDisplayStatus(selectedCampaign, selectedCampaignResults.runs)
     : null;
   const selectedCrawlerTabConfig = CRAWLER_TABS.find((tab) => tab.id === selectedCrawlerTab) ?? CRAWLER_TABS[0];
+  const selectedSetupGate = setupGatesByTab[selectedCrawlerTab];
   const visibleCampaigns = summary.campaigns.filter((campaign) => campaign.campaign_type === selectedCrawlerTabConfig.campaignType);
   const visibleActiveRunCount = visibleCampaigns.reduce((count, campaign) => {
     const runs = campaignResultsById.get(campaign.id)?.runs ?? [];
@@ -1900,7 +1998,12 @@ export function StudioPage({ onUpload }: StudioPageProps) {
               }))}
             />
             <div className="ui-tabs__actions studio-tabs__actions">
-              <button type="button" onClick={() => openCampaignModal(selectedCrawlerTab)}>
+              <button
+                type="button"
+                disabled={selectedSetupGate.blocked}
+                onClick={() => openCampaignModal(selectedCrawlerTab)}
+                title={selectedSetupGate.blocked ? selectedSetupGate.headline : undefined}
+              >
                 Create {selectedCrawlerTabConfig.label.toLowerCase()}
               </button>
               <button
@@ -1915,6 +2018,29 @@ export function StudioPage({ onUpload }: StudioPageProps) {
               </button>
             </div>
           </div>
+
+          {selectedSetupGate.blocked ? (
+            <div className="studio-setup-banner" aria-live="polite">
+              <div className="studio-setup-banner__details">
+                <strong>{selectedSetupGate.headline}</strong>
+                {selectedSetupGate.details.map((detail) => (
+                  <p key={detail}>{detail}</p>
+                ))}
+              </div>
+              <div className="studio-setup-banner__actions">
+                {selectedSetupGate.missingApp ? (
+                  <button type="button" onClick={() => openConfigSetup("apps", "app")}>
+                    {selectedSetupGate.appActionLabel}
+                  </button>
+                ) : null}
+                {selectedSetupGate.missingAccount ? (
+                  <button className="button-secondary" type="button" onClick={() => openConfigSetup("accounts", "account")}>
+                    {selectedSetupGate.accountActionLabel}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
 
           {visibleActiveRunCount > 0 ? (
             <div className="studio-run-banner" aria-live="polite">
@@ -2122,6 +2248,9 @@ export function StudioPage({ onUpload }: StudioPageProps) {
                     <option value={app.id} key={app.id}>{app.name}</option>
                   ))}
                 </select>
+                {availableApps.length === 0 ? (
+                  <small className="studio-muted">Finish app setup in Config. Studio needs at least one {STUDIO_APP_CONNECTION_REQUIREMENT}.</small>
+                ) : null}
               </label>
               <label>
                 {campaignFormIsCommentsCrawler ? "Name" : "Run name"}

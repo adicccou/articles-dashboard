@@ -1,15 +1,9 @@
 import type { Env } from "../lib/types";
 import { errorResponse, jsonResponse, parseJson } from "../lib/http";
 import { callAiText } from "../lib/ai";
+import { buildAiRuleSections, readResolvedAiSettings } from "../lib/ai-settings";
 import { formatGeminiUserError } from "../lib/gemini";
-import { DEFAULT_USER_ID, ownerId, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
-
-type ReplyAiSettings = {
-  geminiApiKey: string;
-  geminiFlashModel: string;
-  geminiProModel: string;
-  globalAiRules: string;
-};
+import { DEFAULT_USER_ID } from "../lib/ownership";
 
 type SuggestSocialReplyPayload = {
   platform?: string;
@@ -26,34 +20,6 @@ const REPLY_CHAR_LIMITS: Record<string, number> = {
   threads: 450,
   reddit: 700,
 };
-
-async function readReplyAiSettings(env: Env, userId = DEFAULT_USER_ID): Promise<ReplyAiSettings> {
-  const hasWorkspaceId = await tableHasWorkspaceId(env, "app_settings");
-  const hasUserId = await tableHasUserId(env, "app_settings");
-  const rows = await env.DB.prepare(
-    hasWorkspaceId
-      ? "SELECT key, value FROM app_settings WHERE workspace_id = ? AND key IN ('gemini_api_key', 'gemini_flash_model', 'gemini_pro_model', 'global_ai_rules')"
-      : hasUserId
-      ? "SELECT key, value FROM app_settings WHERE user_id = ? AND key IN ('gemini_api_key', 'gemini_flash_model', 'gemini_pro_model', 'global_ai_rules')"
-      : "SELECT key, value FROM app_settings WHERE key IN ('gemini_api_key', 'gemini_flash_model', 'gemini_pro_model', 'global_ai_rules')",
-  ).bind(...(hasWorkspaceId ? [workspaceId(userId)] : hasUserId ? [ownerId(userId)] : [])).all<{ key: string; value: string }>();
-
-  const settings: ReplyAiSettings = {
-    geminiApiKey: "",
-    geminiFlashModel: "gemini-3.1-flash-preview",
-    geminiProModel: "gemini-3.1-pro-preview",
-    globalAiRules: "",
-  };
-
-  for (const row of rows.results ?? []) {
-    if (row.key === "gemini_api_key" && row.value) settings.geminiApiKey = row.value;
-    if (row.key === "gemini_flash_model" && row.value) settings.geminiFlashModel = row.value;
-    if (row.key === "gemini_pro_model" && row.value) settings.geminiProModel = row.value;
-    if (row.key === "global_ai_rules" && row.value) settings.globalAiRules = row.value;
-  }
-
-  return settings;
-}
 
 function normalizePlatform(value: string | null | undefined): "twitter" | "threads" | "reddit" {
   const normalized = String(value ?? "").trim().toLowerCase();
@@ -166,7 +132,7 @@ function buildFallbackReply(payload: SuggestSocialReplyPayload, platform: "twitt
 export async function suggestSocialReply(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   let payload: SuggestSocialReplyPayload | null = null;
   try {
-    const settings = await readReplyAiSettings(env, userId);
+    const settings = await readResolvedAiSettings(env, userId);
     payload = await parseJson<SuggestSocialReplyPayload>(request);
     const platform = normalizePlatform(payload.platform);
     const commentText = String(payload.comment_text ?? "").trim();
@@ -199,7 +165,11 @@ export async function suggestSocialReply(env: Env, request: Request, userId = DE
         "Do not sound like customer support or an AI assistant.",
         "Do not use markdown, labels, bullet points, or surrounding quotation marks.",
         `Return only the reply text, and keep it under ${charLimit} characters.`,
-        settings.globalAiRules?.trim() ? `Global rules:\n${settings.globalAiRules.trim()}` : "",
+        ...buildAiRuleSections(settings, {
+          includeSocial: true,
+          globalHeading: "Global AI rules",
+          socialHeading: "Social/content rules",
+        }),
       ].filter(Boolean).join("\n\n"),
       messages: [
         {

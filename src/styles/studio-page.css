@@ -314,6 +314,45 @@
   border-radius: 8px;
 }
 
+.studio-setup-banner {
+  align-items: flex-start;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  justify-content: space-between;
+  margin: 0 16px 16px;
+  padding: 14px;
+}
+
+.studio-setup-banner__details {
+  display: grid;
+  gap: 6px;
+  min-width: min(420px, 100%);
+}
+
+.studio-setup-banner strong {
+  color: #92400e;
+  display: block;
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+
+.studio-setup-banner p {
+  color: #9a3412;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.studio-setup-banner__actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .studio-run-banner {
   align-items: center;
   display: flex;

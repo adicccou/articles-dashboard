@@ -41,6 +41,7 @@ import { publishThreadsPost } from "./threads";
 import { publishRedditPost } from "./reddit";
 import { publishExtraSocialPost } from "./social-accounts";
 import { DEFAULT_USER_ID, appendScopedFilter } from "../lib/ownership";
+import { buildAiRulesText, readResolvedAiSettings } from "../lib/ai-settings";
 import {
   CHATGPT_OAUTH_SCOPES,
   chatGptMcpResource,
@@ -65,6 +66,37 @@ const STUDIO_APP_STATUSES = ["active", "inactive", "archived"] as const;
 const STUDIO_CAMPAIGN_STATUSES = ["active", "paused", "archived"] as const;
 const STUDIO_POST_STATUSES = ["suggested", "asset_needed", "scheduled", "posted", "dismissed"] as const;
 const STUDIO_MEDIA_TYPES = ["none", "photo", "video"] as const;
+const studioAppProfileSchema = z.object({
+  category: z.string().optional(),
+  target_users: z.string().optional(),
+  skill_level: z.string().optional(),
+  not_for: z.string().optional(),
+  problem_before: z.string().optional(),
+  current_alternatives: z.array(z.string()).optional(),
+  frustrations: z.array(z.string()).optional(),
+  positioning_statement: z.string().optional(),
+  main_promise: z.string().optional(),
+  main_differentiation: z.string().optional(),
+  competitors: z.array(z.string()).optional(),
+  top_features: z.array(z.string()).optional(),
+  feature_benefits: z.array(z.string()).optional(),
+  screens_to_show: z.array(z.string()).optional(),
+  proof_points: z.array(z.string()).optional(),
+  example_cases: z.array(z.string()).optional(),
+  brand_tone: z.string().optional(),
+  words_to_use: z.array(z.string()).optional(),
+  words_to_avoid: z.array(z.string()).optional(),
+  forbidden_claims: z.array(z.string()).optional(),
+  best_platforms: z.array(z.string()).optional(),
+  content_angles: z.array(z.string()).optional(),
+  reply_style: z.string().optional(),
+  target_posts: z.array(z.string()).optional(),
+  reject_signals: z.array(z.string()).optional(),
+  pricing_summary: z.string().optional(),
+  main_cta: z.string().optional(),
+  offer_details: z.string().optional(),
+  agent_instructions: z.string().optional(),
+});
 const ACTIVE_PLANNER_STATUSES = new Set(["planned", "drafting", "approved"]);
 const ACTIVE_SOCIAL_STATUSES = new Set(["draft", "approved", "scheduled"]);
 const KL_OFFSET = "+08:00";
@@ -507,11 +539,47 @@ async function deleteStudioStrategistPost(env: Env, postId: number, deleteLinked
   };
 }
 
-function createBlogposterMcpServer(env: Env, requestUrl: string, auth: McpAuthContext) {
+async function createBlogposterMcpServer(env: Env, requestUrl: string, auth: McpAuthContext) {
+  const aiSettings = await readResolvedAiSettings(env, auth.scopeId);
+  const profileRulesText = buildAiRulesText(aiSettings, {
+    includeSocial: true,
+    globalHeading: "Profile global AI rules",
+    socialHeading: "Profile social/content rules",
+  });
+  const profileRulesReminder = profileRulesText
+    ? "Always obey the connected profile AI rules from get_profile_ai_rules and the server instructions."
+    : "";
   const server = new McpServer({
     name: "blogposter-dashboard",
     version: "1.0.0",
+  }, {
+    instructions: [
+      "This MCP server is connected to one Oilor Studio user profile and workspace.",
+      profileRulesText
+        ? `These profile rules are mandatory for every draft, edit, campaign, reply, schedule, and publish action:\n\n${profileRulesText}`
+        : "No custom profile AI rules are currently configured for this workspace.",
+      "If a requested action conflicts with the profile rules, do not proceed unchanged. Ask for clarification or produce a compliant alternative.",
+    ].join("\n\n"),
   });
+
+  server.registerTool(
+    "get_profile_ai_rules",
+    {
+      title: "Get profile AI rules",
+      description: "Read the connected user profile's required AI rules for this workspace. Use these rules as mandatory constraints for any drafting, editing, scheduling, or publishing work.",
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+      _meta: OAUTH_TOOL_META,
+      inputSchema: {},
+    },
+    async () => toolText({
+      scope_id: auth.scopeId,
+      workspace_id: auth.workspaceId,
+      global_ai_rules: aiSettings.globalAiRules || null,
+      social_agent_rules: aiSettings.socialAgentRules || null,
+      has_global_rules: Boolean(aiSettings.globalAiRules.trim()),
+      has_social_rules: Boolean(aiSettings.socialAgentRules.trim()),
+    }),
+  );
 
   if (auth.authMode === "internal") {
   server.registerTool(
@@ -560,6 +628,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string, auth: McpAuthCo
         articles_api_url: z.string().nullable().optional(),
         description: z.string().optional(),
         ai_context: z.string().optional(),
+        app_profile: studioAppProfileSchema.optional(),
         status: z.enum(STUDIO_APP_STATUSES).default("active"),
       },
     },
@@ -582,6 +651,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string, auth: McpAuthCo
         articles_api_url: z.string().nullable().optional(),
         description: z.string().optional(),
         ai_context: z.string().optional(),
+        app_profile: studioAppProfileSchema.optional(),
         status: z.enum(STUDIO_APP_STATUSES).optional(),
       },
     },
@@ -692,7 +762,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string, auth: McpAuthCo
     "create_marketing_crawler_run",
     {
       title: "Create marketing crawler run",
-      description: "Create a crawler/search planning run. This generates AI crawler instructions and search-query guidance; external crawlers can later save signals for the run. This only updates the dashboard; it does not publish externally.",
+      description: `Create a crawler/search planning run. This generates AI crawler instructions and search-query guidance; external crawlers can later save signals for the run. This only updates the dashboard; it does not publish externally.${profileRulesReminder ? ` ${profileRulesReminder}` : ""}`,
       annotations: PLANNING_TOOL_ANNOTATIONS,
       inputSchema: {
         campaign_id: z.number().int().positive().nullable().optional(),
@@ -759,7 +829,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string, auth: McpAuthCo
     "save_marketing_post_ideas",
     {
       title: "Save marketing post ideas",
-      description: "Save one or more AI-planned post/reply ideas into a Marketing Studio crawler run. Use after creating a crawler run or campaign plan. This only saves a plan inside the dashboard; it does not publish externally.",
+      description: `Save one or more AI-planned post/reply ideas into a Marketing Studio crawler run. Use after creating a crawler run or campaign plan. This only saves a plan inside the dashboard; it does not publish externally.${profileRulesReminder ? ` ${profileRulesReminder}` : ""}`,
       annotations: PLANNING_TOOL_ANNOTATIONS,
       inputSchema: {
         crawler_run_id: z.number().int().positive(),
@@ -786,7 +856,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string, auth: McpAuthCo
     "update_marketing_post_idea",
     {
       title: "Update marketing post idea",
-      description: "Edit a Studio strategist post idea before it is scheduled. This only updates the dashboard; it does not publish externally.",
+      description: `Edit a Studio strategist post idea before it is scheduled. This only updates the dashboard; it does not publish externally.${profileRulesReminder ? ` ${profileRulesReminder}` : ""}`,
       annotations: PLANNING_TOOL_ANNOTATIONS,
       inputSchema: {
         post_id: z.number().int().positive(),
@@ -811,7 +881,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string, auth: McpAuthCo
     "regenerate_marketing_post_idea",
     {
       title: "Regenerate marketing post idea",
-      description: "Ask the dashboard AI to regenerate a stronger version of one Studio strategist post idea. This only updates the dashboard; it does not publish externally.",
+      description: `Ask the dashboard AI to regenerate a stronger version of one Studio strategist post idea. This only updates the dashboard; it does not publish externally.${profileRulesReminder ? ` ${profileRulesReminder}` : ""}`,
       annotations: PLANNING_TOOL_ANNOTATIONS,
       inputSchema: {
         post_id: z.number().int().positive(),
@@ -905,7 +975,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string, auth: McpAuthCo
     "create_social_post",
     {
       title: "Create social post",
-      description: "Create a queued Oilor Studio social post. If autoschedule is true, the server selects the next free cross-platform slot. This only saves or schedules inside the dashboard; it does not publish externally.",
+      description: `Create a queued Oilor Studio social post. If autoschedule is true, the server selects the next free cross-platform slot. This only saves or schedules inside the dashboard; it does not publish externally.${profileRulesReminder ? ` ${profileRulesReminder}` : ""}`,
       annotations: PLANNING_TOOL_ANNOTATIONS,
       _meta: OAUTH_TOOL_META,
       inputSchema: {
@@ -986,7 +1056,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string, auth: McpAuthCo
     "update_social_post",
     {
       title: "Update social post",
-      description: "Update editable fields on an existing social post. Planner schedule is synced when scheduled_at is supplied. This only updates the dashboard; it does not publish externally.",
+      description: `Update editable fields on an existing social post. Planner schedule is synced when scheduled_at is supplied. This only updates the dashboard; it does not publish externally.${profileRulesReminder ? ` ${profileRulesReminder}` : ""}`,
       annotations: PLANNING_TOOL_ANNOTATIONS,
       _meta: OAUTH_TOOL_META,
       inputSchema: SOCIAL_POST_UPDATE_INPUT_SCHEMA,
@@ -1011,7 +1081,7 @@ function createBlogposterMcpServer(env: Env, requestUrl: string, auth: McpAuthCo
     "edit_social_post",
     {
       title: "Edit social post",
-      description: "Alias for update_social_post. Edit dashboard fields on an existing social post; this does not publish externally.",
+      description: `Alias for update_social_post. Edit dashboard fields on an existing social post; this does not publish externally.${profileRulesReminder ? ` ${profileRulesReminder}` : ""}`,
       annotations: PLANNING_TOOL_ANNOTATIONS,
       _meta: OAUTH_TOOL_META,
       inputSchema: SOCIAL_POST_UPDATE_INPUT_SCHEMA,
@@ -1130,7 +1200,7 @@ export async function handleMcpRequest(
   const auth = await resolveMcpAuthContext(handlerRequest, env);
   if (auth instanceof Response) return auth;
 
-  const handler = createMcpHandler(createBlogposterMcpServer(env, request.url, auth), {
+  const handler = createMcpHandler(await createBlogposterMcpServer(env, request.url, auth), {
     route: "/mcp",
   });
   const response = await handler(handlerRequest, env, ctx);
