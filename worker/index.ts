@@ -28,6 +28,7 @@ import {
 import { addRedditAccount, handleAuthorizeRequest, handleOAuthCallback, listInternalRedditAccounts, listRedditAccounts, updateRedditAccount, deleteRedditAccount } from "./handlers/reddit-auth";
 import { getKnowledgeBase, saveKnowledgeBase, getVersions, getVersion } from "./handlers/knowledge-base";
 import { listStrategies, getStrategy, createStrategy, updateStrategy, activateStrategy, deactivateStrategy, deleteStrategy, getStrategyStats, getStrategyExecutions, getActiveStrategyInternal } from "./handlers/trading";
+import { createLearningExperiment, listLearningExperiments, updateLearningExperiment } from "./handlers/ml-learning";
 import { generateArticleCover, styleArticleContent, suggestArticleField } from "./handlers/article-ai";
 import { suggestSocialReply } from "./handlers/social-replies";
 import {
@@ -2367,6 +2368,25 @@ export default {
       const user = await requireUser(request, env);
       if (isAuthResponse(user)) return user;
       return await getMlTradingDiagnostics(env, activeScopeId(user));
+    }
+
+    if (url.pathname === "/api/trading/ml/learning-experiments" && request.method === "GET") {
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      return await listLearningExperiments(env);
+    }
+
+    if (url.pathname === "/api/trading/ml/learning-experiments" && request.method === "POST") {
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      return await createLearningExperiment(env, request);
+    }
+
+    if (url.pathname.startsWith("/api/trading/ml/learning-experiments/") && request.method === "PUT") {
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      const id = url.pathname.split("/")[5];
+      return await updateLearningExperiment(env, id, request);
     }
 
     if (url.pathname === "/api/trading/ml/settings" && request.method === "GET") {

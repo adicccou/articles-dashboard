@@ -1,4 +1,4 @@
-import type { ArticleAssistPayload, ArticleCoverPayload, ArticleCoverResponse, ArticleInput, ArticleRecord, ArticleStylePayload, ArticleStyleResponse, AuthState, DashboardBootstrap, DashboardUser, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, RedditCampaign, RedditAccount, RedditSubscribedSubreddit, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, Site, SocialAccount, SocialAccountInput, SocialComment, SocialPost, SocialReplySuggestion, StudioAccount, StudioApp, StudioCampaign, StudioCrawlerRun, StudioSignal, StudioStrategistPost, StudioSummary, ThreadsCampaignResult, ThreadsInsightsResponse, ThreadsMediaResponse, TwitterInsightsResponse, InstagramInsightsResponse, LinkedInInsightsResponse, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorkersResponse, MlTradingAssetsResponse, MlTradingDiagnostics, MlTradingSettings } from "./types";
+import type { ArticleAssistPayload, ArticleCoverPayload, ArticleCoverResponse, ArticleInput, ArticleRecord, ArticleStylePayload, ArticleStyleResponse, AuthState, DashboardBootstrap, DashboardUser, ArticleCategory, KnowledgeBase, KnowledgeBaseVersion, TradingStrategy, TradingExecution, TradingStats, LearningReport, LearningSuggestion, MlLearningExperiment, RedditCampaign, RedditAccount, RedditSubscribedSubreddit, PlannerItem, TradingNote, PlannerItemInput, TradingNoteInput, AppSettings, AppSettingsInput, JournlStats, Site, SocialAccount, SocialAccountInput, SocialComment, SocialPost, SocialReplySuggestion, StudioAccount, StudioApp, StudioCampaign, StudioCrawlerRun, StudioSignal, StudioStrategistPost, StudioSummary, ThreadsCampaignResult, ThreadsInsightsResponse, ThreadsMediaResponse, TwitterInsightsResponse, InstagramInsightsResponse, LinkedInInsightsResponse, CustomLeanDiagnostics, CustomLeanSettings, CustomLeanWorkersResponse, MlTradingAssetsResponse, MlTradingDiagnostics, MlTradingSettings } from "./types";
 
 type SocialReplyPublishResponse = {
   success: boolean;
@@ -326,6 +326,23 @@ export const api = {
     }>("/api/trading/lean-status"),
   getLearningReport: () =>
     request<LearningReport>("/api/trading/learning-report"),
+  listMlLearningExperiments: () =>
+    request<MlLearningExperiment[]>("/api/trading/ml/learning-experiments"),
+  createMlLearningExperiment: (suggestion: LearningSuggestion, baseline?: { win_rate?: number; profit_factor?: number; total?: number }) =>
+    request<MlLearningExperiment>("/api/trading/ml/learning-experiments", {
+      method: "POST",
+      body: JSON.stringify({
+        ...suggestion,
+        baseline_win_rate: baseline?.win_rate,
+        baseline_profit_factor: baseline?.profit_factor,
+        baseline_trades: baseline?.total,
+      }),
+    }),
+  updateMlLearningExperiment: (id: number, payload: Partial<Pick<MlLearningExperiment, "status" | "candidate_win_rate" | "candidate_profit_factor" | "candidate_trades" | "avoided_losers" | "skipped_winners" | "notes">>) =>
+    request<MlLearningExperiment>(`/api/trading/ml/learning-experiments/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
   getJournlStats: () => request<JournlStats>("/api/stats/journl"),
 
   // Social posts (shared across Twitter and Threads)

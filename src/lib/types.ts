@@ -321,6 +321,31 @@ export type LearningReport = {
   error?: string;
 };
 
+export type MlLearningExperiment = {
+  id: number;
+  suggestion_key: string;
+  factor: string;
+  current_value: string;
+  recommended_value: string;
+  impact: string;
+  evidence: string;
+  expected_winrate: string;
+  status: "observing" | "applied" | "rejected" | "expired";
+  baseline_win_rate: number | null;
+  candidate_win_rate: number | null;
+  baseline_profit_factor: number | null;
+  candidate_profit_factor: number | null;
+  baseline_trades: number;
+  candidate_trades: number;
+  avoided_losers: number;
+  skipped_winners: number;
+  notes: string;
+  started_at: string;
+  ended_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type TradingExecution = {
   id: number;
   strategy_id: number;
