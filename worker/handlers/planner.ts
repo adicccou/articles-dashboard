@@ -2,6 +2,7 @@ import { jsonResponse, errorResponse, parseJson } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, scopedInsertColumns } from "../lib/ownership";
 import { socialPostsHaveLastError } from "../lib/social-publish";
 import type { Env } from "../lib/types";
+import { getSocialPostSchemaCapabilities } from "./twitter";
 
 type PlannerStatus = "planned" | "published";
 type LegacyPlannerStatus = PlannerStatus | "drafting" | "approved" | "archived";
@@ -16,6 +17,7 @@ interface PlannerItemPayload {
   scheduled_for?: string | null;
   social_post_id?: number | null;
   account_id?: number | null;
+  subreddit?: string | null;
   instruction?: string | null;
   interval_minutes?: number | null;
   duration_start?: string | null;
@@ -32,6 +34,171 @@ interface TradingNotePayload {
 
 function normalizePlannerStatus(status?: LegacyPlannerStatus | null): PlannerStatus {
   return status === "published" ? "published" : "planned";
+}
+
+const PUBLISHABLE_PLANNER_PLATFORMS = new Set(["threads", "twitter", "reddit", "instagram", "linkedin", "youtube"]);
+
+type PlannerPostRecord = Partial<PlannerItemPayload> & {
+  id?: number;
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+function cleanPlannerText(value: unknown): string {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function normalizePlannerPlatform(platform: unknown): string {
+  const value = cleanPlannerText(platform).toLowerCase();
+  if (["x", "twitter/x"].includes(value)) return "twitter";
+  if (value === "thread") return "threads";
+  if (value === "ig") return "instagram";
+  return value;
+}
+
+function plannerPostContent(record: Partial<PlannerItemPayload>): string {
+  const description = cleanPlannerText(record.description);
+  if (description) return description;
+  return cleanPlannerText(record.title)
+    .replace(/^(?:threads?|twitter\/x|twitter|x|reddit|instagram|ig|linkedin|youtube)\s+post\s*:\s*/i, "")
+    .trim();
+}
+
+function plannerSubreddit(record: Partial<PlannerItemPayload>): string {
+  const direct = cleanPlannerText(record.subreddit).replace(/^\/?r\//i, "");
+  if (direct) return direct;
+  const match = cleanPlannerText(record.instruction).match(/\bsubreddit\s*[:=]\s*(?:r\/)?([A-Za-z0-9_]{2,21})\b/i);
+  return match?.[1] ?? "";
+}
+
+function mergePlannerPostRecord(
+  current: PlannerPostRecord | null,
+  payload: Partial<PlannerItemPayload>,
+): PlannerPostRecord {
+  return {
+    ...(current ?? {}),
+    ...Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined)),
+  };
+}
+
+async function findReusableSocialPostId(
+  env: Env,
+  record: PlannerPostRecord,
+  userId: number,
+): Promise<number | null> {
+  const platform = normalizePlannerPlatform(record.platform);
+  const content = plannerPostContent(record);
+  if (!platform || !content) return null;
+
+  const filters = [
+    "sp.platform = ?",
+    "sp.content = ?",
+    "sp.status IN ('draft', 'scheduled', 'failed')",
+    "NOT EXISTS (SELECT 1 FROM planner_items linked WHERE linked.social_post_id = sp.id)",
+  ];
+  const values: unknown[] = [platform, content];
+  await appendScopedFilter(env, "social_posts", filters, values, userId, "sp");
+  const row = await env.DB.prepare(
+    `SELECT sp.id
+     FROM social_posts sp
+     WHERE ${filters.join(" AND ")}
+     ORDER BY sp.updated_at DESC, sp.id DESC
+     LIMIT 1`,
+  )
+    .bind(...values)
+    .first<{ id: number }>();
+  return row?.id ?? null;
+}
+
+async function syncPlannerPostToSocialPost(
+  env: Env,
+  record: PlannerPostRecord,
+  userId: number,
+): Promise<number | null> {
+  const itemType = record.item_type ?? "post";
+  const platform = normalizePlannerPlatform(record.platform);
+  if (itemType !== "post" || !PUBLISHABLE_PLANNER_PLATFORMS.has(platform)) {
+    return record.social_post_id ?? null;
+  }
+  if (normalizePlannerStatus(record.status) === "published") {
+    return record.social_post_id ?? null;
+  }
+
+  const content = plannerPostContent(record);
+  const imageUrl = cleanPlannerText(record.image_url) || null;
+  if (!content && !imageUrl && !cleanPlannerText(record.title)) {
+    return record.social_post_id ?? null;
+  }
+
+  const scheduledAt = record.scheduled_for ?? null;
+  const status = scheduledAt ? "scheduled" : "draft";
+  const now = new Date().toISOString();
+  const capabilities = await getSocialPostSchemaCapabilities(env);
+  let socialPostId = record.social_post_id ?? null;
+  if (!socialPostId) {
+    socialPostId = await findReusableSocialPostId(env, record, userId);
+  }
+
+  const title = cleanPlannerText(record.title) || null;
+  const subreddit = plannerSubreddit(record) || null;
+  const accountId = record.account_id ?? null;
+
+  if (socialPostId) {
+    const assignments = [
+      "platform = ?",
+      "content = ?",
+      "image_url = ?",
+      "status = ?",
+      "scheduled_at = ?",
+      "updated_at = ?",
+    ];
+    const values: unknown[] = [platform, content, imageUrl, status, scheduledAt, now];
+    if (capabilities.hasTitle) {
+      assignments.push("title = ?");
+      values.push(title);
+    }
+    if (capabilities.hasSubreddit) {
+      assignments.push("subreddit = ?");
+      values.push(platform === "reddit" ? subreddit : null);
+    }
+    if (capabilities.hasAccountId) {
+      assignments.push("account_id = ?");
+      values.push(accountId);
+    }
+    if (capabilities.hasLastError) {
+      assignments.push("last_error = NULL");
+    }
+    const filters = ["id = ?", "status NOT IN ('posted', 'publishing')"];
+    const filterValues: unknown[] = [socialPostId];
+    await appendScopedFilter(env, "social_posts", filters, filterValues, userId);
+    await env.DB.prepare(`UPDATE social_posts SET ${assignments.join(", ")} WHERE ${filters.join(" AND ")}`)
+      .bind(...values, ...filterValues)
+      .run();
+    return socialPostId;
+  }
+
+  const scoped = await scopedInsertColumns(env, "social_posts", userId);
+  const columns = [...scoped.columns, "platform", "content", "image_url", "status", "scheduled_at", "created_by", "created_at", "updated_at"];
+  const values: unknown[] = [...scoped.values, platform, content, imageUrl, status, scheduledAt, "dashboard", now, now];
+  if (capabilities.hasTitle) {
+    columns.push("title");
+    values.push(title);
+  }
+  if (capabilities.hasSubreddit) {
+    columns.push("subreddit");
+    values.push(platform === "reddit" ? subreddit : null);
+  }
+  if (capabilities.hasAccountId) {
+    columns.push("account_id");
+    values.push(accountId);
+  }
+  const result = await env.DB.prepare(
+    `INSERT INTO social_posts (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`,
+  )
+    .bind(...values)
+    .run() as { meta?: { last_row_id?: number } };
+  return Number(result.meta?.last_row_id ?? 0) || null;
 }
 
 export async function plannerHasSocialPostLinks(env: Env): Promise<boolean> {
@@ -112,6 +279,9 @@ export async function createPlannerItem(env: Env, request: Request, userId = DEF
     const now = new Date().toISOString();
     const hasSocialPostLinks = await plannerHasSocialPostLinks(env);
     const hasImageUrl = await plannerHasImageUrl(env);
+    const linkedSocialPostId = hasSocialPostLinks
+      ? await syncPlannerPostToSocialPost(env, payload, userId)
+      : payload.social_post_id ?? null;
     const scoped = await scopedInsertColumns(env, "planner_items", userId);
     const item = hasSocialPostLinks
       ? await env.DB.prepare(
@@ -149,7 +319,7 @@ export async function createPlannerItem(env: Env, request: Request, userId = DEF
           payload.platform.trim(),
           normalizePlannerStatus(payload.status),
           payload.scheduled_for ?? null,
-          payload.social_post_id ?? null,
+          linkedSocialPostId,
           payload.account_id ?? null,
           payload.instruction?.trim() || null,
           payload.interval_minutes ?? null,
@@ -228,6 +398,37 @@ export async function updatePlannerItem(
     const values: unknown[] = [];
     const hasSocialPostLinks = await plannerHasSocialPostLinks(env);
     const hasImageUrl = await plannerHasImageUrl(env);
+    const currentFilters = ["id = ?"];
+    const currentValues: unknown[] = [id];
+    await appendScopedFilter(env, "planner_items", currentFilters, currentValues, userId);
+    const current = await env.DB.prepare(
+      `SELECT
+         id,
+         title,
+         description,
+         ${hasImageUrl ? "image_url" : "NULL AS image_url"},
+         item_type,
+         platform,
+         status,
+         scheduled_for,
+         ${hasSocialPostLinks ? "social_post_id" : "NULL AS social_post_id"},
+         account_id,
+         instruction,
+         interval_minutes,
+         duration_start,
+         duration_end,
+         related_strategy_id
+       FROM planner_items
+       WHERE ${currentFilters.join(" AND ")}
+       LIMIT 1`,
+    )
+      .bind(...currentValues)
+      .first<PlannerPostRecord>();
+    if (!current) return errorResponse("Planner item not found", 404);
+    const mergedRecord = mergePlannerPostRecord(current, payload);
+    const linkedSocialPostId = hasSocialPostLinks
+      ? await syncPlannerPostToSocialPost(env, mergedRecord, userId)
+      : mergedRecord.social_post_id ?? null;
 
     if (payload.title !== undefined) {
       updates.push("title = ?");
@@ -260,6 +461,10 @@ export async function updatePlannerItem(
     if (payload.social_post_id !== undefined && hasSocialPostLinks) {
       updates.push("social_post_id = ?");
       values.push(payload.social_post_id);
+    }
+    if (payload.social_post_id === undefined && hasSocialPostLinks && linkedSocialPostId !== (current.social_post_id ?? null)) {
+      updates.push("social_post_id = ?");
+      values.push(linkedSocialPostId);
     }
     if (payload.account_id !== undefined) {
       updates.push("account_id = ?");
@@ -319,7 +524,19 @@ export async function deletePlannerItem(env: Env, plannerItemId: string, userId 
     const filters = ["id = ?"];
     const values: unknown[] = [id];
     await appendScopedFilter(env, "planner_items", filters, values, userId);
+    const current = await env.DB.prepare(
+      `SELECT ${await plannerHasSocialPostLinks(env) ? "social_post_id" : "NULL AS social_post_id"} FROM planner_items WHERE ${filters.join(" AND ")} LIMIT 1`,
+    )
+      .bind(...values)
+      .first<{ social_post_id: number | null }>();
     await env.DB.prepare(`DELETE FROM planner_items WHERE ${filters.join(" AND ")}`).bind(...values).run();
+    const socialPostId = Number(current?.social_post_id ?? 0);
+    if (socialPostId > 0) {
+      const socialFilters = ["id = ?", "status NOT IN ('posted', 'publishing')"];
+      const socialValues: unknown[] = [socialPostId];
+      await appendScopedFilter(env, "social_posts", socialFilters, socialValues, userId);
+      await env.DB.prepare(`DELETE FROM social_posts WHERE ${socialFilters.join(" AND ")}`).bind(...socialValues).run();
+    }
     return jsonResponse({ success: true });
   } catch {
     return errorResponse("Failed to delete planner item", 500);

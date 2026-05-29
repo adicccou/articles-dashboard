@@ -1,7 +1,15 @@
 import type { Env } from "../lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
-import { claimSocialPostForPublishing, markLinkedPlannerItemsPublished, markSocialPostFailed, socialPostsHaveLastError, socialPublishErrorMessage } from "../lib/social-publish";
+import {
+  claimSocialPostForPublishing,
+  isTransientPublishInfrastructureError,
+  markLinkedPlannerItemsPublished,
+  markSocialPostFailed,
+  requeueSocialPostAfterTransientFailure,
+  socialPostsHaveLastError,
+  socialPublishErrorMessage,
+} from "../lib/social-publish";
 import { listSocialPosts, createSocialPost, updateSocialPost, deleteSocialPost, getSocialPostSchemaCapabilities } from "./twitter";
 import { normalizeAccountTags, readAccountTags, upsertAccountTags } from "../lib/account-tags";
 
@@ -713,7 +721,11 @@ export async function publishThreadsPost(env: Env, postId: string, userId = DEFA
           .run()
           .catch((syncError) => console.error("Failed to repair Threads published state:", syncError));
       } else {
-        await markSocialPostFailed(env, id, new Date().toISOString(), message);
+        if (isTransientPublishInfrastructureError(message)) {
+          await requeueSocialPostAfterTransientFailure(env, id, new Date().toISOString(), message);
+        } else {
+          await markSocialPostFailed(env, id, new Date().toISOString(), message);
+        }
       }
     }
     if (publishedExternalId) {
@@ -1060,7 +1072,10 @@ export async function listThreadsPostInsights(env: Env, url: URL, userId = DEFAU
 
 export async function createThreadsReply(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
-    const payload = await parseJson<{ reply_to_id: string; text: string; account_id?: number; image_url?: string | null }>(request);
+    const payload = await parseJson<{ reply_to_id: string; text: string; account_id?: number; image_url?: string | null; scope_id?: number | null }>(request);
+    const effectiveUserId = userId === DEFAULT_USER_ID && payload.scope_id
+      ? ownerId(Number(payload.scope_id))
+      : userId;
     const replyToId = payload.reply_to_id?.trim();
     const text = payload.text?.trim();
     const imageUrl = payload.image_url?.trim() || undefined;
@@ -1073,7 +1088,7 @@ export async function createThreadsReply(env: Env, request: Request, userId = DE
       imageUrl,
       replyToId,
       accountId: payload.account_id,
-      userId,
+      userId: effectiveUserId,
     });
     const publishedDetails = await fetchThreadsMediaDetails(published.credentials, published.externalId);
     const publishedReplyToId = readThreadsReplyParentId(publishedDetails?.replied_to);

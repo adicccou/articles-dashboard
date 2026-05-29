@@ -5,7 +5,13 @@ import type { Env } from "./lib/types";
 import type { DashboardUser } from "./lib/ownership";
 import { DEFAULT_USER_ID, activeScopeId, tableHasUserId, tableHasWorkspaceId } from "./lib/ownership";
 import { authenticateDashboardUser } from "./lib/users";
-import { markLinkedPlannerItemsPublished, markSocialPostsFailed, socialPublishErrorMessage } from "./lib/social-publish";
+import {
+  isTransientPublishInfrastructureError,
+  markLinkedPlannerItemsPublished,
+  markSocialPostsFailed,
+  requeueSocialPostAfterTransientFailure,
+  socialPublishErrorMessage,
+} from "./lib/social-publish";
 import { readAccountTags } from "./lib/account-tags";
 import {
   listCampaigns,
@@ -343,6 +349,11 @@ async function requireAgentAuth(request: Request, env: Env): Promise<Response | 
   }
 
   return null;
+}
+
+function internalScopeId(url: URL): number {
+  const parsed = Number(url.searchParams.get("scope_id") || url.searchParams.get("workspace_id") || DEFAULT_USER_ID);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_USER_ID;
 }
 
 function buildDefaultCanonicalUrl(
@@ -995,7 +1006,12 @@ async function publishScheduledSocialPost(env: Env, post: DueSocialPost, now: st
   }
 
   if (response.ok || response.status === 409) return response.ok;
-  await markSocialPostsFailed(env, ["id = ?"], [post.id], now, await responseErrorMessage(response));
+  const message = await responseErrorMessage(response);
+  if (isTransientPublishInfrastructureError(message)) {
+    await requeueSocialPostAfterTransientFailure(env, post.id, now, message);
+    return false;
+  }
+  await markSocialPostsFailed(env, ["id = ?"], [post.id], now, message);
   return false;
 }
 
@@ -1032,7 +1048,11 @@ async function publishDueSocialPosts(env: Env): Promise<{ published: number; fai
     } catch (error) {
       failed += 1;
       const message = socialPublishErrorMessage(error, "Scheduled publishing failed");
-      await markSocialPostsFailed(env, ["id = ?"], [post.id], new Date().toISOString(), message);
+      if (isTransientPublishInfrastructureError(message)) {
+        await requeueSocialPostAfterTransientFailure(env, post.id, new Date().toISOString(), message);
+      } else {
+        await markSocialPostsFailed(env, ["id = ?"], [post.id], new Date().toISOString(), message);
+      }
       console.error(`Failed to publish scheduled social post ${post.id}:`, error);
     }
   }
@@ -1283,13 +1303,13 @@ export default {
     if (url.pathname === "/api/internal/social/twitter/search" && request.method === "GET") {
       const unauthorized = await requireAgentAuth(request, env);
       if (unauthorized) return unauthorized;
-      return await searchTwitterPosts(env, url);
+      return await searchTwitterPosts(env, url, internalScopeId(url));
     }
 
     if (url.pathname === "/api/internal/social/reddit/search" && request.method === "GET") {
       const unauthorized = await requireAgentAuth(request, env);
       if (unauthorized) return unauthorized;
-      return await searchRedditPosts(env, url);
+      return await searchRedditPosts(env, url, internalScopeId(url));
     }
 
     if (url.pathname.startsWith("/api/internal/social/posts/") && url.pathname.endsWith("/publish") && request.method === "POST") {
@@ -1314,9 +1334,11 @@ export default {
       const platform = (url.searchParams.get("platform") ?? "threads").trim().toLowerCase();
       const postId = url.searchParams.get("post_id");
       const limit = url.searchParams.get("limit");
-      if (platform === "threads") return await listThreadsComments(env, postId, limit);
-      if (platform === "twitter" || platform === "x" || platform === "twitter/x") return await listTwitterComments(env, postId, limit);
-      if (platform === "reddit") return await listRedditComments(env, postId, limit);
+      const accountId = url.searchParams.get("account_id");
+      const scopeId = internalScopeId(url);
+      if (platform === "threads") return await listThreadsComments(env, postId, limit, scopeId, accountId);
+      if (platform === "twitter" || platform === "x" || platform === "twitter/x") return await listTwitterComments(env, postId, limit, accountId, scopeId);
+      if (platform === "reddit") return await listRedditComments(env, postId, limit, accountId, scopeId);
       return json({ error: "Unsupported social platform." }, { status: 400 });
     }
 
@@ -1355,7 +1377,7 @@ export default {
     if (url.pathname === "/api/internal/social/threads/search" && request.method === "GET") {
       const unauthorized = await requireAgentAuth(request, env);
       if (unauthorized) return unauthorized;
-      return await searchThreads(env, url);
+      return await searchThreads(env, url, internalScopeId(url));
     }
 
     if (url.pathname === "/api/internal/social/threads/accounts" && request.method === "GET") {
@@ -2040,9 +2062,9 @@ export default {
     }
 
     if (url.pathname === "/api/social/twitter/search" && request.method === "GET") {
-      const unauthorized = await requireAuth(request, env);
-      if (unauthorized) return unauthorized;
-      return await searchTwitterPosts(env, url);
+      const user = await requireUser(request, env);
+      if (isAuthResponse(user)) return user;
+      return await searchTwitterPosts(env, url, activeScopeId(user));
     }
 
     if (url.pathname.startsWith("/api/social/posts/") && request.method === "PUT") {

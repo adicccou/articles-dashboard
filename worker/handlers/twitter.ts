@@ -13,6 +13,9 @@ const TWITTER_MEDIA_UPLOAD_URL = "https://upload.twitter.com/1.1/media/upload.js
 const TWITTER_TWEET_LOOKUP_URL = "https://api.twitter.com/2/tweets";
 const TWITTER_MAX_IMAGES_PER_POST = 4;
 const TWITTER_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const TWITTER_SEARCH_DEFAULT_RESULTS = 10;
+const TWITTER_SEARCH_MIN_RESULTS = 10;
+const TWITTER_SEARCH_MAX_RESULTS = 25;
 
 type TwitterAccountPayload = {
   username: string;
@@ -80,6 +83,11 @@ type SocialPostSchemaCapabilities = {
 
 function handlerErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
+}
+
+export function normalizeTwitterSearchLimit(value: string | null | undefined): number {
+  const parsed = Number(value || TWITTER_SEARCH_DEFAULT_RESULTS) || TWITTER_SEARCH_DEFAULT_RESULTS;
+  return Math.max(TWITTER_SEARCH_MIN_RESULTS, Math.min(parsed, TWITTER_SEARCH_MAX_RESULTS));
 }
 
 export function extractImageUrls(value: unknown): string[] {
@@ -1118,7 +1126,10 @@ export async function listTwitterComments(env: Env, postId?: string | null, limi
 
 export async function createTwitterReply(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
-    const payload = await parseJson<{ reply_to_id?: string; text?: string; account_id?: number | null }>(request);
+    const payload = await parseJson<{ reply_to_id?: string; text?: string; account_id?: number | null; scope_id?: number | null }>(request);
+    const effectiveUserId = userId === DEFAULT_USER_ID && payload.scope_id
+      ? ownerId(Number(payload.scope_id))
+      : userId;
     const replyToId = payload.reply_to_id?.trim() || "";
     const text = payload.text?.trim() || "";
     if (!replyToId || !text) {
@@ -1128,7 +1139,7 @@ export async function createTwitterReply(env: Env, request: Request, userId = DE
       return errorResponse("Twitter/X replies must be 280 characters or fewer", 400);
     }
 
-    const credentials = await getTwitterCredentials(env, payload.account_id ? Number(payload.account_id) : undefined, userId);
+    const credentials = await getTwitterCredentials(env, payload.account_id ? Number(payload.account_id) : undefined, effectiveUserId);
     if (!credentials) return errorResponse("No active Twitter/X account with API credentials was found.", 400);
 
     const endpoint = "https://api.twitter.com/2/tweets";
@@ -1198,12 +1209,13 @@ type TwitterTweetLookupResponse = {
 };
 type TwitterTweetLookupError = NonNullable<TwitterTweetLookupResponse["errors"]>[number];
 
-export async function searchTwitterPosts(env: Env, url: URL): Promise<Response> {
+export async function searchTwitterPosts(env: Env, url: URL, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const rawQuery = url.searchParams.get("q")?.trim();
     if (!rawQuery) return errorResponse("Search query is required", 400);
-    const limit = Math.max(1, Math.min(Number(url.searchParams.get("limit") || 10) || 10, 25));
-    const credentials = await getTwitterCredentials(env);
+    const limit = normalizeTwitterSearchLimit(url.searchParams.get("limit"));
+    const requestedAccountId = Number(url.searchParams.get("account_id") || 0) || undefined;
+    const credentials = await getTwitterCredentials(env, requestedAccountId, userId);
     if (!credentials) return errorResponse("No active Twitter/X account with API credentials was found.", 400);
 
     const query = rawQuery.includes("-is:retweet") ? rawQuery : `${rawQuery} -is:retweet`;

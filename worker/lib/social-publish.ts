@@ -5,6 +5,11 @@ export function socialPublishErrorMessage(error: unknown, fallback: string): str
   return (message || fallback).trim().slice(0, 2000) || fallback;
 }
 
+export function isTransientPublishInfrastructureError(error: unknown): boolean {
+  const message = socialPublishErrorMessage(error, "").toLowerCase();
+  return /\bd1_error\b|storage operation exceeded timeout|object to be reset|network connection lost|fetch failed|request timed out|timeout/.test(message);
+}
+
 export async function socialPostsHaveLastError(env: Env): Promise<boolean> {
   try {
     const columns = await env.DB.prepare("PRAGMA table_info(social_posts)").all<{ name: string }>();
@@ -86,4 +91,26 @@ export async function markSocialPostsFailed(
 
 export async function markSocialPostFailed(env: Env, socialPostId: number, updatedAt: string, message?: string): Promise<void> {
   await markSocialPostsFailed(env, ["id = ?"], [socialPostId], updatedAt, message);
+}
+
+export async function requeueSocialPostAfterTransientFailure(
+  env: Env,
+  socialPostId: number,
+  updatedAt: string,
+  message?: string,
+): Promise<void> {
+  const assignments = ["status = 'scheduled'", "updated_at = ?"];
+  const values: unknown[] = [updatedAt];
+  if (await socialPostsHaveLastError(env)) {
+    assignments.push("last_error = ?");
+    values.push(socialPublishErrorMessage(message, "Transient publishing failure; will retry."));
+  }
+  await env.DB.prepare(
+    `UPDATE social_posts
+     SET ${assignments.join(", ")}
+     WHERE id = ?
+       AND status IN ('scheduled', 'publishing', 'failed')`,
+  )
+    .bind(...values, socialPostId)
+    .run();
 }

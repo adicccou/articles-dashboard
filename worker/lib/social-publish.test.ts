@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Env } from "./types";
-import { claimSocialPostForPublishing } from "./social-publish";
+import {
+  claimSocialPostForPublishing,
+  isTransientPublishInfrastructureError,
+  requeueSocialPostAfterTransientFailure,
+} from "./social-publish";
 
 function envWithClaimResult(changes: number, current?: { status: string; external_id: string | null; account_id: number | null }) {
   const calls: Array<{ sql: string; values: unknown[] }> = [];
@@ -43,5 +47,35 @@ describe("social publish locking", () => {
     const { env } = envWithClaimResult(0, { status: "posted", external_id: "external-1", account_id: 7 });
     await expect(claimSocialPostForPublishing(env, ["id = ?"], [42], "2026-05-27T10:00:00.000Z"))
       .resolves.toEqual({ status: "already_posted", externalId: "external-1", accountId: 7 });
+  });
+
+  it("recognizes D1 storage resets as retryable publishing infrastructure failures", () => {
+    expect(isTransientPublishInfrastructureError("D1_ERROR: D1 DB storage operation exceeded timeout which caused object to be reset.")).toBe(true);
+    expect(isTransientPublishInfrastructureError("Threads API: invalid access token")).toBe(false);
+  });
+
+  it("requeues transient failures instead of leaving the post permanently failed", async () => {
+    const calls: Array<{ sql: string; values: unknown[] }> = [];
+    const env = {
+      DB: {
+        prepare(sql: string) {
+          return {
+            all: async () => ({ results: [{ name: "last_error" }] }),
+            bind(...values: unknown[]) {
+              calls.push({ sql, values });
+              return {
+                run: async () => ({ meta: { changes: 1 } }),
+              };
+            },
+          };
+        },
+      },
+    } as unknown as Env;
+
+    await requeueSocialPostAfterTransientFailure(env, 36, "2026-05-29T12:00:00.000Z", "D1_ERROR: timeout");
+
+    expect(calls[0]?.sql).toContain("status = 'scheduled'");
+    expect(calls[0]?.sql).toContain("last_error = ?");
+    expect(calls[0]?.values).toEqual(["2026-05-29T12:00:00.000Z", "D1_ERROR: timeout", 36]);
   });
 });

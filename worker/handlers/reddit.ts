@@ -2,7 +2,7 @@ import type { Env } from "../lib/types";
 import type { RedditCampaign } from "../../src/lib/types";
 import { parseJson, jsonResponse, errorResponse } from "../lib/http";
 import { getSocialPostSchemaCapabilities } from "./twitter";
-import { DEFAULT_USER_ID, appendScopedFilter, scopedInsertColumns } from "../lib/ownership";
+import { DEFAULT_USER_ID, appendScopedFilter, ownerId, scopedInsertColumns } from "../lib/ownership";
 import { claimSocialPostForPublishing, markLinkedPlannerItemsPublished, markSocialPostsFailed, socialPublishErrorMessage } from "../lib/social-publish";
 
 interface CreateCampaignPayload {
@@ -827,13 +827,16 @@ export async function searchRedditPosts(env: Env, url: URL, userId = DEFAULT_USE
 
 export async function createRedditReply(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
-    const payload = await parseJson<{ reply_to_id?: string; text?: string; account_id?: number | null }>(request);
+    const payload = await parseJson<{ reply_to_id?: string; text?: string; account_id?: number | null; scope_id?: number | null }>(request);
+    const effectiveUserId = userId === DEFAULT_USER_ID && payload.scope_id
+      ? ownerId(Number(payload.scope_id))
+      : userId;
     const replyToId = payload.reply_to_id?.trim() || "";
     const text = payload.text?.trim() || "";
     if (!replyToId || !text) {
       return errorResponse("reply_to_id and text are required", 400);
     }
-    const account = await getActiveRedditAccount(env, payload.account_id ? Number(payload.account_id) : undefined, userId);
+    const account = await getActiveRedditAccount(env, payload.account_id ? Number(payload.account_id) : undefined, effectiveUserId);
     if (!account) return errorResponse("No active Reddit account is connected.", 400);
     const readyAccount = await ensureRedditAccessToken(env, account);
     const externalId = await submitRedditReply(readyAccount, replyToId, text);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractImageUrls, formatTwitterOAuthStartError } from "./twitter";
+import { extractImageUrls, formatTwitterOAuthStartError, normalizeTwitterSearchLimit } from "./twitter";
 
 describe("Twitter OAuth errors", () => {
   it("turns X callback approval XML into an actionable message", () => {
@@ -33,5 +33,14 @@ describe("Twitter media parsing", () => {
       "https://example.com/second.png",
       "https://example.com/third.png",
     ]);
+  });
+});
+
+describe("Twitter search limits", () => {
+  it("keeps recent-search limits inside X API bounds", () => {
+    expect(normalizeTwitterSearchLimit("1")).toBe(10);
+    expect(normalizeTwitterSearchLimit("17")).toBe(17);
+    expect(normalizeTwitterSearchLimit("500")).toBe(25);
+    expect(normalizeTwitterSearchLimit(null)).toBe(10);
   });
 });
