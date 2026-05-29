@@ -28,10 +28,46 @@ type CampaignForm = {
   account_refs: string[];
   platforms: Platform[];
   instructions: string;
+  depth: PainDepth;
+  objective: string;
+  target_audience: string;
+  pain_theme: string;
+  competitors: string;
+  exclude: string;
+  search_surfaces: string[];
+  output_mode: PainOutputMode;
+  min_score: string;
+  recent_window: PainRecentWindow;
+  include_comments: boolean;
+  require_evidence: boolean;
+  avoid_noise: boolean;
   status: StudioCampaign["status"];
 };
 
 type CrawlerTab = "comments" | "pain-points";
+type PainDepth = "quick" | "standard" | "deep";
+type PainOutputMode = "signals" | "post_ideas" | "reply_targets" | "schedule_drafts";
+type PainRecentWindow = "week" | "month" | "quarter" | "any";
+
+type PlatformSearchOption = {
+  id: string;
+  label: string;
+  description: string;
+  defaultSelected?: boolean;
+};
+
+type PainTemplate = {
+  id: string;
+  label: string;
+  objective: string;
+  pain_theme?: string;
+  target_audience?: string;
+  competitors?: string;
+  exclude?: string;
+  output_mode?: PainOutputMode;
+  depth?: PainDepth;
+  search_surfaces?: string[];
+};
 
 const PLATFORMS: Array<{ id: Platform; label: string }> = [
   { id: "twitter", label: "Twitter/X" },
@@ -42,12 +78,121 @@ const PLATFORMS: Array<{ id: Platform; label: string }> = [
 ];
 
 const REPLY_CAPABLE_PLATFORMS = new Set<Platform>(["twitter", "threads", "reddit"]);
+const CONNECTED_SEARCH_PLATFORMS = new Set<Platform>(["twitter", "threads", "reddit"]);
 
 const DEFAULT_CAMPAIGN_RESULT_LIMIT = 10;
+const PAIN_TEMPLATE_STORAGE_KEY = "oilor-studio-pain-agent-templates";
 
 const CRAWLER_TABS: Array<{ id: CrawlerTab; label: string; campaignType: StudioCampaign["campaign_type"] }> = [
-  { id: "comments", label: "Comment searcher", campaignType: "reply" },
-  { id: "pain-points", label: "Painpoint analyzer", campaignType: "post" },
+  { id: "comments", label: "Comment Searcher", campaignType: "reply" },
+  { id: "pain-points", label: "Pain Point Agent", campaignType: "post" },
+];
+
+const PAIN_DEPTHS: Array<{ id: PainDepth; label: string; resultLimit: number; description: string }> = [
+  { id: "quick", label: "Quick", resultLimit: 6, description: "Small scan for a fast read." },
+  { id: "standard", label: "Standard", resultLimit: 12, description: "Balanced scan for reusable signals." },
+  { id: "deep", label: "Deep", resultLimit: 24, description: "Broader scan before planning content." },
+];
+
+const PAIN_OUTPUT_MODES: Array<{ id: PainOutputMode; label: string; description: string }> = [
+  { id: "signals", label: "Save signals", description: "Collect evidence and pain points only." },
+  { id: "post_ideas", label: "Generate post ideas", description: "Turn signals into draft-ready ideas." },
+  { id: "reply_targets", label: "Find reply targets", description: "Prioritize posts worth replying to." },
+  { id: "schedule_drafts", label: "Schedule-ready drafts", description: "Create drafts shaped for the calendar." },
+];
+
+const PAIN_RECENT_WINDOWS: Array<{ id: PainRecentWindow; label: string }> = [
+  { id: "week", label: "Last week" },
+  { id: "month", label: "Last month" },
+  { id: "quarter", label: "Last 90 days" },
+  { id: "any", label: "Any time" },
+];
+
+const PLATFORM_SEARCH_OPTIONS: Record<Platform, PlatformSearchOption[]> = {
+  twitter: [
+    {
+      id: "twitter_recent_posts",
+      label: "Recent keyword posts",
+      description: "X API recent search with the connected account credentials.",
+      defaultSelected: true,
+    },
+    {
+      id: "twitter_live_replies",
+      label: "Live reply threads",
+      description: "Search for reply-like conversations and complaints.",
+    },
+  ],
+  threads: [
+    {
+      id: "threads_keyword_top",
+      label: "Top keyword posts",
+      description: "Threads keyword_search using TOP ranking.",
+      defaultSelected: true,
+    },
+    {
+      id: "threads_conversation_replies",
+      label: "Conversation replies",
+      description: "Use reply/comment context when the API returns reply metadata.",
+    },
+  ],
+  reddit: [
+    {
+      id: "reddit_subreddit_posts",
+      label: "Subreddit post search",
+      description: "Reddit OAuth search inside selected or instructed subreddits.",
+      defaultSelected: true,
+    },
+    {
+      id: "reddit_comment_threads",
+      label: "Comment threads",
+      description: "Prioritize discussions with useful comment evidence.",
+    },
+  ],
+  instagram: [],
+  linkedin: [],
+};
+
+const BUILTIN_PAIN_TEMPLATES: PainTemplate[] = [
+  {
+    id: "complaints",
+    label: "Find complaints",
+    objective: "Find repeated complaints, broken workflows, and moments where people sound frustrated.",
+    pain_theme: "workflow friction, missing features, confusing steps",
+    output_mode: "post_ideas",
+    depth: "standard",
+  },
+  {
+    id: "feature-requests",
+    label: "Feature requests",
+    objective: "Find people asking for features, workarounds, integrations, or better ways to solve this job.",
+    pain_theme: "feature requests, workarounds, unmet needs",
+    output_mode: "signals",
+    depth: "standard",
+  },
+  {
+    id: "competitor-frustration",
+    label: "Competitor frustration",
+    objective: "Find users frustrated with competitor tools and capture what they wish was different.",
+    pain_theme: "competitor alternatives, switching intent, pricing objections",
+    output_mode: "post_ideas",
+    depth: "deep",
+  },
+  {
+    id: "pricing-objections",
+    label: "Pricing objections",
+    objective: "Find objections around price, value, limits, trials, and upgrade decisions.",
+    pain_theme: "pricing, value proof, upgrade objections",
+    output_mode: "post_ideas",
+    depth: "standard",
+  },
+  {
+    id: "reply-opportunities",
+    label: "Reply opportunities",
+    objective: "Find posts where a helpful, non-salesy reply could answer the user's problem.",
+    pain_theme: "questions, stuck users, advice requests",
+    output_mode: "reply_targets",
+    depth: "quick",
+  },
 ];
 
 function emptyCampaignForm(): CampaignForm {
@@ -59,6 +204,19 @@ function emptyCampaignForm(): CampaignForm {
     account_refs: [],
     platforms: ["threads"],
     instructions: "",
+    depth: "standard",
+    objective: "",
+    target_audience: "",
+    pain_theme: "",
+    competitors: "",
+    exclude: "",
+    search_surfaces: defaultSearchSurfacesForPlatforms(["threads"]),
+    output_mode: "post_ideas",
+    min_score: "60",
+    recent_window: "month",
+    include_comments: true,
+    require_evidence: true,
+    avoid_noise: true,
     status: "active",
   };
 }
@@ -71,7 +229,151 @@ function platformLabel(platform: string) {
   if (platform === "twitter") return "Twitter/X";
   if (platform === "threads") return "Threads";
   if (platform === "reddit") return "Reddit";
+  if (platform === "instagram") return "Instagram";
+  if (platform === "linkedin") return "LinkedIn";
   return platform;
+}
+
+function uniqueValues<T>(values: T[]): T[] {
+  return Array.from(new Set(values));
+}
+
+function platformForSearchSurface(surfaceId: string): Platform | null {
+  for (const [platform, options] of Object.entries(PLATFORM_SEARCH_OPTIONS) as Array<[Platform, PlatformSearchOption[]]>) {
+    if (options.some((option) => option.id === surfaceId)) return platform;
+  }
+  return null;
+}
+
+function defaultSearchSurfacesForPlatforms(platforms: Platform[]) {
+  return platforms.flatMap((platform) => {
+    const defaults = PLATFORM_SEARCH_OPTIONS[platform].filter((option) => option.defaultSelected);
+    return (defaults.length > 0 ? defaults : PLATFORM_SEARCH_OPTIONS[platform].slice(0, 1)).map((option) => option.id);
+  });
+}
+
+function validSearchSurfacesForPlatforms(surfaceIds: string[], platforms: Platform[]) {
+  const platformSet = new Set(platforms);
+  return uniqueValues(surfaceIds.filter((surfaceId) => {
+    const platform = platformForSearchSurface(surfaceId);
+    return Boolean(platform && platformSet.has(platform));
+  }));
+}
+
+function accountRefsForPlatforms(platforms: Platform[], accounts: StudioAccount[]) {
+  return platforms
+    .map((platform) => accounts.find((account) => account.platform === platform && account.status === "active")?.ref)
+    .filter((ref): ref is string => Boolean(ref));
+}
+
+function painDepthConfig(depth: PainDepth) {
+  return PAIN_DEPTHS.find((item) => item.id === depth) ?? PAIN_DEPTHS[1];
+}
+
+function outputModeConfig(mode: PainOutputMode) {
+  return PAIN_OUTPUT_MODES.find((item) => item.id === mode) ?? PAIN_OUTPUT_MODES[1];
+}
+
+function firstSentence(value: string, fallback: string) {
+  const cleaned = " ".concat(value).trim();
+  if (!cleaned) return fallback;
+  return cleaned.replace(/\s+/g, " ").slice(0, 72);
+}
+
+function readCustomPainTemplates(): PainTemplate[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(PAIN_TEMPLATE_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => ({
+        id: String(item?.id ?? ""),
+        label: String(item?.label ?? ""),
+        objective: String(item?.objective ?? ""),
+        pain_theme: item?.pain_theme ? String(item.pain_theme) : undefined,
+        target_audience: item?.target_audience ? String(item.target_audience) : undefined,
+        competitors: item?.competitors ? String(item.competitors) : undefined,
+        exclude: item?.exclude ? String(item.exclude) : undefined,
+        output_mode: item?.output_mode as PainOutputMode | undefined,
+        depth: item?.depth as PainDepth | undefined,
+        search_surfaces: Array.isArray(item?.search_surfaces) ? item.search_surfaces.map(String) : undefined,
+      }))
+      .filter((item) => item.id && item.label && item.objective)
+      .slice(0, 12);
+  } catch {
+    return [];
+  }
+}
+
+function writeCustomPainTemplates(templates: PainTemplate[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(PAIN_TEMPLATE_STORAGE_KEY, JSON.stringify(templates.slice(0, 12)));
+}
+
+function selectedSearchSurfaceLabels(surfaceIds: string[]) {
+  const labels: string[] = [];
+  for (const option of Object.values(PLATFORM_SEARCH_OPTIONS).flat()) {
+    if (surfaceIds.includes(option.id)) labels.push(option.label);
+  }
+  return labels;
+}
+
+function buildPainCampaignName(form: CampaignForm, appName?: string | null) {
+  const base = firstSentence(form.objective || form.pain_theme, "Pain point search");
+  const prefix = appName ? `${appName}: ` : "";
+  return `${prefix}${base}`.slice(0, 96);
+}
+
+function buildPainAgentInstructions(form: CampaignForm, appName?: string | null) {
+  const depth = painDepthConfig(form.depth);
+  const outputMode = outputModeConfig(form.output_mode);
+  const platformNames = form.platforms.map(platformLabel).join(", ");
+  const surfaceNames = selectedSearchSurfaceLabels(form.search_surfaces).join(", ");
+  const quality = [
+    `minimum opportunity score ${form.min_score || "60"}`,
+    `time window ${PAIN_RECENT_WINDOWS.find((item) => item.id === form.recent_window)?.label ?? "Last month"}`,
+    form.include_comments ? "include comments/replies when available" : "focus on source posts only",
+    form.require_evidence ? "require clear evidence snippets and URLs" : "allow weaker evidence if the theme repeats",
+    form.avoid_noise ? "filter spam, giveaways, generic news, and low-intent chatter" : "allow broader noisy discovery",
+  ];
+
+  return [
+    `Pain Point Agent objective: ${form.objective.trim()}`,
+    appName ? `Product/app: ${appName}` : "",
+    form.target_audience.trim() ? `Target audience: ${form.target_audience.trim()}` : "",
+    form.pain_theme.trim() ? `Pain theme: ${form.pain_theme.trim()}` : "",
+    form.competitors.trim() ? `Competitors/alternatives to watch: ${form.competitors.trim()}` : "",
+    form.exclude.trim() ? `Exclude: ${form.exclude.trim()}` : "",
+    `Platforms: ${platformNames}`,
+    `Connected-account search surfaces: ${surfaceNames || "default platform search APIs"}`,
+    `Depth: ${depth.label} search; collect about ${depth.resultLimit} high-quality accepted signals.`,
+    `Quality controls: ${quality.join("; ")}.`,
+    `Output mode: ${outputMode.label}. ${outputMode.description}`,
+    "Save each useful result with the pain point, evidence snippet, source URL, audience, and opportunity score.",
+  ].filter(Boolean).join("\n");
+}
+
+function buildPainSearchPlan(form: CampaignForm, appName?: string | null) {
+  const product = appName?.trim() || "the selected product";
+  const objective = form.objective.trim();
+  const theme = form.pain_theme.trim();
+  const competitors = form.competitors.split(/[,;\n]/).map((item) => item.trim()).filter(Boolean).slice(0, 3);
+  const querySeeds = [
+    objective,
+    theme ? `${product} ${theme}` : "",
+    `${product} pain points complaints`,
+    `${product} alternative frustration`,
+    ...competitors.map((competitor) => `${competitor} alternative complaint`),
+  ].filter(Boolean);
+  const queries = uniqueValues(querySeeds.map((item) => item.replace(/\s+/g, " ").trim())).slice(0, 5);
+  return {
+    queries,
+    platforms: form.platforms.map(platformLabel),
+    surfaces: selectedSearchSurfaceLabels(form.search_surfaces),
+    depth: painDepthConfig(form.depth),
+    outputMode: outputModeConfig(form.output_mode),
+  };
 }
 
 function statusTone(status: string) {
@@ -242,10 +544,13 @@ export function StudioPage({ onUpload }: StudioPageProps) {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [campaignModalOpen, setCampaignModalOpen] = useState(false);
   const [editingCampaignId, setEditingCampaignId] = useState<number | null>(null);
+  const [rerunAfterSave, setRerunAfterSave] = useState(false);
   const [selectedCampaignId, setSelectedCampaignId] = useState<number | null>(null);
   const [deletingCampaignId, setDeletingCampaignId] = useState<number | null>(null);
   const [rerunningCampaignId, setRerunningCampaignId] = useState<number | null>(null);
   const [campaignForm, setCampaignForm] = useState<CampaignForm>(emptyCampaignForm);
+  const [customPainTemplates, setCustomPainTemplates] = useState<PainTemplate[]>(readCustomPainTemplates);
+  const [templateName, setTemplateName] = useState("");
   const [selectedCrawlerTab, setSelectedCrawlerTab] = useState<CrawlerTab>("comments");
   const [uploadingPostId, setUploadingPostId] = useState<number | null>(null);
   const [schedulingPostId, setSchedulingPostId] = useState<number | null>(null);
@@ -286,6 +591,10 @@ export function StudioPage({ onUpload }: StudioPageProps) {
   }, []);
 
   useEffect(() => {
+    writeCustomPainTemplates(customPainTemplates);
+  }, [customPainTemplates]);
+
+  useEffect(() => {
     if (selectedCampaignId && !summary.campaigns.some((campaign) => campaign.id === selectedCampaignId)) {
       setSelectedCampaignId(null);
     }
@@ -311,9 +620,29 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     [availableAccounts],
   );
 
+  const availableSearchPlatforms = useMemo(
+    () => availablePlatforms.filter((platform) => CONNECTED_SEARCH_PLATFORMS.has(platform.id)),
+    [availablePlatforms],
+  );
+
+  const unavailableSearchPlatforms = useMemo(
+    () => availablePlatforms.filter((platform) => !CONNECTED_SEARCH_PLATFORMS.has(platform.id)),
+    [availablePlatforms],
+  );
+
   const accountLabelByRef = useMemo(
     () => new Map(summary.accounts.map((account) => [account.ref, account.label])),
     [summary.accounts],
+  );
+
+  const selectedFormApp = useMemo(
+    () => availableApps.find((app) => String(app.id) === campaignForm.app_id) ?? availableApps[0] ?? null,
+    [availableApps, campaignForm.app_id],
+  );
+
+  const painSearchPlan = useMemo(
+    () => buildPainSearchPlan(campaignForm, selectedFormApp?.name),
+    [campaignForm, selectedFormApp?.name],
   );
 
   const campaignResultsById = useMemo(() => {
@@ -365,17 +694,28 @@ export function StudioPage({ onUpload }: StudioPageProps) {
   function buildEmptyCampaignForm(tab: CrawlerTab = selectedCrawlerTab): CampaignForm {
     const tabConfig = CRAWLER_TABS.find((item) => item.id === tab) ?? CRAWLER_TABS[0];
     const replyAccount = availableReplyAccounts[0] ?? null;
-    const painPlatforms = availablePlatforms.length > 0
-      ? availablePlatforms.map((platform) => platform.id)
-      : PLATFORMS.map((platform) => platform.id);
+    const painPlatforms = availableSearchPlatforms.map((platform) => platform.id);
     return {
       name: "",
       campaign_type: tabConfig.campaignType,
-      result_limit: String(DEFAULT_CAMPAIGN_RESULT_LIMIT),
+      result_limit: String(tabConfig.campaignType === "reply" ? DEFAULT_CAMPAIGN_RESULT_LIMIT : painDepthConfig("standard").resultLimit),
       app_id: availableApps[0] ? String(availableApps[0].id) : "",
-      account_refs: tabConfig.campaignType === "reply" && replyAccount ? [replyAccount.ref] : [],
+      account_refs: tabConfig.campaignType === "reply" && replyAccount ? [replyAccount.ref] : accountRefsForPlatforms(painPlatforms, availableAccounts),
       platforms: tabConfig.campaignType === "reply" && replyAccount ? [replyAccount.platform] : painPlatforms,
       instructions: "",
+      depth: "standard",
+      objective: "",
+      target_audience: "",
+      pain_theme: "",
+      competitors: "",
+      exclude: "",
+      search_surfaces: defaultSearchSurfacesForPlatforms(painPlatforms),
+      output_mode: "post_ideas",
+      min_score: "60",
+      recent_window: "month",
+      include_comments: true,
+      require_evidence: true,
+      avoid_noise: true,
       status: "active",
     };
   }
@@ -389,15 +729,24 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     setError(null);
   }
 
-  function openEditCampaign(campaign: StudioCampaign) {
+  function openEditCampaign(campaign: StudioCampaign, options?: { rerunAfterSave?: boolean }) {
+    const isReply = campaign.campaign_type === "reply";
     const selectedPlatform = campaign.platforms.find((platform) => availablePlatforms.some((item) => item.id === platform))
       ?? availablePlatforms[0]?.id
       ?? campaign.platforms[0]
       ?? "threads";
+    const painPlatforms = campaign.platforms.filter((platform) => availableSearchPlatforms.some((item) => item.id === platform));
     const selectedAccountRef = campaign.account_refs.find((ref) => {
       const account = availableAccounts.find((item) => item.ref === ref);
       return account?.platform === selectedPlatform;
     }) ?? availableAccounts.find((account) => account.platform === selectedPlatform)?.ref ?? "";
+    const nextPlatforms = isReply
+      ? availablePlatforms.some((item) => item.id === selectedPlatform)
+        ? [selectedPlatform]
+        : []
+      : painPlatforms.length > 0
+      ? painPlatforms
+      : availableSearchPlatforms.map((platform) => platform.id);
 
     setCampaignForm({
       name: campaign.name,
@@ -408,12 +757,30 @@ export function StudioPage({ onUpload }: StudioPageProps) {
         : availableApps[0]
         ? String(availableApps[0].id)
         : "",
-      account_refs: selectedAccountRef ? [selectedAccountRef] : [],
-      platforms: availablePlatforms.some((item) => item.id === selectedPlatform) ? [selectedPlatform] : [],
+      account_refs: isReply
+        ? selectedAccountRef ? [selectedAccountRef] : []
+        : campaign.account_refs.length > 0
+        ? campaign.account_refs
+        : accountRefsForPlatforms(nextPlatforms, availableAccounts),
+      platforms: nextPlatforms,
       instructions: campaign.instructions,
+      depth: campaign.result_limit >= 20 ? "deep" : campaign.result_limit <= 6 ? "quick" : "standard",
+      objective: isReply ? "" : campaign.instructions,
+      target_audience: "",
+      pain_theme: "",
+      competitors: "",
+      exclude: "",
+      search_surfaces: defaultSearchSurfacesForPlatforms(nextPlatforms),
+      output_mode: isReply ? "reply_targets" : "post_ideas",
+      min_score: "60",
+      recent_window: "month",
+      include_comments: true,
+      require_evidence: true,
+      avoid_noise: true,
       status: campaign.status,
     });
     setEditingCampaignId(campaign.id);
+    setRerunAfterSave(Boolean(options?.rerunAfterSave));
     setCampaignModalOpen(true);
     setFeedback(null);
     setError(null);
@@ -422,6 +789,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
   function closeCampaignModal() {
     setCampaignModalOpen(false);
     setEditingCampaignId(null);
+    setRerunAfterSave(false);
     setCampaignForm(buildEmptyCampaignForm());
   }
 
@@ -435,24 +803,32 @@ export function StudioPage({ onUpload }: StudioPageProps) {
         : "";
       const isReply = current.campaign_type === "reply";
       const selectedAccount = availableReplyAccounts.find((account) => account.ref === current.account_refs[0]) ?? availableReplyAccounts[0] ?? null;
-      const painPlatforms = availablePlatforms.length > 0
-        ? availablePlatforms.map((platform) => platform.id)
-        : PLATFORMS.map((platform) => platform.id);
+      const connectedSearchPlatformIds = availableSearchPlatforms.map((platform) => platform.id);
+      const currentSearchPlatforms = current.platforms.filter((platform) => connectedSearchPlatformIds.includes(platform));
+      const painPlatforms = currentSearchPlatforms.length > 0 ? currentSearchPlatforms : connectedSearchPlatformIds;
       const nextAccountRefs = isReply && selectedAccount ? [selectedAccount.ref] : [];
       const nextPlatforms = isReply && selectedAccount ? [selectedAccount.platform] : painPlatforms;
+      const nextPainAccountRefs = isReply ? nextAccountRefs : accountRefsForPlatforms(nextPlatforms, availableAccounts);
+      const nextSearchSurfaces = isReply
+        ? current.search_surfaces
+        : validSearchSurfacesForPlatforms(current.search_surfaces, nextPlatforms).length > 0
+        ? validSearchSurfacesForPlatforms(current.search_surfaces, nextPlatforms)
+        : defaultSearchSurfacesForPlatforms(nextPlatforms);
       const changed = nextAppId !== current.app_id
         || nextPlatforms.join(",") !== current.platforms.join(",")
-        || nextAccountRefs.join(",") !== current.account_refs.join(",");
+        || nextPainAccountRefs.join(",") !== current.account_refs.join(",")
+        || nextSearchSurfaces.join(",") !== current.search_surfaces.join(",");
       return changed
         ? {
             ...current,
             app_id: nextAppId,
             platforms: nextPlatforms,
-            account_refs: nextAccountRefs,
+            account_refs: nextPainAccountRefs,
+            search_surfaces: nextSearchSurfaces,
           }
         : current;
     });
-  }, [availableApps, availablePlatforms, availableReplyAccounts, campaignModalOpen]);
+  }, [availableAccounts, availableApps, availableReplyAccounts, availableSearchPlatforms, campaignModalOpen]);
 
   function closeSuggestionEditor() {
     if (savingPostId) return;
@@ -460,9 +836,85 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     setEditingPostText("");
   }
 
+  function togglePainPlatform(platform: Platform) {
+    setCampaignForm((current) => {
+      const platforms = current.platforms.includes(platform)
+        ? current.platforms.filter((item) => item !== platform)
+        : uniqueValues([...current.platforms, platform]);
+      const searchSurfaces = validSearchSurfacesForPlatforms(current.search_surfaces, platforms);
+      return {
+        ...current,
+        platforms,
+        account_refs: accountRefsForPlatforms(platforms, availableAccounts),
+        search_surfaces: searchSurfaces.length > 0 ? searchSurfaces : defaultSearchSurfacesForPlatforms(platforms),
+      };
+    });
+  }
+
+  function toggleSearchSurface(surfaceId: string) {
+    setCampaignForm((current) => ({
+      ...current,
+      search_surfaces: current.search_surfaces.includes(surfaceId)
+        ? current.search_surfaces.filter((item) => item !== surfaceId)
+        : uniqueValues([...current.search_surfaces, surfaceId]),
+    }));
+  }
+
+  function applyPainTemplate(template: PainTemplate) {
+    setCampaignForm((current) => {
+      const searchSurfaces = template.search_surfaces
+        ? validSearchSurfacesForPlatforms(template.search_surfaces, current.platforms)
+        : [];
+      return {
+        ...current,
+        objective: template.objective,
+        pain_theme: template.pain_theme ?? current.pain_theme,
+        target_audience: template.target_audience ?? current.target_audience,
+        competitors: template.competitors ?? current.competitors,
+        exclude: template.exclude ?? current.exclude,
+        output_mode: template.output_mode ?? current.output_mode,
+        depth: template.depth ?? current.depth,
+        result_limit: String(painDepthConfig(template.depth ?? current.depth).resultLimit),
+        search_surfaces: searchSurfaces.length > 0 ? searchSurfaces : current.search_surfaces,
+      };
+    });
+  }
+
+  function savePainTemplate() {
+    const objective = campaignForm.objective.trim();
+    if (!objective) {
+      setError("Add an investigation objective before saving a template.");
+      return;
+    }
+    const label = templateName.trim() || firstSentence(objective, "Pain template");
+    setCustomPainTemplates((current) => [
+      {
+        id: `custom-${Date.now()}`,
+        label,
+        objective,
+        pain_theme: campaignForm.pain_theme.trim() || undefined,
+        target_audience: campaignForm.target_audience.trim() || undefined,
+        competitors: campaignForm.competitors.trim() || undefined,
+        exclude: campaignForm.exclude.trim() || undefined,
+        output_mode: campaignForm.output_mode,
+        depth: campaignForm.depth,
+        search_surfaces: campaignForm.search_surfaces,
+      },
+      ...current,
+    ].slice(0, 12));
+    setTemplateName("");
+    setFeedback(`Template "${label}" saved on this browser.`);
+    setError(null);
+  }
+
+  function deletePainTemplate(templateId: string) {
+    setCustomPainTemplates((current) => current.filter((template) => template.id !== templateId));
+  }
+
   async function saveCampaign(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const isReplyCampaign = campaignForm.campaign_type === "reply";
+    const isPainAgent = !isReplyCampaign;
     if (availableApps.length === 0) {
       setError("Add an active app in Config first so Studio can attach crawler results.");
       return;
@@ -471,12 +923,24 @@ export function StudioPage({ onUpload }: StudioPageProps) {
       setError("Connect an active Twitter/X, Threads, or Reddit account in Config first.");
       return;
     }
-    if (!campaignForm.name.trim() || !campaignForm.app_id) {
+    if (isPainAgent && availableSearchPlatforms.length === 0) {
+      setError("Connect an active Twitter/X, Threads, or Reddit account with search access first.");
+      return;
+    }
+    if (isPainAgent && !campaignForm.objective.trim()) {
+      setError("Tell the Pain Point Agent what to investigate.");
+      return;
+    }
+    if (!campaignForm.app_id) {
+      setError("Product selection is required.");
+      return;
+    }
+    if (isReplyCampaign && !campaignForm.name.trim()) {
       setError("Campaign name is required.");
       return;
     }
     if (campaignForm.platforms.length === 0) {
-      setError("No social platforms are available for this crawler.");
+      setError("Choose at least one connected search platform.");
       return;
     }
     if (isReplyCampaign && campaignForm.account_refs.length === 0) {
@@ -487,31 +951,55 @@ export function StudioPage({ onUpload }: StudioPageProps) {
       setError("Reply campaigns are available for Twitter/X, Threads, and Reddit only.");
       return;
     }
-    if (!campaignForm.instructions.trim()) {
-      setError("Pain Crawler instructions are required.");
+    if (isPainAgent && campaignForm.search_surfaces.length === 0) {
+      setError("Choose at least one search API option.");
       return;
     }
-    const resultLimit = Math.round(Number(campaignForm.result_limit));
+    if (isReplyCampaign && !campaignForm.instructions.trim()) {
+      setError("Comment search instructions are required.");
+      return;
+    }
+    const resultLimit = isPainAgent
+      ? painDepthConfig(campaignForm.depth).resultLimit
+      : Math.round(Number(campaignForm.result_limit));
     if (!Number.isFinite(resultLimit) || resultLimit < 1 || resultLimit > 50) {
       setError("Results needed must be a number from 1 to 50.");
       return;
     }
     try {
       setSaving(true);
+      const instructions = isPainAgent
+        ? buildPainAgentInstructions(campaignForm, selectedFormApp?.name)
+        : campaignForm.instructions.trim();
+      const name = isPainAgent
+        ? campaignForm.name.trim() || buildPainCampaignName(campaignForm, selectedFormApp?.name)
+        : campaignForm.name.trim();
+      const accountRefs = isPainAgent
+        ? accountRefsForPlatforms(campaignForm.platforms, availableAccounts)
+        : campaignForm.account_refs;
       const payload = {
-        name: campaignForm.name.trim(),
+        name,
         app_id: Number(campaignForm.app_id),
         campaign_type: campaignForm.campaign_type,
         result_limit: resultLimit,
-        account_refs: isReplyCampaign ? campaignForm.account_refs : [],
+        account_refs: accountRefs,
         platforms: campaignForm.platforms,
-        instructions: campaignForm.instructions.trim(),
+        instructions,
         status: campaignForm.status,
       };
 
       if (editingCampaignId) {
         await api.updateStudioCampaign(editingCampaignId, payload);
-        setFeedback(`${studioId("CMP", editingCampaignId)} updated.`);
+        if (rerunAfterSave) {
+          const run = await api.createStudioCrawlerRun({
+            campaign_id: editingCampaignId,
+            result_limit: resultLimit,
+          });
+          setSelectedCampaignId(editingCampaignId);
+          setFeedback(`${studioId("CMP", editingCampaignId)} updated and ${studioId("CR", run.id)} queued.`);
+        } else {
+          setFeedback(`${studioId("CMP", editingCampaignId)} updated.`);
+        }
       } else {
         const campaign = await api.createStudioCampaign(payload);
         const run = await api.createStudioCrawlerRun({
@@ -1160,7 +1648,7 @@ export function StudioPage({ onUpload }: StudioPageProps) {
     return counts;
   }, { comments: 0, "pain-points": 0 });
   const campaignFormIsCommentsCrawler = campaignForm.campaign_type === "reply";
-  const campaignFormTitle = campaignFormIsCommentsCrawler ? "comment searcher" : "painpoint analyzer";
+  const campaignFormTitle = campaignFormIsCommentsCrawler ? "comment searcher" : "pain point agent";
 
   return (
     <div className="studio-page stack">
@@ -1179,15 +1667,22 @@ export function StudioPage({ onUpload }: StudioPageProps) {
                 <h2>{selectedCampaign.name}</h2>
               </div>
               <div className="studio-tabs__actions">
-              <button
-                className="button-secondary dashboard-icon-button"
-                type="button"
-                onClick={() => openEditCampaign(selectedCampaign)}
-                aria-label="Edit campaign"
-                title="Edit"
-              >
-                <StudioIcon name="edit" />
-              </button>
+                <button
+                  className="button-secondary dashboard-icon-button"
+                  type="button"
+                  onClick={() => openEditCampaign(selectedCampaign)}
+                  aria-label="Edit campaign"
+                  title="Edit"
+                >
+                  <StudioIcon name="edit" />
+                </button>
+                <button
+                  className="button-secondary"
+                  type="button"
+                  onClick={() => openEditCampaign(selectedCampaign, { rerunAfterSave: true })}
+                >
+                  Rerun with changes
+                </button>
               <button
                 className="button-secondary"
                 type="button"
@@ -1313,69 +1808,94 @@ export function StudioPage({ onUpload }: StudioPageProps) {
                   <span>App</span>
                   <span>Type</span>
                   <span>Accounts</span>
+                  <span>Results</span>
                   <span>Instructions</span>
                   <span>Status</span>
                   <span>Actions</span>
                 </div>
-                {visibleCampaigns.map((campaign) => (
-                  <article
-                    className="studio-campaign-row studio-campaign-row--clickable"
-                    key={campaign.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setSelectedCampaignId(campaign.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        setSelectedCampaignId(campaign.id);
-                      }
-                    }}
-                  >
-                    <div className="studio-campaign-main">
-                      <span className="studio-id">{studioId("CMP", campaign.id)}</span>
-                      <strong>{campaign.name}</strong>
-                    </div>
-                    <p className="studio-muted">{campaign.app_name || `App #${campaign.app_id}`}</p>
-                    <div className="studio-chip-row">
-                      <span className="studio-chip">{campaign.campaign_type === "reply" ? "Reply" : "Post"}</span>
-                      {campaign.platforms.map((platform) => (
-                        <span className="studio-chip" key={platform}>{platformLabel(platform)}</span>
-                      ))}
-                    </div>
-                    <p className="studio-muted studio-campaign-accounts">
-                      {campaign.account_refs.map((ref) => accountLabelByRef.get(ref) ?? ref).join(", ") || "No accounts"}
-                    </p>
-                    <p className="studio-card__copy">{campaign.instructions || "No instructions saved."}</p>
-                    <span className={`studio-pill studio-pill--${statusTone(campaign.status)}`}>{campaign.status}</span>
-                    <div className="studio-row-actions">
-                      <button
-                        className="button-secondary dashboard-icon-button"
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          openEditCampaign(campaign);
-                        }}
-                        aria-label={`Edit ${campaign.name}`}
-                        title="Edit"
-                      >
-                        <StudioIcon name="edit" />
-                      </button>
-                      <button
-                        className="button-secondary studio-danger-button dashboard-icon-button"
-                        type="button"
-                        disabled={deletingCampaignId === campaign.id}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void deleteCampaign(campaign);
-                        }}
-                        aria-label={deletingCampaignId === campaign.id ? `Deleting ${campaign.name}` : `Delete ${campaign.name}`}
-                        title={deletingCampaignId === campaign.id ? "Deleting" : "Delete"}
-                      >
-                        <StudioIcon name="delete" />
-                      </button>
-                    </div>
-                  </article>
-                ))}
+                {visibleCampaigns.map((campaign) => {
+                  const campaignResults = campaignResultsById.get(campaign.id) ?? { runs: [], signals: [], posts: [] };
+                  const displayStatus = getCampaignDisplayStatus(campaign, campaignResults.runs);
+                  const runCount = campaignResults.runs.length;
+                  const signalLabel = campaign.campaign_type === "reply" ? "targets" : "signals";
+                  return (
+                    <article
+                      className="studio-campaign-row studio-campaign-row--clickable"
+                      key={campaign.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setSelectedCampaignId(campaign.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelectedCampaignId(campaign.id);
+                        }
+                      }}
+                    >
+                      <div className="studio-campaign-main">
+                        <span className="studio-id">{studioId("CMP", campaign.id)}</span>
+                        <strong>{campaign.name}</strong>
+                      </div>
+                      <p className="studio-muted">{campaign.app_name || `App #${campaign.app_id}`}</p>
+                      <div className="studio-chip-row">
+                        <span className="studio-chip">{campaign.campaign_type === "reply" ? "Reply" : "Post"}</span>
+                        {campaign.platforms.map((platform) => (
+                          <span className="studio-chip" key={platform}>{platformLabel(platform)}</span>
+                        ))}
+                      </div>
+                      <p className="studio-muted studio-campaign-accounts">
+                        {campaign.account_refs.map((ref) => accountLabelByRef.get(ref) ?? ref).join(", ") || "Default connected accounts"}
+                      </p>
+                      <div className="studio-result-summary">
+                        <strong>{campaignResults.signals.length}</strong>
+                        <span>{signalLabel}</span>
+                        <strong>{campaignResults.posts.length}</strong>
+                        <span>{campaign.campaign_type === "reply" ? "replies" : "ideas"}</span>
+                        <strong>{runCount}</strong>
+                        <span>{runCount === 1 ? "run" : "runs"}</span>
+                      </div>
+                      <p className="studio-card__copy">{campaign.instructions || "No instructions saved."}</p>
+                      <span className={`studio-pill studio-pill--${displayStatus.tone}`}>{displayStatus.label}</span>
+                      <div className="studio-row-actions">
+                        <button
+                          className="button-secondary"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openEditCampaign(campaign, { rerunAfterSave: true });
+                          }}
+                        >
+                          Rerun with changes
+                        </button>
+                        <button
+                          className="button-secondary dashboard-icon-button"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openEditCampaign(campaign);
+                          }}
+                          aria-label={`Edit ${campaign.name}`}
+                          title="Edit"
+                        >
+                          <StudioIcon name="edit" />
+                        </button>
+                        <button
+                          className="button-secondary studio-danger-button dashboard-icon-button"
+                          type="button"
+                          disabled={deletingCampaignId === campaign.id}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void deleteCampaign(campaign);
+                          }}
+                          aria-label={deletingCampaignId === campaign.id ? `Deleting ${campaign.name}` : `Delete ${campaign.name}`}
+                          title={deletingCampaignId === campaign.id ? "Deleting" : "Delete"}
+                        >
+                          <StudioIcon name="delete" />
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1435,57 +1955,348 @@ export function StudioPage({ onUpload }: StudioPageProps) {
 
       {campaignModalOpen ? (
         <div className="studio-modal-backdrop">
-          <form className="studio-modal panel" onSubmit={saveCampaign}>
+          <form className={`studio-modal panel ${campaignFormIsCommentsCrawler ? "" : "studio-modal--wide studio-agent-modal"}`} onSubmit={saveCampaign}>
             <div className="panel__title-row">
               <div>
-                <p className="eyebrow">{campaignFormIsCommentsCrawler ? "Comment searcher" : "Painpoint analyzer"}</p>
+                <p className="eyebrow">{campaignFormIsCommentsCrawler ? "Comment Searcher" : "Pain Point Agent"}</p>
                 <h2>{editingCampaignId ? `Edit ${campaignFormTitle}` : `Create ${campaignFormTitle}`}</h2>
                 <p className="studio-muted">
                   {campaignFormIsCommentsCrawler
                     ? "Choose the account that replies and use instructions to guide the comment search."
-                    : "Set the crawler name, result count, and instructions."}
+                    : "Tell the agent what to investigate, where to search, and what output to prepare."}
                 </p>
               </div>
               <ModalCloseButton onClick={closeCampaignModal} label="Close campaign modal" />
             </div>
-            <label>
-              Name
-              <input value={campaignForm.name} onChange={(event) => setCampaignForm((current) => ({ ...current, name: event.target.value }))} required />
-            </label>
-            {campaignFormIsCommentsCrawler ? availableReplyAccounts.length > 0 ? (
-              <div className="studio-check-grid" role="group" aria-label="Campaign account">
-                {availableReplyAccounts.map((account) => (
-                  <label className="studio-check" key={account.ref}>
-                    <input
-                      type="radio"
-                      name="campaign-account"
-                      checked={campaignForm.account_refs[0] === account.ref}
-                      onChange={() => setCampaignForm((current) => ({
-                        ...current,
-                        campaign_type: "reply",
-                        account_refs: [account.ref],
-                        platforms: [account.platform],
-                      }))}
-                    />
-                    <span>{account.label}</span>
-                  </label>
-                ))}
-              </div>
+
+            <div className="studio-agent-grid studio-agent-grid--two">
+              <label>
+                Product
+                <select
+                  value={campaignForm.app_id}
+                  onChange={(event) => setCampaignForm((current) => ({ ...current, app_id: event.target.value }))}
+                  required
+                >
+                  {availableApps.map((app) => (
+                    <option value={app.id} key={app.id}>{app.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                {campaignFormIsCommentsCrawler ? "Name" : "Run name"}
+                <input
+                  value={campaignForm.name}
+                  placeholder={campaignFormIsCommentsCrawler ? "" : "Auto-generated from the objective"}
+                  onChange={(event) => setCampaignForm((current) => ({ ...current, name: event.target.value }))}
+                  required={campaignFormIsCommentsCrawler}
+                />
+              </label>
+            </div>
+
+            {campaignFormIsCommentsCrawler ? (
+              <>
+                {availableReplyAccounts.length > 0 ? (
+                  <div className="studio-check-grid" role="group" aria-label="Campaign account">
+                    {availableReplyAccounts.map((account) => (
+                      <label className="studio-check" key={account.ref}>
+                        <input
+                          type="radio"
+                          name="campaign-account"
+                          checked={campaignForm.account_refs[0] === account.ref}
+                          onChange={() => setCampaignForm((current) => ({
+                            ...current,
+                            campaign_type: "reply",
+                            account_refs: [account.ref],
+                            platforms: [account.platform],
+                          }))}
+                        />
+                        <span>{account.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="studio-muted">Connect an active Twitter/X, Threads, or Reddit account in Config first.</p>
+                )}
+                <label>
+                  Results needed
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    step={1}
+                    value={campaignForm.result_limit}
+                    onChange={(event) => setCampaignForm((current) => ({ ...current, result_limit: event.target.value }))}
+                    required
+                  />
+                </label>
+                <label>
+                  Instructions
+                  <textarea
+                    rows={5}
+                    value={campaignForm.instructions}
+                    onChange={(event) => setCampaignForm((current) => ({ ...current, instructions: event.target.value }))}
+                    required
+                  />
+                </label>
+              </>
             ) : (
-              <p className="studio-muted">Connect an active Twitter/X, Threads, or Reddit account in Config first.</p>
-            ) : null}
-            <label>
-              Results needed
-              <input
-                type="number"
-                min={1}
-                max={50}
-                step={1}
-                value={campaignForm.result_limit}
-                onChange={(event) => setCampaignForm((current) => ({ ...current, result_limit: event.target.value }))}
-                required
-              />
-            </label>
+              <>
+                <label className="studio-agent-primary">
+                  What should the agent investigate?
+                  <textarea
+                    rows={4}
+                    value={campaignForm.objective}
+                    placeholder="Example: Find founders complaining that content planning tools are too scattered, manual, or hard to turn into scheduled posts."
+                    onChange={(event) => setCampaignForm((current) => ({ ...current, objective: event.target.value }))}
+                    required
+                  />
+                </label>
+
+                <div className="studio-agent-grid">
+                  <label>
+                    Target audience
+                    <input
+                      value={campaignForm.target_audience}
+                      placeholder="Solo founders, SaaS marketers, agencies"
+                      onChange={(event) => setCampaignForm((current) => ({ ...current, target_audience: event.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Pain theme
+                    <input
+                      value={campaignForm.pain_theme}
+                      placeholder="Scheduling, research, approvals, publishing"
+                      onChange={(event) => setCampaignForm((current) => ({ ...current, pain_theme: event.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Competitors
+                    <input
+                      value={campaignForm.competitors}
+                      placeholder="Buffer, Hootsuite, Notion, spreadsheets"
+                      onChange={(event) => setCampaignForm((current) => ({ ...current, competitors: event.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Exclude
+                    <input
+                      value={campaignForm.exclude}
+                      placeholder="Jobs, giveaways, generic news"
+                      onChange={(event) => setCampaignForm((current) => ({ ...current, exclude: event.target.value }))}
+                    />
+                  </label>
+                </div>
+
+                <section className="studio-agent-section">
+                  <div className="studio-agent-section__header">
+                    <div>
+                      <span className="studio-id">Templates</span>
+                      <h3>Template manager</h3>
+                    </div>
+                    <div className="studio-template-save">
+                      <input
+                        value={templateName}
+                        placeholder="Template name"
+                        onChange={(event) => setTemplateName(event.target.value)}
+                      />
+                      <button className="button-secondary" type="button" onClick={savePainTemplate}>
+                        Save current
+                      </button>
+                    </div>
+                  </div>
+                  <div className="studio-template-list">
+                    {[...BUILTIN_PAIN_TEMPLATES, ...customPainTemplates].map((template) => (
+                      <span className="studio-template-pill" key={template.id}>
+                        <button type="button" onClick={() => applyPainTemplate(template)}>
+                          {template.label}
+                        </button>
+                        {template.id.startsWith("custom-") ? (
+                          <button
+                            aria-label={`Delete template ${template.label}`}
+                            className="studio-template-delete"
+                            type="button"
+                            onClick={() => deletePainTemplate(template.id)}
+                          >
+                            x
+                          </button>
+                        ) : null}
+                      </span>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="studio-agent-section">
+                  <div className="studio-agent-section__header">
+                    <div>
+                      <span className="studio-id">Connected search APIs</span>
+                      <h3>Platforms and search options</h3>
+                    </div>
+                    <span className="studio-count">{campaignForm.platforms.length}</span>
+                  </div>
+                  {availableSearchPlatforms.length > 0 ? (
+                    <div className="studio-platform-search-grid">
+                      {availableSearchPlatforms.map((platform) => {
+                        const checked = campaignForm.platforms.includes(platform.id);
+                        return (
+                          <div className={`studio-platform-search ${checked ? "studio-platform-search--active" : ""}`} key={platform.id}>
+                            <label className="studio-check studio-platform-search__platform">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => togglePainPlatform(platform.id)}
+                              />
+                              <span>{platform.label}</span>
+                            </label>
+                            <div className="studio-platform-search__options">
+                              {PLATFORM_SEARCH_OPTIONS[platform.id].map((option) => (
+                                <label className="studio-check" key={option.id}>
+                                  <input
+                                    type="checkbox"
+                                    disabled={!checked}
+                                    checked={checked && campaignForm.search_surfaces.includes(option.id)}
+                                    onChange={() => toggleSearchSurface(option.id)}
+                                  />
+                                  <span>
+                                    <strong>{option.label}</strong>
+                                    <small>{option.description}</small>
+                                  </span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="studio-empty studio-empty--compact">Connect Twitter/X, Threads, or Reddit before starting a pain-point search.</div>
+                  )}
+                  {unavailableSearchPlatforms.length > 0 ? (
+                    <p className="studio-muted">
+                      {unavailableSearchPlatforms.map((platform) => platform.label).join(", ")} connected for publishing/insights, but not selectable here because the current crawler search APIs do not support them yet.
+                    </p>
+                  ) : null}
+                </section>
+
+                <section className="studio-agent-section">
+                  <div className="studio-agent-section__header">
+                    <div>
+                      <span className="studio-id">Run setup</span>
+                      <h3>Depth and output</h3>
+                    </div>
+                  </div>
+                  <div className="studio-choice-row studio-choice-row--three">
+                    {PAIN_DEPTHS.map((depth) => (
+                      <button
+                        className={`studio-choice ${campaignForm.depth === depth.id ? "studio-choice--active" : ""}`}
+                        type="button"
+                        key={depth.id}
+                        onClick={() => setCampaignForm((current) => ({
+                          ...current,
+                          depth: depth.id,
+                          result_limit: String(depth.resultLimit),
+                        }))}
+                      >
+                        <strong>{depth.label}</strong>
+                        <span>{depth.description}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="studio-choice-row studio-choice-row--four">
+                    {PAIN_OUTPUT_MODES.map((mode) => (
+                      <button
+                        className={`studio-choice ${campaignForm.output_mode === mode.id ? "studio-choice--active" : ""}`}
+                        type="button"
+                        key={mode.id}
+                        onClick={() => setCampaignForm((current) => ({ ...current, output_mode: mode.id }))}
+                      >
+                        <strong>{mode.label}</strong>
+                        <span>{mode.description}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="studio-agent-section">
+                  <div className="studio-agent-section__header">
+                    <div>
+                      <span className="studio-id">Quality controls</span>
+                      <h3>Filter rules</h3>
+                    </div>
+                  </div>
+                  <div className="studio-agent-grid">
+                    <label>
+                      Minimum score
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={campaignForm.min_score}
+                        onChange={(event) => setCampaignForm((current) => ({ ...current, min_score: event.target.value }))}
+                      />
+                    </label>
+                    <label>
+                      Time window
+                      <select
+                        value={campaignForm.recent_window}
+                        onChange={(event) => setCampaignForm((current) => ({ ...current, recent_window: event.target.value as PainRecentWindow }))}
+                      >
+                        {PAIN_RECENT_WINDOWS.map((item) => (
+                          <option value={item.id} key={item.id}>{item.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="studio-check">
+                      <input
+                        type="checkbox"
+                        checked={campaignForm.include_comments}
+                        onChange={(event) => setCampaignForm((current) => ({ ...current, include_comments: event.target.checked }))}
+                      />
+                      <span>Include comments and replies</span>
+                    </label>
+                    <label className="studio-check">
+                      <input
+                        type="checkbox"
+                        checked={campaignForm.require_evidence}
+                        onChange={(event) => setCampaignForm((current) => ({ ...current, require_evidence: event.target.checked }))}
+                      />
+                      <span>Require evidence and source links</span>
+                    </label>
+                    <label className="studio-check">
+                      <input
+                        type="checkbox"
+                        checked={campaignForm.avoid_noise}
+                        onChange={(event) => setCampaignForm((current) => ({ ...current, avoid_noise: event.target.checked }))}
+                      />
+                      <span>Avoid spam and generic news</span>
+                    </label>
+                  </div>
+                </section>
+
+                <section className="studio-search-plan">
+                  <div className="studio-agent-section__header">
+                    <div>
+                      <span className="studio-id">Search plan preview</span>
+                      <h3>{painSearchPlan.depth.label} search {"->"} {painSearchPlan.outputMode.label}</h3>
+                    </div>
+                  </div>
+                  <div className="studio-search-plan__body">
+                    <div>
+                      <span className="studio-id">Queries</span>
+                      <ul>
+                        {(painSearchPlan.queries.length > 0 ? painSearchPlan.queries : ["Add an objective to preview queries."]).map((query) => (
+                          <li key={query}>{query}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div>
+                      <span className="studio-id">Sources</span>
+                      <p>{painSearchPlan.platforms.join(", ") || "No connected search platform selected."}</p>
+                      <p>{painSearchPlan.surfaces.join(", ") || "No search API option selected."}</p>
+                    </div>
+                  </div>
+                </section>
+              </>
+            )}
             {editingCampaignId ? (
               <label>
                 Status
@@ -1502,21 +2313,20 @@ export function StudioPage({ onUpload }: StudioPageProps) {
                 </select>
               </label>
             ) : null}
-            <label>
-              Instructions
-              <textarea
-                rows={5}
-                value={campaignForm.instructions}
-                onChange={(event) => setCampaignForm((current) => ({ ...current, instructions: event.target.value }))}
-                required
-              />
-            </label>
             <div className="studio-modal__actions">
               <button className="button-secondary" type="button" onClick={closeCampaignModal}>
                 Cancel
               </button>
               <button type="submit" disabled={saving}>
-                {saving ? "Saving..." : editingCampaignId ? `Save ${campaignFormTitle}` : `Create ${campaignFormTitle}`}
+                {saving
+                  ? "Saving..."
+                  : editingCampaignId
+                  ? rerunAfterSave
+                    ? "Save & rerun"
+                    : `Save ${campaignFormTitle}`
+                  : campaignFormIsCommentsCrawler
+                  ? `Create ${campaignFormTitle}`
+                  : "Start search"}
               </button>
             </div>
           </form>
