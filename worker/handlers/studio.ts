@@ -290,6 +290,63 @@ function cleanList(value: unknown): string[] {
   return value.map(cleanText).filter(Boolean).slice(0, 20);
 }
 
+function compactSearchQuery(value: unknown, maxTerms = 8, maxChars = 96): string {
+  const cleaned = cleanText(value);
+  if (!cleaned) return "";
+
+  const quotedPhrases = [...cleaned.matchAll(/"([^"]{2,80})"/g)]
+    .map((match) => cleanText(match[1]))
+    .filter(Boolean);
+  let compact = "";
+  if (quotedPhrases.length > 0) {
+    compact = quotedPhrases.slice(0, 2).join(" ");
+  } else {
+    const stripped = cleaned
+      .replace(/https?:\/\/\S+/g, " ")
+      .replace(/\b(?:user instructions|technical instructions|founder instructions|campaign type|objective|search surfaces)\b/gi, " ")
+      .replace(/\b(?!from|to|lang|conversation_id|url|source)([A-Za-z_][\w-]*):/g, " ")
+      .replace(/\b(?:AND|OR|NOT)\b/gi, " ")
+      .replace(/[-+][A-Za-z0-9_]+/g, " ")
+      .replace(/[(){}\[\]/\\|]/g, " ")
+      .replace(/[^A-Za-z0-9_#@\s]/g, " ");
+    const stopwords = new Set([
+      "about", "after", "agent", "almost", "around", "asking", "before", "campaign", "comments", "crawler",
+      "find", "for", "from", "generic", "instruction", "instructions", "objective", "people", "platform",
+      "prioritize", "query", "recent", "related", "reply", "search", "show", "social", "surface", "surfaces",
+      "that", "their", "this", "used", "users", "which", "with",
+    ]);
+    const seen = new Set<string>();
+    const terms: string[] = [];
+    for (const term of stripped.split(/\s+/)) {
+      const lowered = term.toLowerCase();
+      if (term.length <= 1 || stopwords.has(lowered) || seen.has(lowered)) continue;
+      seen.add(lowered);
+      terms.push(term);
+      if (terms.length >= maxTerms) break;
+    }
+    compact = terms.join(" ");
+  }
+  const normalized = compact.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxChars) return normalized;
+  return normalized.slice(0, maxChars).replace(/\s+\S*$/, "").trim();
+}
+
+function compactSearchQueries(value: unknown, maxQueries = 12): string[] {
+  const source = Array.isArray(value) ? value : [];
+  const seen = new Set<string>();
+  const queries: string[] = [];
+  for (const item of source) {
+    const query = compactSearchQuery(item);
+    if (!query) continue;
+    const key = query.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    queries.push(query);
+    if (queries.length >= maxQueries) break;
+  }
+  return queries;
+}
+
 function normalizeSignalStatus(value: unknown): StudioSignalStatus {
   return value === "candidate" || value === "filtered" || value === "rejected" ? value : "signal";
 }
@@ -369,6 +426,8 @@ function fallbackCrawlerBrief({
   const appContext = [cleanText(app?.description), cleanText(app?.ai_context), summarizeStudioAppProfile(appProfile)].filter(Boolean).join(" ");
   const replyMode = campaignType === "reply";
   const targetSuggestions = normalizeResultLimit(resultLimit);
+  const defaultMinSignalCount = replyMode ? Math.max(3, Math.min(targetSuggestions, 6)) : Math.max(4, Math.min(targetSuggestions, 6));
+  const defaultMinUniqueSourcePosts = replyMode ? Math.max(2, Math.min(Math.ceil(targetSuggestions / 2), 4)) : Math.max(2, Math.min(Math.ceil(targetSuggestions / 3), 3));
   const baseSearches = replyMode
     ? [
       `"${appName}" question OR confused OR "what is this"`,
@@ -396,7 +455,7 @@ function fallbackCrawlerBrief({
         : "For post campaigns, prioritize recurring user pains, objections, and product education opportunities.",
       "Reject spam, giveaways, generic engagement bait, bot-like posts, and results without clear evidence.",
     ].join("\n"),
-    search_queries: baseSearches,
+    search_queries: compactSearchQueries(baseSearches, 8),
     negative_queries: ["giveaway", "airdrop", "promo code", "follow for follow", "bot spam", "unrelated news"],
     quality_rules: [
       "Each saved signal must have a clear pain point, evidence snippet, source URL when available, and opportunity score.",
@@ -406,8 +465,8 @@ function fallbackCrawlerBrief({
     ],
     retry_policy: {
       max_iterations: 5,
-      min_signal_count: Math.max(replyMode ? 8 : 6, Math.min(targetSuggestions, 20)),
-      min_unique_source_posts: replyMode ? Math.max(4, Math.min(Math.ceil(targetSuggestions / 2), 20)) : 3,
+      min_signal_count: defaultMinSignalCount,
+      min_unique_source_posts: defaultMinUniqueSourcePosts,
       min_opportunity_score: 60,
       rerun_when: [
         "fewer than the minimum signal count passes filtering",
@@ -462,7 +521,7 @@ function normalizeCrawlerBrief(value: Record<string, unknown>, fallback: StudioC
   return {
     user_instructions: cleanText(value.user_instructions) || fallback.user_instructions,
     technical_instructions: cleanText(value.technical_instructions) || fallback.technical_instructions,
-    search_queries: cleanList(value.search_queries).length ? cleanList(value.search_queries).slice(0, 12) : fallback.search_queries,
+    search_queries: compactSearchQueries(value.search_queries).length ? compactSearchQueries(value.search_queries) : fallback.search_queries,
     negative_queries: cleanList(value.negative_queries).length ? cleanList(value.negative_queries).slice(0, 12) : fallback.negative_queries,
     quality_rules: cleanList(value.quality_rules).length ? cleanList(value.quality_rules).slice(0, 12) : fallback.quality_rules,
     retry_policy: {
@@ -514,6 +573,8 @@ async function buildCrawlerBrief({
         "You are the planning brain for a marketing crawler.",
         "Convert founder instructions into technical search guidance that a crawler runner can execute.",
         "The crawler can generate search queries, run search adapters or Playwright, filter noisy results with AI, extract pain points, score opportunity, and rerun search iterations when quality is weak.",
+        "Search queries must be compact keyword queries only, not full instruction sentences. Keep them under 90 characters and 8 terms.",
+        "Use realistic retry thresholds. Stop once the crawler has a strong working set of distinct, high-quality signals instead of forcing one accepted signal per requested suggestion.",
         "Reply campaigns must never suggest more than 2 comment replies under the same source post. If two comments under one post are already useful, search other posts.",
         "Respect the requested strategist suggestion count in strategist_rules.max_suggestions.",
         "Return JSON only with keys: user_instructions, technical_instructions, search_queries, negative_queries, quality_rules, retry_policy, strategist_rules.",
@@ -566,13 +627,18 @@ function assessCrawlerSignalQuality(
     : null;
   const retryPolicy = brief?.retry_policy;
   const campaignType: StudioCampaignType = run.campaign_type === "reply" ? "reply" : "post";
-  const minSignalCount = Number(retryPolicy?.min_signal_count ?? (campaignType === "reply" ? 8 : 6));
-  const minUniquePosts = Number(retryPolicy?.min_unique_source_posts ?? (campaignType === "reply" ? 4 : 3));
+  const requested = normalizeResultLimit(run.result_limit ?? rawData.requested_results ?? brief?.strategist_rules?.max_suggestions ?? 10);
+  const minSignalCount = Number(retryPolicy?.min_signal_count ?? (campaignType === "reply"
+    ? Math.max(3, Math.min(requested, 6))
+    : Math.max(4, Math.min(requested, 6))));
+  const minUniquePosts = Number(retryPolicy?.min_unique_source_posts ?? (campaignType === "reply"
+    ? Math.max(2, Math.min(Math.ceil(requested / 2), 4))
+    : Math.max(2, Math.min(Math.ceil(requested / 3), 3))));
   const minScore = Number(retryPolicy?.min_opportunity_score ?? 60);
   const accepted = signals.filter((signal) => {
     const status = normalizeSignalStatus(signal.status);
     const hasEvidence = Boolean(cleanText(signal.pain_point) || cleanText(signal.evidence) || cleanText(signal.snippet));
-    return status !== "rejected" && hasEvidence && normalizeOpportunityScore(signal.opportunity_score) >= minScore;
+    return status === "signal" && hasEvidence && normalizeOpportunityScore(signal.opportunity_score) >= minScore;
   });
   const sourceKeys = new Set(
     accepted
@@ -1264,7 +1330,8 @@ export async function listStudioCrawlerRuns(env: Env, url?: URL, userId: number 
     const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
     const query = `
       SELECT scr.*, sa.name AS app_name, sa.website_url AS app_website_url, sa.app_store_url AS app_store_url,
-             sa.description AS app_description, sa.ai_context AS app_ai_context, sc.name AS campaign_name
+             sa.description AS app_description, sa.ai_context AS app_ai_context, sa.app_profile_json AS app_profile_json,
+             sc.name AS campaign_name
       FROM studio_crawler_runs scr
       JOIN studio_apps sa ON sa.id = scr.app_id
       LEFT JOIN studio_campaigns sc ON sc.id = scr.campaign_id
