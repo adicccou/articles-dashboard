@@ -50,7 +50,7 @@ type CampaignForm = {
 type CrawlerTab = "comments" | "pain-points";
 type PainDepth = "quick" | "standard" | "deep";
 type PainOutputMode = "signals" | "post_ideas" | "reply_targets" | "schedule_drafts";
-type PainRecentWindow = "week" | "month" | "quarter" | "any";
+type PainRecentWindow = "3days" | "week" | "month" | "quarter" | "any";
 
 type PlatformSearchOption = {
   id: string;
@@ -115,6 +115,7 @@ const PAIN_OUTPUT_MODES: Array<{ id: PainOutputMode; label: string; description:
 ];
 
 const PAIN_RECENT_WINDOWS: Array<{ id: PainRecentWindow; label: string }> = [
+  { id: "3days", label: "Last 3 days" },
   { id: "week", label: "Last week" },
   { id: "month", label: "Last month" },
   { id: "quarter", label: "Last 90 days" },
@@ -2112,7 +2113,9 @@ export function StudioPage({ onUpload, onNavigate }: StudioPageProps) {
                         <strong>{runCount}</strong>
                         <span>{runCount === 1 ? "run" : "runs"}</span>
                       </div>
-                      <p className="studio-card__copy">{campaign.instructions || "No instructions saved."}</p>
+                      <p className="studio-card__copy studio-card__copy--clamped" title={campaign.instructions || "No instructions saved."}>
+                        {campaign.instructions || "No instructions saved."}
+                      </p>
                       <div className="studio-status-stack">
                         <span className={`studio-pill studio-pill--${displayStatus.tone}`}>{displayStatus.label}</span>
                         {runProgress ? (
@@ -2323,22 +2326,7 @@ export function StudioPage({ onUpload, onNavigate }: StudioPageProps) {
                 </label>
 
                 <div className="studio-agent-grid">
-                  <label>
-                    Target audience
-                    <input
-                      value={campaignForm.target_audience}
-                      placeholder="Solo founders, SaaS marketers, agencies"
-                      onChange={(event) => setCampaignForm((current) => ({ ...current, target_audience: event.target.value }))}
-                    />
-                  </label>
-                  <label>
-                    Pain theme
-                    <input
-                      value={campaignForm.pain_theme}
-                      placeholder="Scheduling, research, approvals, publishing"
-                      onChange={(event) => setCampaignForm((current) => ({ ...current, pain_theme: event.target.value }))}
-                    />
-                  </label>
+
                   <label>
                     Competitors
                     <input
@@ -2451,7 +2439,7 @@ export function StudioPage({ onUpload, onNavigate }: StudioPageProps) {
                   <div className="studio-agent-section__header">
                     <div>
                       <span className="studio-id">Run setup</span>
-                      <h3>Depth and output</h3>
+                      <h3>Depth</h3>
                     </div>
                   </div>
                   <div className="studio-choice-row studio-choice-row--three">
@@ -2470,6 +2458,15 @@ export function StudioPage({ onUpload, onNavigate }: StudioPageProps) {
                         <span>{depth.description}</span>
                       </button>
                     ))}
+                  </div>
+                </section>
+
+                <section className="studio-agent-section">
+                  <div className="studio-agent-section__header">
+                    <div>
+                      <span className="studio-id">Run setup</span>
+                      <h3>Output</h3>
+                    </div>
                   </div>
                   <div className="studio-choice-row studio-choice-row--four">
                     {PAIN_OUTPUT_MODES.map((mode) => (
