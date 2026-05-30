@@ -104,7 +104,7 @@
   flex-wrap: wrap;
   gap: 16px;
   justify-content: flex-start;
-  padding: 0 0 16px;
+  padding: 12px 0 16px;
 }
 
 .studio-crawler-tabs .studio-crawler-tabs__list {
