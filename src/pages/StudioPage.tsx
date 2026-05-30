@@ -2392,36 +2392,18 @@ export function StudioPage({ onUpload, onNavigate }: StudioPageProps) {
                     <span className="studio-count">{campaignForm.platforms.length}</span>
                   </div>
                   {availableSearchPlatforms.length > 0 ? (
-                    <div className="studio-platform-search-grid">
+                    <div className="studio-check-grid" role="group" aria-label="Platforms">
                       {availableSearchPlatforms.map((platform) => {
                         const checked = campaignForm.platforms.includes(platform.id);
                         return (
-                          <div className={`studio-platform-search ${checked ? "studio-platform-search--active" : ""}`} key={platform.id}>
-                            <label className="studio-check studio-platform-search__platform">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => togglePainPlatform(platform.id)}
-                              />
-                              <span>{platform.label}</span>
-                            </label>
-                            <div className="studio-platform-search__options">
-                              {PLATFORM_SEARCH_OPTIONS[platform.id].map((option) => (
-                                <label className="studio-check" key={option.id}>
-                                  <input
-                                    type="checkbox"
-                                    disabled={!checked}
-                                    checked={checked && campaignForm.search_surfaces.includes(option.id)}
-                                    onChange={() => toggleSearchSurface(option.id)}
-                                  />
-                                  <span>
-                                    <strong>{option.label}</strong>
-                                    <small>{option.description}</small>
-                                  </span>
-                                </label>
-                              ))}
-                            </div>
-                          </div>
+                          <label className="studio-check" key={platform.id}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => togglePainPlatform(platform.id)}
+                            />
+                            <span>{platform.label}</span>
+                          </label>
                         );
                       })}
                     </div>
