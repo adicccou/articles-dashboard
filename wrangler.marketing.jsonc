@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "marketing-dashboard",
+  "account_id": "45ea71ff9c25ebe55521834446c581a1",
   "main": "./worker/index.ts",
   "compatibility_date": "2025-05-02",
   "compatibility_flags": ["nodejs_compat"],
