@@ -29,6 +29,18 @@ describe("normalizeDashboardMediaUrl", () => {
     );
   });
 
+  it("keeps dashboard media on the hosted origin during local development", () => {
+    setWindowOrigin("http://127.0.0.1:5190");
+
+    expect(normalizeDashboardMediaUrl("/api/media/uploads/example.jpg")).toBe(
+      "https://oilor.app/api/media/uploads/example.jpg?source=dashboard-media",
+    );
+
+    expect(
+      normalizeDashboardMediaUrl("https://marketing-dashboard.adilet-melisov.workers.dev/api/media/uploads/example.jpg"),
+    ).toBe("https://oilor.app/api/media/uploads/example.jpg?source=dashboard-media");
+  });
+
   it("leaves external and data URLs untouched", () => {
     setWindowOrigin("https://oilor.app");
 

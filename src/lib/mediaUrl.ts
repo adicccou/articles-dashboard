@@ -6,9 +6,20 @@ const DASHBOARD_MEDIA_HOSTS = new Set([
 ]);
 
 const MEDIA_CACHE_MARKER = "dashboard-media";
+const PRIMARY_DASHBOARD_ORIGIN = "https://oilor.app";
+const LOCAL_DEVELOPMENT_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 
 function currentOrigin() {
   return typeof window === "undefined" ? null : window.location.origin;
+}
+
+function isLocalDevelopmentOrigin(origin: string | null): boolean {
+  if (!origin) return false;
+  try {
+    return LOCAL_DEVELOPMENT_HOSTS.has(new URL(origin).hostname);
+  } catch {
+    return false;
+  }
 }
 
 export function normalizeDashboardMediaUrl(raw: string | null | undefined): string {
@@ -17,7 +28,8 @@ export function normalizeDashboardMediaUrl(raw: string | null | undefined): stri
   if (/^(blob|data):/i.test(value)) return value;
 
   const origin = currentOrigin();
-  const base = origin ?? "https://oilor.app";
+  const shouldUseHostedDashboardOrigin = isLocalDevelopmentOrigin(origin);
+  const base = shouldUseHostedDashboardOrigin ? PRIMARY_DASHBOARD_ORIGIN : origin ?? PRIMARY_DASHBOARD_ORIGIN;
 
   try {
     const url = new URL(value, base);
@@ -30,7 +42,11 @@ export function normalizeDashboardMediaUrl(raw: string | null | undefined): stri
 
     if (!isDashboardMedia) return value;
 
-    if (origin) {
+    if (shouldUseHostedDashboardOrigin) {
+      const hosted = new URL(PRIMARY_DASHBOARD_ORIGIN);
+      url.protocol = hosted.protocol;
+      url.host = hosted.host;
+    } else if (origin) {
       const current = new URL(origin);
       url.protocol = current.protocol;
       url.host = current.host;
