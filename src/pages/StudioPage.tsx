@@ -82,6 +82,8 @@ type StudioSetupGate = {
   accountActionLabel: string;
 };
 
+const DEFAULT_CRAWLER_TAB: CrawlerTab = "pain-points";
+
 const PLATFORMS: Array<{ id: Platform; label: string }> = [
   { id: "twitter", label: "Twitter/X" },
   { id: "threads", label: "Threads" },
@@ -91,7 +93,7 @@ const PLATFORMS: Array<{ id: Platform; label: string }> = [
 ];
 
 const REPLY_CAPABLE_PLATFORMS = new Set<Platform>(["twitter", "threads", "reddit"]);
-const CONNECTED_SEARCH_PLATFORMS = new Set<Platform>(["twitter", "threads", "reddit"]);
+const CONNECTED_SEARCH_PLATFORMS = new Set<Platform>(["twitter", "threads", "reddit", "instagram"]);
 
 const DEFAULT_CAMPAIGN_RESULT_LIMIT = 10;
 const PAIN_TEMPLATE_STORAGE_KEY = "oilor-studio-pain-agent-templates";
@@ -100,6 +102,8 @@ const CRAWLER_TABS: Array<{ id: CrawlerTab; label: string; campaignType: StudioC
   { id: "comments", label: "Comment Searcher", campaignType: "reply" },
   { id: "pain-points", label: "Pain Point Agent", campaignType: "post" },
 ];
+
+const VISIBLE_CRAWLER_TABS = CRAWLER_TABS.filter((tab) => tab.id === DEFAULT_CRAWLER_TAB);
 
 const PAIN_DEPTHS: Array<{ id: PainDepth; label: string; resultLimit: number; description: string }> = [
   { id: "quick", label: "Quick", resultLimit: 6, description: "Small scan for a fast read." },
@@ -677,7 +681,7 @@ export function StudioPage({ onUpload, onNavigate }: StudioPageProps) {
   const [campaignForm, setCampaignForm] = useState<CampaignForm>(emptyCampaignForm);
   const [customPainTemplates, setCustomPainTemplates] = useState<PainTemplate[]>(readCustomPainTemplates);
   const [templateName, setTemplateName] = useState("");
-  const [selectedCrawlerTab, setSelectedCrawlerTab] = useState<CrawlerTab>("comments");
+  const [selectedCrawlerTab, setSelectedCrawlerTab] = useState<CrawlerTab>(DEFAULT_CRAWLER_TAB);
   const [uploadingPostId, setUploadingPostId] = useState<number | null>(null);
   const [schedulingPostId, setSchedulingPostId] = useState<number | null>(null);
   const [unpostingPostId, setUnpostingPostId] = useState<number | null>(null);
@@ -772,6 +776,16 @@ export function StudioPage({ onUpload, onNavigate }: StudioPageProps) {
   const unavailableSearchPlatforms = useMemo(
     () => availablePlatforms.filter((platform) => !CONNECTED_SEARCH_PLATFORMS.has(platform.id)),
     [availablePlatforms],
+  );
+
+  const availableSearchAccounts = useMemo(
+    () => availableAccounts.filter((account) => CONNECTED_SEARCH_PLATFORMS.has(account.platform)),
+    [availableAccounts],
+  );
+
+  const unavailableSearchAccounts = useMemo(
+    () => availableAccounts.filter((account) => !CONNECTED_SEARCH_PLATFORMS.has(account.platform)),
+    [availableAccounts],
   );
 
   const accountLabelByRef = useMemo(
@@ -1009,6 +1023,26 @@ export function StudioPage({ onUpload, onNavigate }: StudioPageProps) {
     if (savingPostId) return;
     setEditingPostId(null);
     setEditingPostText("");
+  }
+
+  function togglePainAccount(account: typeof availableAccounts[number]) {
+    setCampaignForm((current) => {
+      const account_refs = current.account_refs.includes(account.ref)
+        ? current.account_refs.filter((ref) => ref !== account.ref)
+        : uniqueValues([...current.account_refs, account.ref]);
+      const platforms = uniqueValues(
+        availableAccounts
+          .filter((acc) => account_refs.includes(acc.ref))
+          .map((acc) => acc.platform)
+      );
+      const searchSurfaces = validSearchSurfacesForPlatforms(current.search_surfaces, platforms);
+      return {
+        ...current,
+        account_refs,
+        platforms,
+        search_surfaces: searchSurfaces.length > 0 ? searchSurfaces : defaultSearchSurfacesForPlatforms(platforms),
+      };
+    });
   }
 
   function togglePainPlatform(platform: Platform) {
@@ -1827,7 +1861,7 @@ export function StudioPage({ onUpload, onNavigate }: StudioPageProps) {
   const selectedCampaignDisplayStatus = selectedCampaign && selectedCampaignResults
     ? getCampaignDisplayStatus(selectedCampaign, selectedCampaignResults.runs)
     : null;
-  const selectedCrawlerTabConfig = CRAWLER_TABS.find((tab) => tab.id === selectedCrawlerTab) ?? CRAWLER_TABS[0];
+  const selectedCrawlerTabConfig = VISIBLE_CRAWLER_TABS.find((tab) => tab.id === selectedCrawlerTab) ?? VISIBLE_CRAWLER_TABS[0];
   const selectedSetupGate = setupGatesByTab[selectedCrawlerTab];
   const visibleCampaigns = summary.campaigns.filter((campaign) => campaign.campaign_type === selectedCrawlerTabConfig.campaignType);
   const visibleActiveRunCount = visibleCampaigns.reduce((count, campaign) => {
@@ -1985,19 +2019,21 @@ export function StudioPage({ onUpload, onNavigate }: StudioPageProps) {
       ) : (
         <section className="panel studio-overview">
           <div className="studio-crawler-tabs ui-tabs">
-            <SectionTabs
-              activeId={selectedCrawlerTab}
-              ariaLabel="Studio crawler type"
-              className="studio-crawler-tabs__list"
-              tabClassName="social-tab"
-              activeTabClassName="social-tab--active"
-              onChange={setSelectedCrawlerTab}
-              items={CRAWLER_TABS.map((tab) => ({
-                id: tab.id,
-                label: tab.label,
-                badge: campaignCountsByCrawlerTab[tab.id],
-              }))}
-            />
+            {VISIBLE_CRAWLER_TABS.length > 1 ? (
+              <SectionTabs
+                activeId={selectedCrawlerTab}
+                ariaLabel="Studio crawler type"
+                className="studio-crawler-tabs__list"
+                tabClassName="social-tab"
+                activeTabClassName="social-tab--active"
+                onChange={setSelectedCrawlerTab}
+                items={VISIBLE_CRAWLER_TABS.map((tab) => ({
+                  id: tab.id,
+                  label: tab.label,
+                  badge: campaignCountsByCrawlerTab[tab.id],
+                }))}
+              />
+            ) : null}
             <div className="ui-tabs__actions studio-tabs__actions">
               <button
                 type="button"
@@ -2386,33 +2422,33 @@ export function StudioPage({ onUpload, onNavigate }: StudioPageProps) {
                 <section className="studio-agent-section">
                   <div className="studio-agent-section__header">
                     <div>
-                      <span className="studio-id">Connected search APIs</span>
-                      <h3>Platforms and search options</h3>
+                      <span className="studio-id">Connected search accounts</span>
+                      <h3>Accounts</h3>
                     </div>
-                    <span className="studio-count">{campaignForm.platforms.length}</span>
+                    <span className="studio-count">{campaignForm.account_refs.length}</span>
                   </div>
-                  {availableSearchPlatforms.length > 0 ? (
-                    <div className="studio-check-grid" role="group" aria-label="Platforms">
-                      {availableSearchPlatforms.map((platform) => {
-                        const checked = campaignForm.platforms.includes(platform.id);
+                  {availableSearchAccounts.length > 0 ? (
+                    <div className="studio-check-grid" role="group" aria-label="Accounts">
+                      {availableSearchAccounts.map((account) => {
+                        const checked = campaignForm.account_refs.includes(account.ref);
                         return (
-                          <label className="studio-check" key={platform.id}>
+                          <label className="studio-check" key={account.ref}>
                             <input
                               type="checkbox"
                               checked={checked}
-                              onChange={() => togglePainPlatform(platform.id)}
+                              onChange={() => togglePainAccount(account)}
                             />
-                            <span>{platform.label}</span>
+                            <span>{account.label}</span>
                           </label>
                         );
                       })}
                     </div>
                   ) : (
-                    <div className="studio-empty studio-empty--compact">Connect Twitter/X, Threads, or Reddit before starting a pain-point search.</div>
+                    <div className="studio-empty studio-empty--compact">Connect a Twitter/X, Threads, Reddit, or Instagram account before starting a pain-point search.</div>
                   )}
-                  {unavailableSearchPlatforms.length > 0 ? (
+                  {unavailableSearchAccounts.length > 0 ? (
                     <p className="studio-muted">
-                      {unavailableSearchPlatforms.map((platform) => platform.label).join(", ")} connected for publishing/insights, but not selectable here because the current crawler search APIs do not support them yet.
+                      {uniqueValues(unavailableSearchAccounts.map((account) => PLATFORMS.find(p => p.id === account.platform)?.label ?? account.platform)).join(", ")} connected for publishing/insights, but not selectable here because the current crawler search APIs do not support them yet.
                     </p>
                   ) : null}
                 </section>
