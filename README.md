@@ -30,6 +30,7 @@ npm run build:trading
 
 npm run deploy:marketing
 npm run deploy:trading
+npm run ship:marketing
 ```
 
 Project configs:
@@ -38,6 +39,30 @@ Project configs:
 - `wrangler.trading.jsonc` deploys `trading-dashboard`
 - `.env.marketing` pins the frontend to marketing
 - `.env.trading` pins the frontend to trading
+
+## Production release flow
+
+Use the canonical release command when you want code pushed to both dashboard repos and then deployed to `oilor.app`:
+
+```bash
+npm run ship:marketing
+```
+
+What it does:
+
+- verifies the worktree is clean
+- runs `npm run build:marketing`
+- pushes the current branch to both `origin` and `marketing`
+- fast-forwards both remotes' `main` branches to the current `HEAD`
+- checks that Wrangler is logged into the production Cloudflare account
+- deploys `wrangler.marketing.jsonc`
+
+Useful variants:
+
+```bash
+npm run ship:marketing -- --dry-run
+npm run ship:marketing -- --skip-deploy
+```
 
 ## Local setup
 

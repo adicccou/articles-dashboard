@@ -17,6 +17,7 @@
     "deploy": "npm run deploy:marketing",
     "deploy:marketing": "npm run build:marketing && wrangler deploy --config wrangler.marketing.jsonc",
     "deploy:trading": "npm run build:trading && wrangler deploy --config wrangler.trading.jsonc",
+    "ship:marketing": "./scripts/ship-marketing.sh",
     "cf:typegen": "wrangler types ./worker/env.d.ts",
     "db:migrate:local": "wrangler d1 migrations apply article_dashboard --local",
     "db:migrate:remote": "wrangler d1 migrations apply article_dashboard --remote"
