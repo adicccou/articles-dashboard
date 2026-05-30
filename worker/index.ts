@@ -270,16 +270,19 @@ function renderMarketingHomePage(includeBody = true): Response {
         --accent: #1f7a5a;
         --accent-strong: #15553e;
         --accent-soft: rgba(31, 122, 90, 0.12);
-        --shadow: 0 24px 80px rgba(19, 33, 29, 0.12);
+        --preview-bg: linear-gradient(180deg, #13211d 0%, #1d312b 100%);
+        --preview-border: rgba(255, 255, 255, 0.1);
+        --preview-text: rgba(239, 247, 242, 0.84);
+        --preview-text-strong: rgba(248, 252, 249, 0.96);
+        --shadow: 0 10px 28px rgba(19, 33, 29, 0.08);
       }
       * { box-sizing: border-box; }
       html { background: var(--bg); }
       body {
         margin: 0;
         color: var(--text);
-        font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+        font-family: Inter, "Instrument Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         background:
-          radial-gradient(circle at top left, rgba(31, 122, 90, 0.16), transparent 28%),
           radial-gradient(circle at top right, rgba(226, 165, 67, 0.12), transparent 24%),
           linear-gradient(180deg, #fbfcf8 0%, var(--bg) 100%);
       }
@@ -287,42 +290,26 @@ function renderMarketingHomePage(includeBody = true): Response {
       .page {
         max-width: 1180px;
         margin: 0 auto;
-        padding: 24px 20px 56px;
+        padding: 24px 20px 96px;
       }
       .nav {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 16px;
-        padding: 8px 0 28px;
+        padding: 8px 0 40px;
       }
       .brand {
         display: inline-flex;
         align-items: center;
-        gap: 12px;
+        gap: 10px;
         font-weight: 700;
         letter-spacing: 0.01em;
       }
-      .brand-mark {
-        width: 40px;
-        height: 40px;
-        border-radius: 14px;
-        display: grid;
-        place-items: center;
-        color: white;
-        background: linear-gradient(135deg, var(--accent) 0%, #0f3e2e 100%);
-        box-shadow: 0 14px 30px rgba(21, 85, 62, 0.24);
-      }
-      .brand-copy {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-      }
-      .brand-copy small {
-        color: var(--muted);
-        font-weight: 600;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
+      .brand-logo {
+        display: block;
+        width: 112px;
+        height: auto;
       }
       .nav-actions {
         display: flex;
@@ -344,7 +331,7 @@ function renderMarketingHomePage(includeBody = true): Response {
       .button {
         background: var(--accent);
         color: white;
-        box-shadow: 0 18px 32px rgba(21, 85, 62, 0.24);
+        box-shadow: 0 8px 18px rgba(21, 85, 62, 0.16);
       }
       .button:hover,
       .button-ghost:hover {
@@ -374,20 +361,6 @@ function renderMarketingHomePage(includeBody = true): Response {
         border-radius: 34px;
         padding: 34px;
       }
-      .eyebrow {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
-        border-radius: 999px;
-        margin-bottom: 18px;
-        background: var(--accent-soft);
-        color: var(--accent-strong);
-        font-size: 0.82rem;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
       h1 {
         margin: 0;
         max-width: 12ch;
@@ -401,26 +374,6 @@ function renderMarketingHomePage(includeBody = true): Response {
         color: var(--muted);
         font-size: 1.06rem;
         line-height: 1.75;
-      }
-      .hero-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 14px;
-        margin-top: 28px;
-      }
-      .hero-notes {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        margin-top: 26px;
-      }
-      .note-chip {
-        padding: 10px 14px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.72);
-        border: 1px solid var(--border);
-        color: var(--muted);
-        font-size: 0.92rem;
       }
       .hero-preview {
         border-radius: 34px;
@@ -439,52 +392,104 @@ function renderMarketingHomePage(includeBody = true): Response {
       }
       .preview-screen {
         flex: 1;
-        border-radius: 26px;
-        padding: 20px;
-        background: linear-gradient(180deg, #13211d 0%, #1d312b 100%);
-        color: #eff7f2;
+        padding: 0;
+        background: transparent;
+        color: #f8fafc;
         display: grid;
-        gap: 14px;
+        gap: 16px;
       }
       .preview-panel {
+        position: relative;
+        overflow: hidden;
         border-radius: 18px;
-        padding: 16px;
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 18px 18px 20px;
+        background:
+          radial-gradient(circle at top right, rgba(104, 195, 151, 0.12), transparent 34%),
+          var(--preview-bg);
+        border: 1px solid var(--preview-border);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.04),
+          0 14px 28px rgba(9, 18, 15, 0.14);
+      }
+      .preview-panel::after {
+        content: "";
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 3px;
+        background: linear-gradient(180deg, rgba(106, 205, 158, 0.95) 0%, rgba(31, 122, 90, 0.6) 100%);
+      }
+      .preview-panel--compact {
+        padding-bottom: 18px;
       }
       .preview-panel strong,
       .preview-list strong {
-        display: block;
-        margin-bottom: 8px;
-        font-size: 0.95rem;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 10px;
+        color: var(--preview-text-strong);
+        font-size: 0.98rem;
+        letter-spacing: -0.02em;
+      }
+      .preview-panel strong::before,
+      .preview-list strong::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        flex: 0 0 auto;
+        background: linear-gradient(135deg, #7be0b2 0%, #3b9f73 100%);
+        box-shadow: 0 0 0 5px rgba(123, 224, 178, 0.08);
       }
       .preview-panel p,
       .preview-list li {
         margin: 0;
-        color: rgba(239, 247, 242, 0.82);
-        font-size: 0.92rem;
-        line-height: 1.55;
+        color: var(--preview-text);
+        font-size: 0.94rem;
+        line-height: 1.68;
+      }
+      .preview-panel p {
+        max-width: 34ch;
       }
       .preview-list {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 12px;
+        gap: 14px;
       }
       .preview-list ul {
         margin: 0;
-        padding-left: 18px;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 10px;
+      }
+      .preview-list li {
+        position: relative;
+        padding-left: 17px;
+      }
+      .preview-list li::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0.68em;
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: #72d3a7;
+        opacity: 0.95;
       }
       .section {
-        margin-top: 24px;
+        margin-top: 34px;
       }
       .feature-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 18px;
+        gap: 22px;
       }
       .feature-card {
         border-radius: 26px;
-        padding: 24px;
+        min-height: 248px;
+        padding: 28px 24px 30px;
       }
       .feature-card h2 {
         margin: 0 0 12px;
@@ -495,32 +500,14 @@ function renderMarketingHomePage(includeBody = true): Response {
         color: var(--muted);
         line-height: 1.7;
       }
-      .cta-strip {
-        margin-top: 24px;
-        border-radius: 30px;
-        padding: 24px 26px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 18px;
-      }
-      .cta-strip h3 {
-        margin: 0 0 8px;
-        font-size: 1.3rem;
-      }
-      .cta-strip p {
-        margin: 0;
-        color: var(--muted);
-        line-height: 1.65;
-      }
       .footer {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        margin-top: 18px;
-        padding: 8px 2px 0;
+        margin-top: 28px;
+        padding: 18px 2px 0;
         color: var(--muted);
         font-size: 0.92rem;
       }
@@ -532,35 +519,28 @@ function renderMarketingHomePage(includeBody = true): Response {
       @media (max-width: 960px) {
         .hero,
         .feature-grid,
-        .preview-list,
-        .cta-strip {
+        .preview-list {
           grid-template-columns: 1fr;
-        }
-        .cta-strip {
-          display: grid;
         }
       }
       @media (max-width: 720px) {
         .page {
-          padding: 18px 16px 40px;
+          padding: 18px 16px 72px;
         }
         .nav {
           align-items: flex-start;
           flex-direction: column;
-          padding-bottom: 20px;
+          padding-bottom: 28px;
         }
-        .nav-actions,
-        .hero-actions {
+        .nav-actions {
           width: 100%;
         }
-        .nav-actions a,
-        .hero-actions a {
+        .nav-actions a {
           flex: 1 1 220px;
         }
         .hero-copy,
         .hero-preview,
-        .feature-card,
-        .cta-strip {
+        .feature-card {
           border-radius: 24px;
           padding: 22px;
         }
@@ -570,12 +550,11 @@ function renderMarketingHomePage(includeBody = true): Response {
   <body>
     <main class="page">
       <header class="nav">
-        <a class="brand" href="/">
-          <span class="brand-mark">O</span>
-          <span class="brand-copy">
-            <span>Oilor Studio</span>
-            <small>Marketing OS</small>
-          </span>
+        <a class="brand" href="/" aria-label="Oilor Studio">
+          <svg class="brand-logo" viewBox="0 0 92 33" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M24 21c0 6.627-5.373 12-12 12S0 27.627 0 21 5.373 9 12 9s12 5.373 12 12ZM6 21a6 6 0 1 0 12 0 6 6 0 0 0-12 0Zm69 0c0 6.627-5.373 12-12 12s-12-5.373-12-12S56.373 9 63 9s12 5.373 12 12Zm-18 0a6 6 0 1 0 12 0 6 6 0 0 0-12 0ZM29 32V10l6 1v21h-6Zm51 0V16l6 1v15h-6Zm0-22h12v6H80zM40 32V0h6v32z" fill="#000" />
+            <circle cx="32" cy="4" r="4" fill="#FFBD00" />
+          </svg>
         </a>
         <div class="nav-actions">
           <a class="button-ghost" href="/signin">Sign in</a>
@@ -585,21 +564,11 @@ function renderMarketingHomePage(includeBody = true): Response {
 
       <section class="hero">
         <div class="hero-copy">
-          <span class="eyebrow">Plan, draft, schedule, publish</span>
           <h1>Run your app marketing from one calm workspace.</h1>
           <p>
             Oilor Studio keeps your research, content ideas, post drafts, and publishing calendar in one place.
             It is built for small app teams that want a simple system instead of juggling notes, spreadsheets, and social tabs.
           </p>
-          <div class="hero-actions">
-            <a class="button" href="/signin">Sign in</a>
-            <a class="button-ghost" href="/dashboard">Open dashboard</a>
-          </div>
-          <div class="hero-notes">
-            <span class="note-chip">Studio agents for idea generation</span>
-            <span class="note-chip">Planner for cross-channel scheduling</span>
-            <span class="note-chip">One workspace for content ops</span>
-          </div>
         </div>
 
         <div class="hero-preview">
@@ -608,19 +577,19 @@ function renderMarketingHomePage(includeBody = true): Response {
             <strong>Simple by design</strong>
           </div>
           <div class="preview-screen">
-            <div class="preview-panel">
+            <div class="preview-panel preview-panel--hero">
               <strong>Studio agents</strong>
               <p>Turn pain points, audience signals, and product angles into post ideas that are ready for your calendar.</p>
             </div>
             <div class="preview-list">
-              <div class="preview-panel">
+              <div class="preview-panel preview-panel--compact">
                 <strong>Planner</strong>
                 <ul>
                   <li>See the week at a glance</li>
                   <li>Keep one posting rhythm across channels</li>
                 </ul>
               </div>
-              <div class="preview-panel">
+              <div class="preview-panel preview-panel--compact">
                 <strong>Publishing flow</strong>
                 <ul>
                   <li>Draft once</li>
@@ -649,17 +618,6 @@ function renderMarketingHomePage(includeBody = true): Response {
           <h2>Keep the operation understandable</h2>
           <p>Instead of scattered tools and hidden context, Oilor keeps the workflow readable so you can move faster and still know what is going on.</p>
         </article>
-      </section>
-
-      <section class="cta-strip">
-        <div>
-          <h3>Ready to get back into the workspace?</h3>
-          <p>Open the dashboard, continue planning, and keep your publishing pipeline moving.</p>
-        </div>
-        <div class="nav-actions">
-          <a class="button-ghost" href="/signin">Sign in</a>
-          <a class="button" href="/dashboard">Go to dashboard</a>
-        </div>
       </section>
 
       <footer class="footer">
