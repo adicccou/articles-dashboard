@@ -1,8 +1,9 @@
 # Oilor Studio Dashboards
 
-React, Vite, Cloudflare Workers, D1, and R2 dashboard workspace split into two deployable projects:
+React, Vite, Cloudflare Workers, D1, and R2 dashboard workspace split into three deployable projects:
 
-- `marketing-dashboard`: articles, replies, Studio, planner, statistics, and social configuration.
+- `articles-dashboard`: articles, site/category management, image upload, and public article API.
+- `marketing-dashboard`: replies, Studio, planner, statistics, and social configuration.
 - `trading-dashboard`: trading workers, ML trading, runtime diagnostics, trading settings, and agent sync.
 
 ## MVP included
@@ -24,19 +25,24 @@ Both projects share the same codebase and D1/R2 bindings, but they are pinned by
 ```bash
 npm run dev:marketing  # http://localhost:5190
 npm run dev:trading    # http://localhost:5191
+npm run dev:articles   # http://localhost:5192
 
 npm run build:marketing
 npm run build:trading
+npm run build:articles
 
 npm run deploy:marketing
 npm run deploy:trading
+npm run deploy:articles
 npm run ship:marketing
 ```
 
 Project configs:
 
+- `wrangler.articles.jsonc` deploys `articles-dashboard`
 - `wrangler.marketing.jsonc` deploys `marketing-dashboard`
 - `wrangler.trading.jsonc` deploys `trading-dashboard`
+- `.env.articles` pins the frontend to articles
 - `.env.marketing` pins the frontend to marketing
 - `.env.trading` pins the frontend to trading
 
@@ -107,6 +113,7 @@ npm run db:migrate:local
 ```bash
 npm run dev:marketing
 npm run dev:trading
+npm run dev:articles
 ```
 
 ## Public API
@@ -127,4 +134,5 @@ GET /api/public/articles/my-article-slug?site=journl
 
 - The editor is markdown-first for faster MVP delivery.
 - Auth is intentionally simple for V1 and should be upgraded before broader team usage.
+- The articles dashboard intentionally uses password sign-in only. Google sign-in stays on the marketing dashboard.
 - `PUBLIC_MEDIA_BASE_URL` can point at a CDN or custom domain later.

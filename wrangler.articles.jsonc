@@ -1,0 +1,35 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "articles-dashboard",
+  "account_id": "45ea71ff9c25ebe55521834446c581a1",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2025-05-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./dist/client",
+    "not_found_handling": "single-page-application",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/legal/*"]
+  },
+  "workers_dev": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "article_dashboard",
+      "database_id": "50875aef-455c-4c47-99c1-7c8c0d7d7fe8",
+      "preview_database_id": "50875aef-455c-4c47-99c1-7c8c0d7d7fe8",
+      "remote": true
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA_BUCKET",
+      "bucket_name": "article-dashboard-media"
+    }
+  ],
+  "vars": {
+    "DASHBOARD_SURFACE": "articles",
+    "ADMIN_USERNAME": "admin",
+    "DASHBOARD_OWNER_EMAIL": "adiccou@gmail.com"
+  }
+}

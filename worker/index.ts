@@ -1242,12 +1242,14 @@ async function handleBootstrap(request: Request, env: Env) {
   const user = await getSessionUser(request, env);
   const authenticated = Boolean(user);
   const googleAuthConfigured = isGoogleAuthConfigured(env);
+  const surface = getWorkerSurface(env);
+  const includeArticles = surface === "articles";
   return json({
     auth: authenticated
       ? { authenticated: true, username: user?.username, user, google_auth_configured: googleAuthConfigured }
       : { authenticated: false, google_auth_configured: googleAuthConfigured },
-    sites: authenticated ? await listSites(env) : [],
-    articles: authenticated ? await listArticles(env) : [],
+    sites: authenticated && includeArticles ? await listSites(env) : [],
+    articles: authenticated && includeArticles ? await listArticles(env) : [],
   });
 }
 
@@ -1304,9 +1306,10 @@ async function handleMediaFetch(env: Env, key: string, includeBody = true) {
   return new Response(includeBody ? object.body : null, { headers });
 }
 
-type WorkerSurface = "marketing" | "trading";
+type WorkerSurface = "articles" | "marketing" | "trading";
 
 function getWorkerSurface(env: Env): WorkerSurface {
+  if (env.DASHBOARD_SURFACE === "articles") return "articles";
   return env.DASHBOARD_SURFACE === "trading" ? "trading" : "marketing";
 }
 
@@ -1317,7 +1320,8 @@ function pathMatches(pathname: string, prefix: string): boolean {
 function isSharedApiPath(pathname: string): boolean {
   return (
     pathname === "/api/bootstrap" ||
-    pathMatches(pathname, "/api/auth") ||
+    pathname === "/api/auth/login" ||
+    pathname === "/api/auth/logout" ||
     pathMatches(pathname, "/api/profile") ||
     pathMatches(pathname, "/api/users") ||
     pathMatches(pathname, "/api/settings") ||
@@ -1328,12 +1332,21 @@ function isSharedApiPath(pathname: string): boolean {
   );
 }
 
-function isMarketingApiPath(pathname: string): boolean {
+function isArticlesApiPath(pathname: string): boolean {
   return [
     "/api/public/articles",
     "/api/sites",
     "/api/articles",
     "/api/categories",
+    "/api/media",
+    "/api/internal/articles",
+    "/api/internal/media",
+  ].some((prefix) => pathMatches(pathname, prefix));
+}
+
+function isMarketingApiPath(pathname: string): boolean {
+  return [
+    "/api/auth/google",
     "/api/reddit",
     "/api/facebook",
     "/api/instagram",
@@ -1346,8 +1359,6 @@ function isMarketingApiPath(pathname: string): boolean {
     "/api/planner",
     "/api/stats",
     "/api/internal/context",
-    "/api/internal/articles",
-    "/api/internal/media",
     "/api/internal/planner",
     "/api/internal/reddit",
     "/api/internal/social",
@@ -1382,7 +1393,12 @@ function enforceSurfaceRoute(env: Env, pathname: string): Response | null {
   if (isMcpAuthPath(pathname)) return null;
   if (isSharedApiPath(pathname)) return null;
 
-  const allowed = surface === "trading" ? isTradingApiPath(pathname) : isMarketingApiPath(pathname);
+  const allowed =
+    surface === "articles"
+      ? isArticlesApiPath(pathname)
+      : surface === "trading"
+        ? isTradingApiPath(pathname)
+        : isMarketingApiPath(pathname);
   return allowed ? null : text("Not found", 404);
 }
 
@@ -1482,6 +1498,7 @@ async function publishDueSocialPosts(env: Env): Promise<{ published: number; fai
 
 export default {
   async scheduled(_controller: unknown, env: Env, _ctx: ExecutionContext): Promise<void> {
+    if (getWorkerSurface(env) !== "marketing") return;
     const result = await publishDueSocialPosts(env);
     if (result.total > 0) {
       console.log(`Scheduled social publisher processed ${result.total} posts: ${result.published} published, ${result.failed} failed.`);

@@ -26,7 +26,8 @@ export function LoginCard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isFallbackMode = mode === "fallback";
-  const dashboardLabel = surface === "trading" ? "Trading Dashboard" : "Marketing Dashboard";
+  const dashboardLabel =
+    surface === "articles" ? "Articles Dashboard" : surface === "trading" ? "Trading Dashboard" : "Marketing Dashboard";
   const effectiveReturnTo = returnTo || "/dashboard";
   const googleLoginHref = `/api/auth/google/authorize?return_to=${encodeURIComponent(effectiveReturnTo)}`;
   const fallbackHref = `/fallbacksign?return_to=${encodeURIComponent(effectiveReturnTo)}`;
@@ -101,9 +102,11 @@ export function LoginCard({
               {busy ? "Signing in..." : "Sign in"}
             </button>
           </form>
-          <a className="login-card__fallback-link" href={signInHref}>
-            Back to Google sign in
-          </a>
+          {surface === "articles" ? null : (
+            <a className="login-card__fallback-link" href={signInHref}>
+              Back to Google sign in
+            </a>
+          )}
         </>
       ) : (
         <>

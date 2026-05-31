@@ -84,7 +84,8 @@ function clearConfigIntent() {
 }
 
 export function ConfigPage({ surface, settings, syncMessage, onSaveSettings, onSyncAgent }: ConfigPageProps) {
-  const [tab, setTab] = useState<ConfigTab>("accounts");
+  const isArticlesSurface = surface === "articles";
+  const [tab, setTab] = useState<ConfigTab>(() => isArticlesSurface ? "apps" : "accounts");
   const [apps, setApps] = useState<StudioApp[]>([]);
   const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
@@ -110,16 +111,23 @@ export function ConfigPage({ surface, settings, syncMessage, onSaveSettings, onS
       } else {
         setLoading(true);
       }
-      const [studio, socialAccounts, reddit, managedSites] = await Promise.all([
-        api.getStudio(),
-        Promise.all([
-          api.listTwitterAccounts().catch(() => []),
-          api.listThreadsAccounts().catch(() => []),
-          api.listSocialAccounts().catch(() => []),
-        ]).then(([twitter, threads, extra]) => [...twitter, ...threads, ...extra]),
-        api.listRedditAccounts().catch(() => []),
-        api.listSites().catch(() => []),
-      ]);
+      const [studio, socialAccounts, reddit, managedSites] = isArticlesSurface
+        ? [
+          { apps: [] },
+          [],
+          [],
+          await api.listSites().catch(() => []),
+        ] as const
+        : await Promise.all([
+          api.getStudio(),
+          Promise.all([
+            api.listTwitterAccounts().catch(() => []),
+            api.listThreadsAccounts().catch(() => []),
+            api.listSocialAccounts().catch(() => []),
+          ]).then(([twitter, threads, extra]) => [...twitter, ...threads, ...extra]),
+          api.listRedditAccounts().catch(() => []),
+          api.listSites().catch(() => []),
+        ]);
       setApps(Array.isArray(studio.apps) ? studio.apps : []);
       setAccounts(normalizeAccounts(
         Array.isArray(socialAccounts) ? socialAccounts : [],
@@ -172,6 +180,14 @@ export function ConfigPage({ surface, settings, syncMessage, onSaveSettings, onS
     setError(null);
     setFeedback(null);
     setActiveModal("app");
+  }
+
+  function openAddSite() {
+    setTab("apps");
+    setSiteForm(emptySiteForm());
+    setError(null);
+    setFeedback(null);
+    setActiveModal("site");
   }
 
   function openEditApp(app: StudioApp) {
@@ -627,7 +643,11 @@ export function ConfigPage({ surface, settings, syncMessage, onSaveSettings, onS
     : officialFieldsByPlatform[accountForm.platform];
   const hostedOAuthAccount = usesHostedOAuth(accountForm);
   const settingsTab = tab === "general" || tab === "ai" || tab === "rules" ? tab : null;
-  const configTabs: Array<{ id: ConfigTab; label: string; badge?: string }> = [
+  const configTabs: Array<{ id: ConfigTab; label: string; badge?: string }> = isArticlesSurface ? [
+    { id: "apps", label: "Sites", badge: String(sites.length) },
+    { id: "general", label: "General", badge: settings.workspace_timezone ? settings.workspace_timezone : "Setup" },
+    { id: "ai", label: "AI API", badge: settings.ai_api_connected ? settings.ai_api_provider_label ?? "Connected" : "Setup" },
+  ] : [
     { id: "accounts", label: "Social Accounts", badge: String(accounts.length) },
     { id: "apps", label: "Apps/Sites", badge: String(appsAndSitesCount) },
     { id: "general", label: "General", badge: settings.workspace_timezone ? settings.workspace_timezone : "Setup" },
@@ -682,13 +702,13 @@ export function ConfigPage({ surface, settings, syncMessage, onSaveSettings, onS
             <div className="config-section">
             <div className="panel__title-row config-section-header">
               <div className="config-section-heading">
-                <h2>Apps/Sites</h2>
+                <h2>{isArticlesSurface ? "Sites" : "Apps/Sites"}</h2>
                 <span className="config-count">{appSiteRows.length}</span>
               </div>
               <div className="config-title-actions">
                 {refreshConfigButton}
-                <button type="button" onClick={openAddApp}>
-                  Add app
+                <button type="button" onClick={isArticlesSurface ? openAddSite : openAddApp}>
+                  {isArticlesSurface ? "Add site" : "Add app"}
                 </button>
               </div>
             </div>
@@ -773,7 +793,7 @@ export function ConfigPage({ surface, settings, syncMessage, onSaveSettings, onS
         </div>
       ) : null}
 
-      {tab === "accounts" ? (
+      {!isArticlesSurface && tab === "accounts" ? (
         <div className="config-list config-overview__content">
             <div className="panel__title-row config-section-header">
               <div className="config-section-heading">

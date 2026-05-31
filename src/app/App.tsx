@@ -87,7 +87,7 @@ function userInitials(name: string): string {
 export function App() {
   const [surface] = useState<DashboardSurface>(() => getDashboardSurface());
   const loginMode: "google" | "fallback" =
-    typeof window !== "undefined" && window.location.pathname === FALLBACK_SIGN_PATH
+    surface === "articles" || (typeof window !== "undefined" && window.location.pathname === FALLBACK_SIGN_PATH)
       ? "fallback"
       : "google";
   const [returnTo] = useState<string>(() => readReturnTo());
@@ -115,7 +115,7 @@ export function App() {
     syncAgentSettings,
     handlePasswordLogin,
     handleLogout,
-  } = useDashboardState({ loginMode, returnTo });
+  } = useDashboardState({ loginMode, returnTo, surface });
 
   useEffect(() => {
     if (typeof window === "undefined") return;

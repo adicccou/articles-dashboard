@@ -8,6 +8,7 @@ import type {
   AuthState,
   Site,
 } from "../lib/types";
+import type { DashboardSurface } from "../lib/surface";
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
   ai_api_connected: false,
@@ -39,9 +40,10 @@ type LoginMode = "google" | "fallback";
 type UseDashboardStateOptions = {
   loginMode: LoginMode;
   returnTo: string;
+  surface: DashboardSurface;
 };
 
-export function useDashboardState({ loginMode, returnTo }: UseDashboardStateOptions) {
+export function useDashboardState({ loginMode, returnTo, surface }: UseDashboardStateOptions) {
   const [auth, setAuth] = useState<AuthState>({ authenticated: false });
   const [sites, setSites] = useState<Site[]>([]);
   const [articles, setArticles] = useState<ArticleRecord[]>([]);
@@ -59,10 +61,13 @@ export function useDashboardState({ loginMode, returnTo }: UseDashboardStateOpti
       setSites(data.sites);
       setArticles(data.articles);
       if (data.auth.authenticated) {
-        void Promise.all([
-          api.getCategories().then(setCategories),
-          api.getSettings().then(setAppSettings),
-        ]).catch((loadError) => {
+        const loaders = [api.getSettings().then(setAppSettings)];
+        if (surface === "articles") {
+          loaders.push(api.getCategories().then(setCategories));
+        } else {
+          setCategories([]);
+        }
+        void Promise.all(loaders).catch((loadError) => {
           setError(loadError instanceof Error ? loadError.message : "Failed to load dashboard settings");
         });
       }
@@ -72,7 +77,7 @@ export function useDashboardState({ loginMode, returnTo }: UseDashboardStateOpti
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [surface]);
 
   useEffect(() => {
     void load();

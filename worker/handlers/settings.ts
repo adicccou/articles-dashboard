@@ -10,7 +10,7 @@ import {
 import { DEFAULT_USER_ID, ownerId, tableHasUserId, tableHasWorkspaceId, workspaceId } from "../lib/ownership";
 import type { Env } from "../lib/types";
 
-type DashboardSurface = "marketing" | "trading";
+type DashboardSurface = "articles" | "marketing" | "trading";
 
 type StoredSettings = {
   ai_api_mode: string;

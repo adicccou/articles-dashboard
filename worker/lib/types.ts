@@ -3,7 +3,7 @@ export type Env = {
   MEDIA_BUCKET: R2Bucket;
   ASSETS: Fetcher;
   ADMIN_USERNAME: string;
-  DASHBOARD_SURFACE?: "marketing" | "trading";
+  DASHBOARD_SURFACE?: "articles" | "marketing" | "trading";
   ADMIN_PASSWORD?: string;
   SESSION_SECRET?: string;
   DASHBOARD_OWNER_EMAIL?: string;

@@ -1,12 +1,13 @@
 import type { NavView } from "../components/TopNav";
 
-export type DashboardSurface = "marketing" | "trading";
+export type DashboardSurface = "articles" | "marketing" | "trading";
 
-export const MARKETING_VIEWS: NavView[] = ["articles", "reddit", "replies", "studio", "planner", "statistics", "config"];
+export const ARTICLES_VIEWS: NavView[] = ["articles", "config"];
+export const MARKETING_VIEWS: NavView[] = ["reddit", "replies", "studio", "planner", "statistics", "config"];
 export const TRADING_VIEWS: NavView[] = ["trading"];
 
 function normalizeSurface(value: unknown): DashboardSurface | null {
-  return value === "trading" || value === "marketing" ? value : null;
+  return value === "articles" || value === "trading" || value === "marketing" ? value : null;
 }
 
 export function getConfiguredDashboardSurface(): DashboardSurface | null {
@@ -26,6 +27,7 @@ export function getDashboardSurface(): DashboardSurface {
   }
 
   const hostname = window.location.hostname;
+  if (hostname.startsWith("articles.") || hostname.includes("articles-dashboard")) return "articles";
   return hostname.startsWith("trading.") || hostname.includes("trading-dashboard") ? "trading" : "marketing";
 }
 
@@ -34,10 +36,12 @@ export function shouldPersistSurfaceInUrl(): boolean {
 }
 
 export function getSurfaceViews(surface: DashboardSurface): NavView[] {
+  if (surface === "articles") return ARTICLES_VIEWS;
   return surface === "trading" ? TRADING_VIEWS : MARKETING_VIEWS;
 }
 
 export function getDefaultView(surface: DashboardSurface): NavView {
+  if (surface === "articles") return "articles";
   return surface === "trading" ? "trading" : "planner";
 }
 
