@@ -3,6 +3,7 @@ import { buildAiRuleSections, readResolvedAiSettings } from "../lib/ai-settings"
 import { callGeminiImage, formatGeminiUserError } from "../lib/gemini";
 import { errorResponse, jsonResponse, parseJson } from "../lib/http";
 import { DEFAULT_USER_ID } from "../lib/ownership";
+import { buildSiteBrandGuideText } from "../lib/site-brand-guides";
 import type { Env } from "../lib/types";
 
 type ArticleAssistField = "meta_title" | "meta_description" | "excerpt" | "category";
@@ -13,6 +14,7 @@ type ArticleAssistPayload = {
   content?: string;
   excerpt?: string;
   category?: string;
+  site_slugs?: string[];
   site_names?: string[];
   site_domains?: string[];
   categories?: string[];
@@ -272,12 +274,14 @@ export async function generateArticleCover(env: Env, request: Request, userId = 
     const payload = await parseJson<ArticleCoverPayload>(request);
     const siteNames = (payload.site_names ?? []).join(", ") || "the selected website";
     const siteDomains = (payload.site_domains ?? []).join(", ") || "no domain provided";
+    const siteBrandGuideSections = buildSiteBrandGuideText(payload.site_slugs, payload.site_names, payload.site_domains);
     const imagePrompt = [
       "Create a professional web article hero image.",
       "Format: wide 16:9 landscape hero, optimized for web article cards and headers, target 1280x720 feel.",
       "Composition reference: bold editorial trading/finance hero image with large clear focal subject, dark cinematic background, energetic green accent highlights, charts or product-relevant visual motifs, and strong depth.",
       "Do not include distorted tiny labels, fake UI text, watermarks, brand logos you do not know, or unreadable text blocks.",
       `Website style and branding context: ${siteNames}; domains: ${siteDomains}.`,
+      ...siteBrandGuideSections,
       payload.cover_style_reference ? `User style reference: ${payload.cover_style_reference}` : "",
       ...buildAiRuleSections(settings, {
         globalHeading: "Global AI rules that must also shape the image direction",

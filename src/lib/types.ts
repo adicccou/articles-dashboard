@@ -121,6 +121,7 @@ export type ArticleAssistPayload = {
   content?: string;
   excerpt?: string;
   category?: string;
+  site_slugs?: string[];
   site_names?: string[];
   site_domains?: string[];
   categories?: string[];

@@ -99,6 +99,10 @@ export function ArticleEditor({
     [configSites, sites],
   );
   const isGeneratingCover = assistBusy === "cover";
+  const canonicalPathPreview = useMemo(() => {
+    const nextSlug = form.slug || slugify(form.title);
+    return nextSlug ? `/${nextSlug}` : "";
+  }, [form.slug, form.title]);
 
   useEffect(() => {
     setForm(toInitialState(article, defaultScheduledAt));
@@ -275,6 +279,7 @@ export function ArticleEditor({
     content: string;
     excerpt: string;
     category: string;
+    site_slugs: string[];
     site_names: string[];
     site_domains: string[];
     categories: string[];
@@ -284,6 +289,7 @@ export function ArticleEditor({
     content: string;
     excerpt: string;
     category: string;
+    site_slugs: string[];
     site_names: string[];
     site_domains: string[];
     categories: string[];
@@ -296,6 +302,7 @@ export function ArticleEditor({
       content: editorRef.current?.innerHTML || form.content,
       excerpt: form.excerpt,
       category: categoryText,
+      site_slugs: selectedSiteRows.map((site) => site.slug),
       site_names: selectedSiteRows.map((site) => site.name),
       site_domains: selectedSiteRows.map((site) => site.domain).filter(Boolean),
       categories: categories.map((category) => category.name),
@@ -447,7 +454,7 @@ export function ArticleEditor({
           seo: {
             ...form.seo,
             meta_title: form.seo.meta_title || form.title,
-            canonical_url: form.seo.canonical_url || `https://journl.day/articles/${slug}`,
+            canonical_url: form.seo.canonical_url || "",
           },
         },
         article?.id,
@@ -545,6 +552,11 @@ export function ArticleEditor({
               placeholder="how-to-build-a-syndication-workflow"
               required
             />
+            {canonicalPathPreview ? (
+              <small className="article-editor__hint">
+                Canonical path: <code>{canonicalPathPreview}</code>
+              </small>
+            ) : null}
           </label>
           <label>
             <span className="article-editor__label-row">
