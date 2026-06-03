@@ -33,7 +33,18 @@ jobs:
       - name: Build marketing dashboard
         run: npm run build:marketing
 
+      - name: Check Cloudflare deploy token
+        id: cloudflare-token
+        run: |
+          if [ -n "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping oilor.app deploy because CLOUDFLARE_API_TOKEN is not configured for this repository."
+          fi
+
       - name: Deploy to Cloudflare Workers
+        if: steps.cloudflare-token.outputs.present == 'true'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
