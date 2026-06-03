@@ -82,6 +82,22 @@ function fieldRules(field: ArticleAssistField): string {
   return "Return the best category name. Prefer one existing category if it fits; otherwise return a concise new category name.";
 }
 
+function shortenedCoverTitle(title: string | undefined): string {
+  const cleaned = String(title ?? "").trim();
+  if (!cleaned) return "";
+  if (cleaned.length <= 42) return cleaned;
+
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  let result = "";
+  for (const word of words) {
+    const next = result ? `${result} ${word}` : word;
+    if (next.length > 42) break;
+    result = next;
+  }
+
+  return result || cleaned.slice(0, 42).trim();
+}
+
 function sanitizeStyleAttribute(value: string): string {
   const allowedProperties = new Set([
     "background-color",
@@ -291,10 +307,15 @@ export async function generateArticleCover(env: Env, request: Request, userId = 
     const siteNames = (payload.site_names ?? []).join(", ") || "the selected website";
     const siteDomains = (payload.site_domains ?? []).join(", ") || "no domain provided";
     const siteBrandGuideSections = buildSiteBrandGuideText(payload.site_slugs, payload.site_names, payload.site_domains);
+    const coverTitle = shortenedCoverTitle(payload.title);
     const imagePrompt = [
       "Create a professional web article hero image.",
       "Format: wide 16:9 landscape hero, optimized for web article cards and headers, target 1280x720 feel.",
-      "Composition reference: bold editorial trading/finance hero image with large clear focal subject, dark cinematic background, energetic green accent highlights, charts or product-relevant visual motifs, and strong depth.",
+      "Visual style: minimal design with a refined hybrid look that mixes illustration language with real-image elements or believable photo-texture elements.",
+      "Composition reference: one clear focal subject, clean negative space, restrained details, elegant depth, and a polished editorial web-hero feel.",
+      "Follow the website's brand colors and overall style direction closely so the banner feels native to that product, not generic stock art.",
+      "If text is used in the image, use only a short clean title and keep it large, intentional, and easy to read. Never use long paragraphs, fake interface copy, or tiny unreadable labels.",
+      coverTitle ? `Preferred short title if the composition benefits from visible text: "${coverTitle}". Omit the title entirely if the image works better without text.` : "",
       "Do not include distorted tiny labels, fake UI text, watermarks, brand logos you do not know, or unreadable text blocks.",
       `Website style and branding context: ${siteNames}; domains: ${siteDomains}.`,
       ...siteBrandGuideSections,
