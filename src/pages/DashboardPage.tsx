@@ -134,6 +134,7 @@ export function DashboardPage({
       return (
       <ArticlesOverview
         articles={articles}
+        sites={sites}
         onNewArticle={(scheduledAt) => {
           onSelectArticle(undefined);
           setPrefilledPublishAt(scheduledAt ? scheduledAt.toISOString() : null);

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { ChevronLeftIcon, ChevronRightIcon, TrashIcon } from "@heroicons/react/24/solid";
-import type { ArticleRecord } from "../lib/types";
+import type { ArticleRecord, Site } from "../lib/types";
 import { formatDisplayDate, formatDisplayTime, formatMonthDay, formatMonthYear, formatWeekRange, formatWeekdayShort } from "../lib/datetime";
 import { normalizeDashboardMediaUrl } from "../lib/mediaUrl";
 import { SectionTabs } from "./SectionTabs";
@@ -8,12 +8,14 @@ import "../styles/planner-page.css";
 
 type ArticlesOverviewProps = {
   articles: ArticleRecord[];
+  sites: Site[];
   onNewArticle: (scheduledAt?: Date) => void;
   onSelectArticle: (article: ArticleRecord) => void;
   onDeleteArticle: (article: ArticleRecord) => Promise<void>;
 };
 
 type ArticleView = "month" | "week" | "list";
+type ArticleStatusFilter = "all" | "draft" | "scheduled" | "published";
 
 const ARTICLE_VIEW_STORAGE_KEY = "dashboard:articles:view";
 const DEFAULT_SCHEDULE_HOUR = 10;
@@ -112,20 +114,97 @@ function articleSortValue(article: ArticleRecord): number {
   return new Date(articleTimingValue(article) ?? article.updated_at).getTime();
 }
 
+function articlePublishDisplayValue(article: ArticleRecord): string | null {
+  if (article.status === "draft") return null;
+  return article.published_at ?? null;
+}
+
+function matchesSiteFilter(article: ArticleRecord, selectedSiteFilter: string): boolean {
+  if (selectedSiteFilter === "all") return true;
+  const siteId = Number(selectedSiteFilter);
+  if (Number.isNaN(siteId)) return true;
+  return article.site_ids.includes(siteId);
+}
+
+function matchesStatusFilter(article: ArticleRecord, selectedStatusFilter: ArticleStatusFilter): boolean {
+  return selectedStatusFilter === "all" ? true : articleStatusClass(article) === selectedStatusFilter;
+}
+
 export function ArticlesOverview({
   articles,
+  sites,
   onNewArticle,
   onSelectArticle,
   onDeleteArticle,
 }: ArticlesOverviewProps) {
   const [view, setView] = useState<ArticleView>(() => readStoredArticleView());
   const [calendarDate, setCalendarDate] = useState(() => new Date());
+  const [selectedSiteFilter, setSelectedSiteFilter] = useState<string>("all");
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<ArticleStatusFilter>("all");
 
   useEffect(() => {
     storeArticleView(view);
   }, [view]);
 
   const today = useMemo(() => new Date(), []);
+  const activeSites = useMemo(
+    () => sites.filter((site) => site.status === "active"),
+    [sites],
+  );
+  const siteMap = useMemo(
+    () => new Map(sites.map((site) => [site.id, site])),
+    [sites],
+  );
+  useEffect(() => {
+    if (selectedSiteFilter === "all") return;
+    const hasSelectedSite = activeSites.some((site) => String(site.id) === selectedSiteFilter);
+    if (!hasSelectedSite) {
+      setSelectedSiteFilter("all");
+    }
+  }, [activeSites, selectedSiteFilter]);
+  const listFilterItems = useMemo(
+    () => [
+      { id: "all", label: "All websites", count: articles.length },
+      ...activeSites.map((site) => ({
+        id: String(site.id),
+        label: site.name,
+        count: articles.filter((article) => article.site_ids.includes(site.id)).length,
+      })),
+    ],
+    [activeSites, articles],
+  );
+  const statusFilterItems = useMemo(
+    () => [
+      { id: "all" as const, label: "All statuses", count: articles.length },
+      { id: "draft" as const, label: "Draft", count: articles.filter((article) => articleStatusClass(article) === "draft").length },
+      { id: "scheduled" as const, label: "Scheduled", count: articles.filter((article) => articleStatusClass(article) === "scheduled").length },
+      { id: "published" as const, label: "Published", count: articles.filter((article) => articleStatusClass(article) === "published").length },
+    ],
+    [articles],
+  );
+  const filteredArticles = useMemo(() => {
+    return articles.filter(
+      (article) => matchesSiteFilter(article, selectedSiteFilter) && matchesStatusFilter(article, selectedStatusFilter),
+    );
+  }, [articles, selectedSiteFilter, selectedStatusFilter]);
+  const siteFilterCounts = useMemo(
+    () => new Map(
+      listFilterItems.map((item) => [
+        item.id,
+        articles.filter((article) => matchesSiteFilter(article, item.id) && matchesStatusFilter(article, selectedStatusFilter)).length,
+      ]),
+    ),
+    [articles, listFilterItems, selectedStatusFilter],
+  );
+  const statusFilterCounts = useMemo(
+    () => new Map(
+      statusFilterItems.map((item) => [
+        item.id,
+        articles.filter((article) => matchesSiteFilter(article, selectedSiteFilter) && matchesStatusFilter(article, item.id)).length,
+      ]),
+    ),
+    [articles, selectedSiteFilter, statusFilterItems],
+  );
   const scheduledArticles = useMemo(
     () => articles
       .filter((article) => Boolean(article.published_at))
@@ -191,15 +270,49 @@ export function ArticlesOverview({
             </div>
             {newArticleAction}
           </div>
+          {activeSites.length > 0 ? (
+            <div className="articles-overview__filters">
+              <SectionTabs
+                activeId={selectedSiteFilter}
+                ariaLabel="Filter articles by website"
+                className="articles-filter-tabs"
+                tabClassName="articles-filter-tab"
+                activeTabClassName="articles-filter-tab--active"
+                badgeClassName="articles-filter-tab__count"
+                onChange={setSelectedSiteFilter}
+                items={listFilterItems.map((item) => ({
+                  id: item.id,
+                  label: item.label,
+                  badge: siteFilterCounts.get(item.id) ?? item.count,
+                }))}
+              />
+            </div>
+          ) : null}
+          <div className="articles-overview__filters articles-overview__filters--subtle">
+            <SectionTabs
+              activeId={selectedStatusFilter}
+              ariaLabel="Filter articles by status"
+              className="articles-filter-tabs"
+              tabClassName="articles-filter-tab articles-filter-tab--subtle"
+              activeTabClassName="articles-filter-tab--active"
+              badgeClassName="articles-filter-tab__count"
+              onChange={(value) => setSelectedStatusFilter(value as ArticleStatusFilter)}
+              items={statusFilterItems.map((item) => ({
+                id: item.id,
+                label: item.label,
+                badge: statusFilterCounts.get(item.id) ?? item.count,
+              }))}
+            />
+          </div>
           <div className="table articles-table">
             <div className="table__row table__row--header">
               <span>Title</span>
               <span>Category</span>
               <span>Status</span>
               <span>Sites</span>
-              <span>Updated</span>
+              <span>Publish date</span>
             </div>
-            {articles.map((article) => (
+            {filteredArticles.map((article) => (
               <div className="table__row article-row" key={article.id} onClick={() => onSelectArticle(article)}>
                 <span className="article-row__title">
                   {article.cover_image ? (
@@ -227,14 +340,22 @@ export function ArticlesOverview({
                   </span>
                 </span>
                 <span className="article-row__sites">
-                  <span className="social-status-pill article-sites-pill">
-                    {article.site_ids.length} {article.site_ids.length === 1 ? "site" : "sites"}
+                  <span className="social-status-pill article-sites-pill" title={article.site_ids.map((siteId) => siteMap.get(siteId)?.name).filter(Boolean).join(", ")}>
+                    {article.site_ids.length === 0
+                      ? "No site"
+                      : article.site_ids.length === 1
+                        ? (siteMap.get(article.site_ids[0])?.name ?? "1 site")
+                        : `${article.site_ids.length} sites`}
                   </span>
                 </span>
-                <span className="article-row__updated">
-                  <strong>{formatDisplayDate(article.updated_at, false)}</strong>
-                  <small>{formatDisplayTime(article.updated_at)}</small>
-                </span>
+                {articlePublishDisplayValue(article) ? (
+                  <span className="article-row__updated">
+                    <strong>{formatDisplayDate(articlePublishDisplayValue(article), false)}</strong>
+                    <small>{formatDisplayTime(articlePublishDisplayValue(article))}</small>
+                  </span>
+                ) : (
+                  <span className="article-row__updated" aria-hidden="true" />
+                )}
                 <button
                   className="article-row__delete dashboard-icon-button"
                   type="button"
@@ -251,6 +372,12 @@ export function ArticlesOverview({
                 </button>
               </div>
             ))}
+            {filteredArticles.length === 0 ? (
+              <div className="articles-table__empty">
+                <strong>No articles here yet.</strong>
+                <p>Try another website filter or create a new article.</p>
+              </div>
+            ) : null}
           </div>
         </div>
       </section>
