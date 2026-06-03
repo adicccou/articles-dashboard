@@ -1448,11 +1448,15 @@ button.button-secondary:disabled {
   }
 
   .shell__sidebar {
-    @apply fixed inset-y-0 left-0 w-[280px] -translate-x-full border-r border-slate-200 shadow-2xl transition-transform;
+    @apply fixed inset-y-0 left-0 w-[280px] max-w-[calc(100vw-3rem)] -translate-x-full border-r border-slate-200 shadow-2xl transition-transform;
+    pointer-events: none;
   }
 
   .shell--sidebar-open .shell__sidebar {
-    transform: translateX(0);
+    pointer-events: auto;
+    --tw-translate-x: 0px;
+    --tw-translate-y: 0px;
+    transform: none;
   }
 
   .shell--sidebar-open .shell__backdrop {

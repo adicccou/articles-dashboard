@@ -221,12 +221,12 @@ export function ArticlesOverview({
                   </span>
                 </span>
                 <span className="article-row__category">{article.category?.name || "Uncategorized"}</span>
-                <span>
+                <span className="article-row__status">
                   <span className={`social-status-pill article-status-pill article-status-pill--${articleStatusClass(article)}`}>
                     {articleStatusLabel(article)}
                   </span>
                 </span>
-                <span>
+                <span className="article-row__sites">
                   <span className="social-status-pill article-sites-pill">
                     {article.site_ids.length} {article.site_ids.length === 1 ? "site" : "sites"}
                   </span>
@@ -366,7 +366,7 @@ export function ArticlesOverview({
           {headerTabs}
         </div>
       </div>
-      <div className="scheduler-view-panel">
+      <div className="scheduler-view-panel scheduler-week">
         <div className="panel__title-row scheduler-week__header">
           <div className="scheduler-calendar__heading">
             <div className="scheduler-calendar__title-block">

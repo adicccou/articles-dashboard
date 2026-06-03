@@ -20,6 +20,7 @@ import "../styles/app.css";
 const DASHBOARD_VIEW_STORAGE_KEY_PREFIX = "dashboard:last-view";
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "dashboard:sidebar-collapsed";
 const FALLBACK_SIGN_PATH = "/fallbacksign";
+const MOBILE_NAV_MEDIA_QUERY = "(max-width: 900px)";
 
 function readAuthNotice(): string | null {
   if (typeof window === "undefined") return null;
@@ -95,6 +96,10 @@ export function App() {
   const [view, setView] = useState<NavView>(() => readStoredView(surface));
   const [selectedArticle, setSelectedArticle] = useState<ArticleRecord | undefined>();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isMobileNav, setIsMobileNav] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia(MOBILE_NAV_MEDIA_QUERY).matches;
+  });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true";
@@ -134,6 +139,21 @@ export function App() {
   }, [view]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia(MOBILE_NAV_MEDIA_QUERY);
+    const update = () => {
+      const nextIsMobile = media.matches;
+      setIsMobileNav(nextIsMobile);
+      if (!nextIsMobile) {
+        setSidebarOpen(false);
+      }
+    };
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
     if (!sidebarOpen || typeof window === "undefined") return;
 
     const onKeyDown = (event: KeyboardEvent) => {
@@ -145,6 +165,17 @@ export function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [sidebarOpen]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    if (isMobileNav && sidebarOpen) {
+      const previous = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = previous;
+      };
+    }
+  }, [isMobileNav, sidebarOpen]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -211,7 +242,7 @@ export function App() {
     <div className="app-layout">
       <Shell
         sidebarOpen={sidebarOpen}
-        sidebarCollapsed={sidebarCollapsed}
+        sidebarCollapsed={!isMobileNav && sidebarCollapsed}
         onBackdropClick={() => setSidebarOpen(false)}
         header={
           <div className="shell-header-shell">
@@ -272,8 +303,11 @@ export function App() {
           <TopNav
             currentView={view}
             surface={surface}
-            collapsed={sidebarCollapsed}
-            onNavigate={(nextView) => setView(nextView)}
+            collapsed={!isMobileNav && sidebarCollapsed}
+            onNavigate={(nextView) => {
+              setView(nextView);
+              setSidebarOpen(false);
+            }}
             onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
           />
         }

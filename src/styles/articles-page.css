@@ -70,6 +70,8 @@
   display: grid;
   gap: 6px;
   min-width: 0;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .article-row__title-text {
@@ -78,6 +80,8 @@
   font-weight: 800;
   line-height: 1.4;
   min-width: 0;
+  overflow-wrap: normal;
+  word-break: break-word;
 }
 
 .article-row__title-meta {
@@ -93,6 +97,7 @@
   color: #2563eb;
   font-size: 0.82rem;
   font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .article-row__excerpt {
@@ -183,6 +188,13 @@
   line-height: 1.5;
 }
 
+.article-editor__generation-status {
+  color: #0f766e;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
 .article-row__updated {
   display: grid;
   gap: 4px;
@@ -202,6 +214,100 @@
   right: 24px;
 }
 
+@media (max-width: 900px) {
+  .articles-overview--calendar .scheduler-view-panel {
+    padding: 12px;
+  }
+
+  .articles-overview--calendar .scheduler-calendar,
+  .articles-overview--calendar .scheduler-week {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+  }
+
+  .articles-overview--calendar .scheduler-calendar > .scheduler-calendar__grid,
+  .articles-overview--calendar .scheduler-week > .scheduler-week__timetable {
+    margin-inline: 0;
+    width: max-content;
+    min-width: 100%;
+  }
+
+  .articles-overview--calendar .scheduler-calendar__grid {
+    display: grid !important;
+    grid-template-columns: repeat(7, minmax(112px, 1fr)) !important;
+    min-width: 784px;
+  }
+
+  .articles-overview--calendar .scheduler-calendar__grid--header {
+    display: grid !important;
+  }
+
+  .articles-overview--calendar .scheduler-calendar__weekday {
+    background: #ffffff;
+    padding: 0 8px 8px;
+    text-align: center;
+  }
+
+  .articles-overview--calendar .scheduler-calendar__day {
+    min-height: 132px;
+    padding: 8px;
+  }
+
+  .articles-overview--calendar .scheduler-calendar__event {
+    gap: 4px;
+    padding: 4px 5px;
+  }
+
+  .articles-overview--calendar .scheduler-calendar__event-time,
+  .articles-overview--calendar .scheduler-calendar__event-title {
+    font-size: 0.62rem;
+  }
+
+  .articles-overview--calendar .scheduler-week__timetable {
+    grid-template-columns: 56px repeat(7, minmax(116px, 1fr));
+    min-width: 868px;
+  }
+
+  .articles-overview--calendar .scheduler-week__timetable-corner,
+  .articles-overview--calendar .scheduler-week__time-label {
+    left: 0;
+    position: sticky;
+    z-index: 2;
+  }
+
+  .articles-overview--calendar .scheduler-week__timetable-corner {
+    z-index: 3;
+  }
+
+  .articles-overview--calendar .scheduler-week__day-header {
+    min-height: 58px;
+    padding: 8px 10px;
+  }
+
+  .articles-overview--calendar .scheduler-week__time-label {
+    background: #ffffff;
+    justify-content: center;
+    padding: 6px 4px 0;
+  }
+
+  .articles-overview--calendar .scheduler-week__cell {
+    min-height: 42px;
+  }
+
+  .articles-overview--calendar .scheduler-week__slot-item {
+    padding: 4px 5px;
+  }
+
+  .articles-overview--calendar .scheduler-week__slot-time {
+    font-size: 0.62rem;
+  }
+
+  .articles-overview--calendar .scheduler-week__slot-title {
+    font-size: 0.7rem;
+  }
+}
+
 @media (max-width: 820px) {
   .articles-overview__toolbar {
     padding: 0 16px;
@@ -217,9 +323,11 @@
     width: 100%;
   }
 
-  .articles-table .table__row {
-    grid-template-columns: 1fr;
-    gap: 10px;
+  .articles-table .table__row,
+  .articles-table .table__row.article-row,
+  .articles-table .article-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px 12px;
     padding: 14px 16px;
   }
 
@@ -228,6 +336,12 @@
   }
 
   .article-row {
+    align-items: start;
+    grid-template-areas:
+      "title title"
+      "category status"
+      "sites updated"
+      "delete delete";
     padding-right: 16px;
   }
 
@@ -237,14 +351,32 @@
 
   .article-row__title {
     align-items: center;
+    grid-area: title;
+  }
+
+  .article-row__category {
+    grid-area: category;
+  }
+
+  .article-row__status {
+    grid-area: status;
+    justify-self: start;
+  }
+
+  .article-row__sites {
+    grid-area: sites;
+    justify-self: start;
   }
 
   .article-row__updated {
+    grid-area: updated;
     grid-template-columns: repeat(2, max-content);
     align-items: baseline;
+    justify-self: start;
   }
 
   .article-row__delete {
+    grid-area: delete;
     justify-self: flex-start;
     opacity: 1;
     position: static;
@@ -253,12 +385,26 @@
 }
 
 @media (max-width: 420px) {
-  .articles-table .table__row {
+  .articles-table .table__row,
+  .articles-table .table__row.article-row,
+  .articles-table .article-row {
     padding: 13px 14px;
   }
 
   .article-row__title {
     align-items: flex-start;
+  }
+
+  .articles-table .table__row.article-row,
+  .articles-table .article-row {
+    grid-template-columns: 1fr !important;
+    grid-template-areas:
+      "title"
+      "category"
+      "status"
+      "sites"
+      "updated"
+      "delete";
   }
 
   .article-row__thumbnail {
@@ -270,5 +416,10 @@
   .article-row__title-meta,
   .article-row__updated {
     grid-template-columns: 1fr;
+  }
+
+  .article-row__title-text {
+    font-size: 0.96rem;
+    line-height: 1.35;
   }
 }

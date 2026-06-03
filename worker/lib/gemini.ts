@@ -194,16 +194,15 @@ export async function callGeminiImage({
   const body = JSON.stringify({
     contents: [
       {
+        role: "user",
         parts: [{ text: prompt }],
       },
     ],
     generationConfig: {
       responseModalities: ["TEXT", "IMAGE"],
-      responseFormat: {
-        image: {
-          aspectRatio,
-          imageSize,
-        },
+      imageConfig: {
+        aspectRatio,
+        imageSize,
       },
     },
   });

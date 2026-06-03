@@ -98,6 +98,7 @@ export function ArticleEditor({
     () => (configSites.length > 0 ? configSites : sites).filter((site) => site.status === "active"),
     [configSites, sites],
   );
+  const isGeneratingCover = assistBusy === "cover";
 
   useEffect(() => {
     setForm(toInitialState(article, defaultScheduledAt));
@@ -738,9 +739,10 @@ export function ArticleEditor({
                 type="button"
                 className="button-secondary article-editor__autofill"
                 disabled={Boolean(assistBusy) || uploading}
+                aria-busy={isGeneratingCover}
                 onClick={() => void handleGenerateCover()}
               >
-                {assistBusy === "cover" ? "Generating..." : "Generate image"}
+                {isGeneratingCover ? "Generating, please wait..." : "Generate image"}
               </button>
             </span>
             <input type="file" accept="image/*" onChange={handleFileChange} />
@@ -755,6 +757,11 @@ export function ArticleEditor({
           </label>
         </div>
         {uploading ? <p className="muted">Uploading image...</p> : null}
+        {isGeneratingCover ? (
+          <p className="article-editor__generation-status" role="status" aria-live="polite">
+            Generating a 16:9 article hero image. This can take a few seconds.
+          </p>
+        ) : null}
         {form.cover_image ? (
           <div className="cover-preview-frame">
             <img className="cover-preview" src={normalizeDashboardMediaUrl(form.cover_image)} alt="" />
