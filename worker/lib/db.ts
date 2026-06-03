@@ -182,7 +182,9 @@ export async function saveArticle(
   articleId?: number,
 ): Promise<ArticleWithRelations> {
   const now = new Date().toISOString();
-  const publishedAt = payload.status === "published" ? payload.published_at ?? now : null;
+  const publishedAt = payload.status === "published"
+    ? payload.published_at ?? now
+    : payload.published_at ?? null;
 
   let id = articleId;
 
@@ -278,6 +280,7 @@ export async function deleteArticle(env: Env, id: number): Promise<void> {
 }
 
 export async function getPublishedArticlesForSite(env: Env, siteSlug: string) {
+  const now = new Date().toISOString();
   const results = await env.DB.prepare(
     `
       SELECT
@@ -297,17 +300,18 @@ export async function getPublishedArticlesForSite(env: Env, siteSlug: string) {
       INNER JOIN article_sites aps ON aps.article_id = a.id
       INNER JOIN sites s ON s.id = aps.site_id
       LEFT JOIN article_seo seo ON seo.article_id = a.id
-      WHERE s.slug = ? AND a.status = 'published'
+      WHERE s.slug = ? AND a.status = 'published' AND (a.published_at IS NULL OR a.published_at <= ?)
       ORDER BY COALESCE(a.published_at, a.updated_at) DESC
     `,
   )
-    .bind(siteSlug)
+    .bind(siteSlug, now)
     .all();
 
   return results.results;
 }
 
 export async function getPublishedArticleBySlug(env: Env, siteSlug: string, articleSlug: string) {
+  const now = new Date().toISOString();
   return env.DB.prepare(
     `
       SELECT
@@ -327,10 +331,10 @@ export async function getPublishedArticleBySlug(env: Env, siteSlug: string, arti
       INNER JOIN article_sites aps ON aps.article_id = a.id
       INNER JOIN sites s ON s.id = aps.site_id
       LEFT JOIN article_seo seo ON seo.article_id = a.id
-      WHERE s.slug = ? AND a.slug = ? AND a.status = 'published'
+      WHERE s.slug = ? AND a.slug = ? AND a.status = 'published' AND (a.published_at IS NULL OR a.published_at <= ?)
       LIMIT 1
     `,
   )
-    .bind(siteSlug, articleSlug)
+    .bind(siteSlug, articleSlug, now)
     .first();
 }

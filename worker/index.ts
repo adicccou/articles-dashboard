@@ -1,6 +1,6 @@
 import { clearSessionCookie, createSessionCookie, getSessionUser, validateSession } from "./lib/auth";
 import { createSite, deleteSite, getPublishedArticleBySlug, getPublishedArticlesForSite, listArticles, listSites, saveArticle, deleteArticle, listCategories, createCategory, deleteCategory, updateSite } from "./lib/db";
-import { json, parseJson, text } from "./lib/http";
+import { errorResponse, json, parseJson, text } from "./lib/http";
 import type { Env } from "./lib/types";
 import type { DashboardUser } from "./lib/ownership";
 import { DEFAULT_USER_ID, activeScopeId, tableHasUserId, tableHasWorkspaceId } from "./lib/ownership";
@@ -1254,20 +1254,25 @@ async function handleBootstrap(request: Request, env: Env) {
 }
 
 async function handleLogin(request: Request, env: Env) {
-  const body = await parseJson<{ username: string; password: string; remember?: boolean }>(request);
-  const user = await authenticateDashboardUser(env, body.username, body.password);
-  if (!user) {
-    return text("Invalid credentials", 401);
-  }
+  try {
+    const body = await parseJson<{ username: string; password: string; remember?: boolean }>(request);
+    const user = await authenticateDashboardUser(env, body.username, body.password);
+    if (!user) {
+      return text("Invalid credentials", 401);
+    }
 
-  return json(
-    { authenticated: true, username: user.username, user, google_auth_configured: isGoogleAuthConfigured(env) },
-    {
-      headers: {
-        "Set-Cookie": await createSessionCookie(user, env, body.remember !== false),
+    return json(
+      { authenticated: true, username: user.username, user, google_auth_configured: isGoogleAuthConfigured(env) },
+      {
+        headers: {
+          "Set-Cookie": await createSessionCookie(user, env, body.remember !== false),
+        },
       },
-    },
-  );
+    );
+  } catch (error) {
+    console.error("auth.login.failed", error);
+    return errorResponse("Unable to sign in because the dashboard auth service is not configured correctly.", 500);
+  }
 }
 
 async function handleMediaUpload(request: Request, env: Env) {

@@ -6,6 +6,7 @@ import { slugify } from "../lib/slug";
 
 type ArticleEditorProps = {
   article?: ArticleRecord;
+  defaultScheduledAt?: string | null;
   sites: Site[];
   categories: ArticleCategory[];
   onSave: (payload: ArticleInput, id?: number) => Promise<void>;
@@ -13,7 +14,7 @@ type ArticleEditorProps = {
   onCancel?: () => void;
 };
 
-function toInitialState(article?: ArticleRecord): ArticleInput {
+function toInitialState(article?: ArticleRecord, defaultScheduledAt?: string | null): ArticleInput {
   return (
     article ?? {
       title: "",
@@ -22,7 +23,7 @@ function toInitialState(article?: ArticleRecord): ArticleInput {
       content: "",
       cover_image: null,
       status: "draft",
-      published_at: null,
+      published_at: defaultScheduledAt ?? null,
       category_id: null,
       site_ids: [],
       seo: {
@@ -64,8 +65,24 @@ function normalizeContentForEditor(value: string): string {
     .join("");
 }
 
-export function ArticleEditor({ article, sites, categories, onSave, onUpload, onCancel }: ArticleEditorProps) {
-  const [form, setForm] = useState<ArticleInput>(() => toInitialState(article));
+function toLocalDateTimeInput(value?: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  const offset = date.getTimezoneOffset();
+  const local = new Date(date.getTime() - offset * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+export function ArticleEditor({
+  article,
+  defaultScheduledAt,
+  sites,
+  categories,
+  onSave,
+  onUpload,
+  onCancel,
+}: ArticleEditorProps) {
+  const [form, setForm] = useState<ArticleInput>(() => toInitialState(article, defaultScheduledAt));
   const [configSites, setConfigSites] = useState<Site[]>(sites);
   const [categoryText, setCategoryText] = useState(() => article?.category?.name ?? "");
   const [busy, setBusy] = useState(false);
@@ -83,10 +100,10 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
   );
 
   useEffect(() => {
-    setForm(toInitialState(article));
+    setForm(toInitialState(article, defaultScheduledAt));
     setCategoryText(article?.category?.name ?? "");
     setError(null);
-  }, [article]);
+  }, [article, defaultScheduledAt]);
 
   useEffect(() => {
     setConfigSites(sites);
@@ -414,7 +431,9 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
     setBusy(true);
     setError(null);
     try {
-      const now = status === "published" ? new Date().toISOString() : null;
+      const publishedAt = status === "published"
+        ? form.published_at ?? new Date().toISOString()
+        : form.published_at;
       const slug = form.slug || slugify(form.title);
       const categoryId = await resolveCategoryId();
       await onSave(
@@ -422,7 +441,7 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
           ...form,
           slug,
           status,
-          published_at: now,
+          published_at: publishedAt,
           category_id: categoryId,
           seo: {
             ...form.seo,
@@ -557,6 +576,23 @@ export function ArticleEditor({ article, sites, categories, onSave, onUpload, on
               ))}
             </datalist>
           </label>
+        </div>
+        <div className="grid-two">
+          <label>
+            Publish date & time
+            <input
+              type="datetime-local"
+              value={toLocalDateTimeInput(form.published_at)}
+              onChange={(e) => update("published_at", e.target.value ? new Date(e.target.value).toISOString() : null)}
+            />
+            <small className="article-editor__hint">
+              Leave blank to publish immediately. Future times will schedule the article.
+            </small>
+          </label>
+          <div className="article-editor__schedule-note">
+            <strong>Publishing flow</strong>
+            <small>Save draft keeps the selected time. Publish uses it when set, otherwise it goes live now.</small>
+          </div>
         </div>
         <label>
           <span className="article-editor__label-row">

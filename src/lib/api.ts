@@ -20,6 +20,9 @@ function stripXmlError(raw: string): string {
 function normalizeApiError(raw: string, status: number): string {
   const trimmed = raw.trim();
   if (!trimmed) return `Request failed with ${status}`;
+  if (/^<!doctype html|^<html\b/i.test(trimmed)) {
+    return "The dashboard server returned an HTML error page. Please try again after the server configuration is fixed.";
+  }
   if (/^<\?xml|^<errors?\b/i.test(trimmed)) {
     const message = stripXmlError(trimmed);
     if (/Callback URL not approved/i.test(message)) {

@@ -70,22 +70,26 @@ export function DashboardPage({
   onSyncAgentSettings,
 }: DashboardPageProps) {
   const [isCreatingArticle, setIsCreatingArticle] = useState(false);
+  const [prefilledPublishAt, setPrefilledPublishAt] = useState<string | null>(null);
 
   function renderView() {
     if (view === "articles" && (selectedArticle || isCreatingArticle)) {
       return (
         <ArticleEditor
           article={selectedArticle}
+          defaultScheduledAt={prefilledPublishAt}
           sites={sites}
           categories={categories}
           onSave={async (payload, id) => {
             await onSaveArticle(payload, id);
             setIsCreatingArticle(false);
+            setPrefilledPublishAt(null);
           }}
           onUpload={onUpload}
           onCancel={() => {
             onSelectArticle(undefined);
             setIsCreatingArticle(false);
+            setPrefilledPublishAt(null);
           }}
         />
       );
@@ -127,14 +131,18 @@ export function DashboardPage({
       return <StatisticsPage />;
     }
 
-    return (
+      return (
       <ArticlesOverview
         articles={articles}
-        onNewArticle={() => {
+        onNewArticle={(scheduledAt) => {
           onSelectArticle(undefined);
+          setPrefilledPublishAt(scheduledAt ? scheduledAt.toISOString() : null);
           setIsCreatingArticle(true);
         }}
-        onSelectArticle={onSelectArticle}
+        onSelectArticle={(article) => {
+          setPrefilledPublishAt(null);
+          onSelectArticle(article);
+        }}
         onDeleteArticle={async (article) => {
           await onDeleteArticle(article.id);
         }}

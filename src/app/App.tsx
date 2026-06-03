@@ -189,7 +189,7 @@ export function App() {
     return <div className="loading-screen">Loading dashboard...</div>;
   }
 
-  if (loginMode === "fallback" || !auth.authenticated) {
+  if (!auth.authenticated) {
     return (
       <div className="login-screen">
         <LoginCard
