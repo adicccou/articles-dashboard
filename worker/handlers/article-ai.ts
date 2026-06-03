@@ -169,6 +169,19 @@ function sanitizeEditorHtml(html: string): string {
     .trim();
 }
 
+function normalizeStyledArticleHtml(html: string): string {
+  return html
+    .replace(/[–—]/g, "-")
+    .replace(/[“”]/g, "\"")
+    .replace(/[‘’]/g, "'")
+    .replace(/[•▪◦●]/g, "-")
+    .replace(/[→⇒➜➝➞➤]/g, "->")
+    .replace(/[✓✔✅✗✘❌✨🚀🔥⭐]/g, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/>\s+</g, "><")
+    .trim();
+}
+
 export async function suggestArticleField(env: Env, request: Request, userId = DEFAULT_USER_ID): Promise<Response> {
   try {
     const settings = await readResolvedAiSettings(env, userId);
@@ -235,7 +248,10 @@ export async function styleArticleContent(env: Env, request: Request, userId = D
         "Allowed output tags: p, h2, h3, ul, ol, li, blockquote, strong, em, u, a, span, br.",
         "Do not use h1 because the title field already exists. Do not include images, tables, scripts, iframes, classes, ids, markdown, or a full HTML document.",
         "Do not invent facts, numbers, names, links, quotes, claims, or conclusions. Preserve the article's meaning and voice.",
+        "Format it like a modern published web article: clear section hierarchy, larger bold section headings, readable paragraph rhythm, clean lists, and tasteful blockquotes when the source already contains a quote or standout line.",
         "Improve structure only: split long paragraphs, add useful h2/h3 headings when the article clearly supports them, turn obvious sequences into lists, lightly bold important phrases, and use blockquotes only for existing standout lines.",
+        "Remove noticeable AI writing tells and decorative symbols. Do not use em dashes, en dashes, arrows, checkmark symbols, sparkle/fire/rocket/star emoji, fake separators, or ornamental bullets unless they already belong inside the actual article meaning.",
+        "Use plain, natural punctuation and normal human article styling instead of flashy AI-generated formatting habits.",
         "Return raw JSON only, exactly: {\"html\":\"<p>...</p>\"}.",
         ...buildAiRuleSections(settings),
       ].filter(Boolean).join("\n"),
@@ -253,7 +269,7 @@ export async function styleArticleContent(env: Env, request: Request, userId = D
 
     const parsed = parseJsonObject(responseText);
     const rawHtml = typeof parsed.html === "string" ? parsed.html.trim() : "";
-    const html = sanitizeEditorHtml(rawHtml);
+    const html = normalizeStyledArticleHtml(sanitizeEditorHtml(rawHtml));
     if (!stripHtml(html)) {
       return errorResponse("AI did not return usable styled content.", 502);
     }
