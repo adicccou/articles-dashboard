@@ -14,18 +14,18 @@ afterEach(() => {
 
 describe("normalizeDashboardMediaUrl", () => {
   it("rewrites old dashboard media hosts to the current dashboard host", () => {
-    setWindowOrigin("https://oilor.app");
+    setWindowOrigin("https://articles-dashboard.adilet-melisov.workers.dev");
 
     expect(
       normalizeDashboardMediaUrl("https://dashboard.adilet-melisov.workers.dev/api/media/uploads/example.jpg"),
-    ).toBe("https://oilor.app/api/media/uploads/example.jpg?source=dashboard-media");
+    ).toBe("https://articles-dashboard.adilet-melisov.workers.dev/api/media/uploads/example.jpg?source=dashboard-media");
   });
 
   it("adds a cache marker to relative dashboard media URLs", () => {
-    setWindowOrigin("https://oilor.app");
+    setWindowOrigin("https://articles-dashboard.adilet-melisov.workers.dev");
 
     expect(normalizeDashboardMediaUrl("/api/media/uploads/example.jpg")).toBe(
-      "https://oilor.app/api/media/uploads/example.jpg?source=dashboard-media",
+      "https://articles-dashboard.adilet-melisov.workers.dev/api/media/uploads/example.jpg?source=dashboard-media",
     );
   });
 
@@ -33,16 +33,16 @@ describe("normalizeDashboardMediaUrl", () => {
     setWindowOrigin("http://127.0.0.1:5190");
 
     expect(normalizeDashboardMediaUrl("/api/media/uploads/example.jpg")).toBe(
-      "https://oilor.app/api/media/uploads/example.jpg?source=dashboard-media",
+      "https://articles-dashboard.adilet-melisov.workers.dev/api/media/uploads/example.jpg?source=dashboard-media",
     );
 
     expect(
       normalizeDashboardMediaUrl("https://marketing-dashboard.adilet-melisov.workers.dev/api/media/uploads/example.jpg"),
-    ).toBe("https://oilor.app/api/media/uploads/example.jpg?source=dashboard-media");
+    ).toBe("https://articles-dashboard.adilet-melisov.workers.dev/api/media/uploads/example.jpg?source=dashboard-media");
   });
 
   it("leaves external and data URLs untouched", () => {
-    setWindowOrigin("https://oilor.app");
+    setWindowOrigin("https://articles-dashboard.adilet-melisov.workers.dev");
 
     expect(normalizeDashboardMediaUrl("https://cdn.example.com/image.jpg")).toBe("https://cdn.example.com/image.jpg");
     expect(normalizeDashboardMediaUrl("data:image/png;base64,abc")).toBe("data:image/png;base64,abc");

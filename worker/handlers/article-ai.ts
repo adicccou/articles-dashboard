@@ -79,7 +79,50 @@ function fieldRules(field: ArticleAssistField): string {
   if (field === "excerpt") {
     return "Return a clear article excerpt for cards and previews. One sentence, 120-180 characters.";
   }
-  return "Return the best category name. Prefer one existing category if it fits; otherwise return a concise new category name.";
+  return [
+    "Return the best article category as exactly one word.",
+    "Base it on the article's core topic, not its format, tone, or audience.",
+    "Prefer a broad topical noun like Trading, Psychology, Strategy, Finance, Markets, Crypto, SaaS, Productivity, or Marketing.",
+    "Prefer one existing category if it fits well.",
+    "Do not return two words, a phrase, punctuation, explanation, or sentence casing.",
+  ].join(" ");
+}
+
+function normalizeSuggestedCategory(value: string, categories: string[] | undefined): string {
+  const cleaned = value
+    .replace(/^["'\s]+|["'\s]+$/g, "")
+    .replace(/[^\p{L}\p{N}\s-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "";
+
+  const existingCategories = (categories ?? [])
+    .map((category) => String(category ?? "").trim())
+    .filter(Boolean);
+  const exactExisting = existingCategories.find((category) => category.toLowerCase() === cleaned.toLowerCase());
+  if (exactExisting) return exactExisting;
+
+  const words = cleaned
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter(Boolean);
+  if (words.length === 0) return "";
+  if (words.length === 1) {
+    return words[0].charAt(0).toUpperCase() + words[0].slice(1).toLowerCase();
+  }
+
+  const normalizedExisting = new Map(
+    existingCategories.map((category) => [category.toLowerCase(), category] as const),
+  );
+  for (const word of words) {
+    const exactWord = normalizedExisting.get(word.toLowerCase());
+    if (exactWord) return exactWord;
+  }
+
+  const stopwords = new Set(["and", "for", "the", "with", "from", "into", "your", "their", "guide", "review"]);
+  const meaningfulWords = words.filter((word) => !stopwords.has(word.toLowerCase()));
+  const chosen = meaningfulWords[meaningfulWords.length - 1] ?? words[words.length - 1];
+  return chosen.charAt(0).toUpperCase() + chosen.slice(1).toLowerCase();
 }
 
 function shortenedCoverTitle(title: string | undefined): string {
@@ -230,7 +273,10 @@ export async function suggestArticleField(env: Env, request: Request, userId = D
     });
 
     const parsed = parseJsonObject(responseText);
-    const value = typeof parsed.value === "string" ? parsed.value.trim() : "";
+    const rawValue = typeof parsed.value === "string" ? parsed.value.trim() : "";
+    const value = payload.field === "category"
+      ? normalizeSuggestedCategory(rawValue, payload.categories)
+      : rawValue;
     if (!value) {
       return errorResponse("AI did not return a usable value.", 502);
     }

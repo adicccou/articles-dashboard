@@ -10,6 +10,7 @@ type ArticleEditorProps = {
   sites: Site[];
   categories: ArticleCategory[];
   onSave: (payload: ArticleInput, id?: number) => Promise<void>;
+  onDelete?: (id: number) => Promise<void>;
   onUpload: (file: File) => Promise<{ key: string; url: string }>;
   onCancel?: () => void;
 };
@@ -79,6 +80,7 @@ export function ArticleEditor({
   sites,
   categories,
   onSave,
+  onDelete,
   onUpload,
   onCancel,
 }: ArticleEditorProps) {
@@ -86,6 +88,7 @@ export function ArticleEditor({
   const [configSites, setConfigSites] = useState<Site[]>(sites);
   const [categoryText, setCategoryText] = useState(() => article?.category?.name ?? "");
   const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [assistBusy, setAssistBusy] = useState<ArticleAssistField | "cover" | "style" | null>(null);
   const [assistMessage, setAssistMessage] = useState<string | null>(null);
@@ -260,19 +263,6 @@ export function ArticleEditor({
     }
   }
 
-  async function handleOgFileChange(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    try {
-      const uploaded = await onUpload(file);
-      updateSeo("og_image", uploaded.url);
-    } finally {
-      setUploading(false);
-      event.target.value = "";
-    }
-  }
-
   function buildAssistPayload(field: ArticleAssistField): {
     field: ArticleAssistField;
     title: string;
@@ -394,7 +384,7 @@ export function ArticleEditor({
       cover_image: null,
       seo: {
         ...current.seo,
-        og_image: current.seo.og_image === current.cover_image ? "" : current.seo.og_image,
+        og_image: "",
       },
     }));
   }
@@ -444,6 +434,7 @@ export function ArticleEditor({
         : form.published_at;
       const slug = form.slug || slugify(form.title);
       const categoryId = await resolveCategoryId();
+      const syncedOgImage = form.cover_image ?? "";
       await onSave(
         {
           ...form,
@@ -455,6 +446,7 @@ export function ArticleEditor({
             ...form.seo,
             meta_title: form.seo.meta_title || form.title,
             canonical_url: form.seo.canonical_url || "",
+            og_image: syncedOgImage,
           },
         },
         article?.id,
@@ -466,24 +458,53 @@ export function ArticleEditor({
     }
   }
 
+  async function handleDelete() {
+    if (!article?.id || !onDelete) return;
+    const confirmed = window.confirm(
+      `Delete "${article.title}"?\n\nThis will remove it from the dashboard and connected websites that use this dashboard as the live article source.`,
+    );
+    if (!confirmed) return;
+
+    setDeleting(true);
+    setError(null);
+    try {
+      await onDelete(article.id);
+      onCancel?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete article");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <form className="stack article-editor" onSubmit={(e) => handleSubmit(e, "draft")}>
       <section className="panel stack">
         <div className="panel__title-row">
           <h2>{article ? "Edit Article" : "New Article"}</h2>
           <div className="actions">
+            {article?.id && onDelete ? (
+              <button
+                type="button"
+                className="button-secondary config-danger-button"
+                disabled={busy || deleting}
+                onClick={() => void handleDelete()}
+              >
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
+            ) : null}
             {onCancel && (
-              <button type="button" className="button-secondary" disabled={busy} onClick={onCancel}>
+              <button type="button" className="button-secondary" disabled={busy || deleting} onClick={onCancel}>
                 Cancel
               </button>
             )}
-            <button type="submit" disabled={busy}>
+            <button type="submit" disabled={busy || deleting}>
               {busy ? "Saving..." : "Save draft"}
             </button>
             <button
               type="button"
               className="button-secondary"
-              disabled={busy}
+              disabled={busy || deleting}
               onClick={() => {
                 const syntheticEvent = {
                   preventDefault() {},
@@ -763,7 +784,11 @@ export function ArticleEditor({
             Current image URL
             <input
               value={form.cover_image ?? ""}
-              onChange={(e) => update("cover_image", e.target.value || null)}
+              onChange={(e) => {
+                const nextValue = e.target.value || null;
+                update("cover_image", nextValue);
+                updateSeo("og_image", nextValue ?? "");
+              }}
               placeholder="https://..."
             />
           </label>
@@ -794,6 +819,7 @@ export function ArticleEditor({
         <div className="panel__title-row">
           <h2>SEO</h2>
         </div>
+        <p className="article-editor__hint">Share previews use the cover banner image automatically.</p>
         <label>
           <span className="article-editor__label-row">
             <span>Meta title</span>
@@ -830,13 +856,6 @@ export function ArticleEditor({
             rows={3}
           />
         </label>
-        <div className="grid-two">
-          <label>
-            OG image upload
-            <input type="file" accept="image/*" onChange={handleOgFileChange} />
-          </label>
-          <div />
-        </div>
       </section>
     </form>
   );

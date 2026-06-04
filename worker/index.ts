@@ -145,6 +145,57 @@ function withCors(response: Response): Response {
   });
 }
 
+const LEGACY_MEDIA_HOSTS = new Set([
+  "marketing-dashboard.adilet-melisov.workers.dev",
+  "dashboard.adilet-melisov.workers.dev",
+  "oilor.app",
+  "www.oilor.app",
+]);
+
+function publicMediaBaseUrl(env: Env, request: Request): string {
+  const configured = env.PUBLIC_MEDIA_BASE_URL ?? "/api/media/";
+  return configured.startsWith("http")
+    ? configured.replace(/\/$/, "")
+    : new URL(configured, request.url).toString().replace(/\/$/, "");
+}
+
+function normalizePublicMediaUrl(value: string | null | undefined, env: Env, request: Request): string | null {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  if (/^(blob|data):/i.test(raw)) return raw;
+
+  const mediaBase = publicMediaBaseUrl(env, request);
+  try {
+    const url = new URL(raw, request.url);
+    if (!url.pathname.startsWith("/api/media/")) {
+      return raw;
+    }
+    if (raw.startsWith("/api/media/") || LEGACY_MEDIA_HOSTS.has(url.hostname) || url.origin === new URL(mediaBase).origin) {
+      const key = url.pathname.replace(/^\/api\/media\//, "");
+      return `${mediaBase}/${key}`;
+    }
+    return raw;
+  } catch {
+    return raw;
+  }
+}
+
+function normalizePublicArticleMedia<T extends { cover_image?: string | null; og_image?: string | null; seo?: { og_image?: string | null } | null }>(
+  article: T,
+  env: Env,
+  request: Request,
+): T {
+  const normalizedCover = normalizePublicMediaUrl(article.cover_image, env, request);
+  const normalizedOg = normalizePublicMediaUrl(article.seo?.og_image ?? article.og_image, env, request) ?? normalizedCover;
+
+  return {
+    ...article,
+    ...(article.cover_image !== undefined ? { cover_image: normalizedCover } : {}),
+    ...(article.og_image !== undefined ? { og_image: normalizedOg } : {}),
+    ...(article.seo ? { seo: { ...article.seo, og_image: normalizedOg } } : {}),
+  };
+}
+
 function renderLegalPage(title: string, description: string, body: string): Response {
   const html = `<!doctype html>
 <html lang="en">
@@ -1599,7 +1650,8 @@ export default {
         return withCors(text("Missing site query parameter", 400));
       }
       try {
-        return withCors(json({ data: await getPublishedArticlesForSite(env, site) }));
+        const articles = await getPublishedArticlesForSite(env, site);
+        return withCors(json({ data: articles.map((article) => normalizePublicArticleMedia(article, env, request)) }));
       } catch (err) {
         return withCors(text("Internal server error", 500));
       }
@@ -1616,7 +1668,7 @@ export default {
         if (!article) {
           return withCors(text("Article not found", 404));
         }
-        return withCors(json({ data: article }));
+        return withCors(json({ data: normalizePublicArticleMedia(article, env, request) }));
       } catch (err) {
         return withCors(text("Internal server error", 500));
       }

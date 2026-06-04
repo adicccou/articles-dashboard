@@ -1,12 +1,13 @@
 const DASHBOARD_MEDIA_HOSTS = new Set([
-  "oilor.app",
-  "www.oilor.app",
+  "articles-dashboard.adilet-melisov.workers.dev",
   "dashboard.adilet-melisov.workers.dev",
   "marketing-dashboard.adilet-melisov.workers.dev",
+  "oilor.app",
+  "www.oilor.app",
 ]);
 
 const MEDIA_CACHE_MARKER = "dashboard-media";
-const PRIMARY_DASHBOARD_ORIGIN = "https://oilor.app";
+const PRIMARY_DASHBOARD_ORIGIN = "https://articles-dashboard.adilet-melisov.workers.dev";
 const LOCAL_DEVELOPMENT_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 
 function currentOrigin() {

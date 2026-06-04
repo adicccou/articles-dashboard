@@ -86,6 +86,12 @@ export function DashboardPage({
             setPrefilledPublishAt(null);
           }}
           onUpload={onUpload}
+          onDelete={async (id) => {
+            await onDeleteArticle(id);
+            onSelectArticle(undefined);
+            setIsCreatingArticle(false);
+            setPrefilledPublishAt(null);
+          }}
           onCancel={() => {
             onSelectArticle(undefined);
             setIsCreatingArticle(false);

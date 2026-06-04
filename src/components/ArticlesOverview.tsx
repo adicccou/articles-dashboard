@@ -18,6 +18,8 @@ type ArticleView = "month" | "week" | "list";
 type ArticleStatusFilter = "all" | "draft" | "scheduled" | "published";
 
 const ARTICLE_VIEW_STORAGE_KEY = "dashboard:articles:view";
+const ARTICLE_SITE_FILTER_STORAGE_KEY = "dashboard:articles:site-filter";
+const ARTICLE_STATUS_FILTER_STORAGE_KEY = "dashboard:articles:status-filter";
 const DEFAULT_SCHEDULE_HOUR = 10;
 const WEEK_HOUR_SLOTS = Array.from({ length: 24 }, (_, hour) => ({
   hour,
@@ -37,6 +39,31 @@ function readStoredArticleView(): ArticleView {
 function storeArticleView(view: ArticleView) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(ARTICLE_VIEW_STORAGE_KEY, view);
+}
+
+function readStoredSiteFilter(): string {
+  if (typeof window === "undefined") return "all";
+  return window.localStorage.getItem(ARTICLE_SITE_FILTER_STORAGE_KEY) || "all";
+}
+
+function storeSiteFilter(value: string) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(ARTICLE_SITE_FILTER_STORAGE_KEY, value);
+}
+
+function isArticleStatusFilter(value: string | null): value is ArticleStatusFilter {
+  return value === "all" || value === "draft" || value === "scheduled" || value === "published";
+}
+
+function readStoredStatusFilter(): ArticleStatusFilter {
+  if (typeof window === "undefined") return "all";
+  const stored = window.localStorage.getItem(ARTICLE_STATUS_FILTER_STORAGE_KEY);
+  return isArticleStatusFilter(stored) ? stored : "all";
+}
+
+function storeStatusFilter(value: ArticleStatusFilter) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(ARTICLE_STATUS_FILTER_STORAGE_KEY, value);
 }
 
 function startOfMonth(date: Date): Date {
@@ -130,6 +157,12 @@ function matchesStatusFilter(article: ArticleRecord, selectedStatusFilter: Artic
   return selectedStatusFilter === "all" ? true : articleStatusClass(article) === selectedStatusFilter;
 }
 
+function primarySiteLabel(article: ArticleRecord, siteMap: Map<number, Site>): string | null {
+  const [firstSiteId] = article.site_ids;
+  if (firstSiteId === undefined) return null;
+  return siteMap.get(firstSiteId)?.name ?? null;
+}
+
 export function ArticlesOverview({
   articles,
   sites,
@@ -139,12 +172,20 @@ export function ArticlesOverview({
 }: ArticlesOverviewProps) {
   const [view, setView] = useState<ArticleView>(() => readStoredArticleView());
   const [calendarDate, setCalendarDate] = useState(() => new Date());
-  const [selectedSiteFilter, setSelectedSiteFilter] = useState<string>("all");
-  const [selectedStatusFilter, setSelectedStatusFilter] = useState<ArticleStatusFilter>("all");
+  const [selectedSiteFilter, setSelectedSiteFilter] = useState<string>(() => readStoredSiteFilter());
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<ArticleStatusFilter>(() => readStoredStatusFilter());
 
   useEffect(() => {
     storeArticleView(view);
   }, [view]);
+
+  useEffect(() => {
+    storeSiteFilter(selectedSiteFilter);
+  }, [selectedSiteFilter]);
+
+  useEffect(() => {
+    storeStatusFilter(selectedStatusFilter);
+  }, [selectedStatusFilter]);
 
   const today = useMemo(() => new Date(), []);
   const activeSites = useMemo(
@@ -270,39 +311,30 @@ export function ArticlesOverview({
             </div>
             {newArticleAction}
           </div>
-          {activeSites.length > 0 ? (
-            <div className="articles-overview__filters">
-              <SectionTabs
-                activeId={selectedSiteFilter}
-                ariaLabel="Filter articles by website"
-                className="articles-filter-tabs"
-                tabClassName="articles-filter-tab"
-                activeTabClassName="articles-filter-tab--active"
-                badgeClassName="articles-filter-tab__count"
-                onChange={setSelectedSiteFilter}
-                items={listFilterItems.map((item) => ({
-                  id: item.id,
-                  label: item.label,
-                  badge: siteFilterCounts.get(item.id) ?? item.count,
-                }))}
-              />
-            </div>
-          ) : null}
-          <div className="articles-overview__filters articles-overview__filters--subtle">
-            <SectionTabs
-              activeId={selectedStatusFilter}
-              ariaLabel="Filter articles by status"
-              className="articles-filter-tabs"
-              tabClassName="articles-filter-tab articles-filter-tab--subtle"
-              activeTabClassName="articles-filter-tab--active"
-              badgeClassName="articles-filter-tab__count"
-              onChange={(value) => setSelectedStatusFilter(value as ArticleStatusFilter)}
-              items={statusFilterItems.map((item) => ({
-                id: item.id,
-                label: item.label,
-                badge: statusFilterCounts.get(item.id) ?? item.count,
-              }))}
-            />
+          <div className="articles-overview__filters-bar">
+            <label className="articles-filter-field">
+              <span>Website</span>
+              <select value={selectedSiteFilter} onChange={(event) => setSelectedSiteFilter(event.target.value)}>
+                {listFilterItems.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label} ({siteFilterCounts.get(item.id) ?? item.count})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="articles-filter-field">
+              <span>Status</span>
+              <select
+                value={selectedStatusFilter}
+                onChange={(event) => setSelectedStatusFilter(event.target.value as ArticleStatusFilter)}
+              >
+                {statusFilterItems.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label} ({statusFilterCounts.get(item.id) ?? item.count})
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
           <div className="table articles-table">
             <div className="table__row table__row--header">
@@ -470,6 +502,12 @@ export function ArticlesOverview({
                         {article.published_at ? formatDisplayTime(article.published_at) : "Any time"}
                       </span>
                       <span className="scheduler-calendar__event-body">
+                        {primarySiteLabel(article, siteMap) ? (
+                          <span className="article-calendar__site-tag">
+                            {primarySiteLabel(article, siteMap)}
+                            {article.site_ids.length > 1 ? ` +${article.site_ids.length - 1}` : ""}
+                          </span>
+                        ) : null}
                         <span className="scheduler-calendar__event-title">{article.title}</span>
                       </span>
                     </button>
@@ -589,6 +627,12 @@ export function ArticlesOverview({
                             {article.published_at ? formatDisplayTime(article.published_at) : slot.label}
                           </span>
                         </span>
+                        {primarySiteLabel(article, siteMap) ? (
+                          <span className="article-week__site-tag">
+                            {primarySiteLabel(article, siteMap)}
+                            {article.site_ids.length > 1 ? ` +${article.site_ids.length - 1}` : ""}
+                          </span>
+                        ) : null}
                         <span className="scheduler-week__slot-title">{article.title}</span>
                       </button>
                     ))}
