@@ -12,12 +12,13 @@ import type { IconType } from "react-icons";
 import { FaFacebookF, FaLinkedinIn } from "react-icons/fa6";
 import { SiInstagram, SiReddit, SiThreads, SiX, SiYoutube } from "react-icons/si";
 import { api } from "../lib/api";
-import type { InstagramInsightsResponse, LinkedInInsightsResponse, RedditAccount, SocialAccount, SocialComment, SocialPost, ThreadsInsightsResponse, TwitterInsightsResponse } from "../lib/types";
+import type { ArticleRecord, InstagramInsightsResponse, JournlBreakdownItem, JournlStats, LinkedInInsightsResponse, RedditAccount, Site, SocialAccount, SocialComment, SocialPost, ThreadsInsightsResponse, TwitterInsightsResponse } from "../lib/types";
 import { formatDisplayDateTime } from "../lib/datetime";
 import { normalizeDashboardMediaUrl } from "../lib/mediaUrl";
 import { getDisplayPostImageUrls, isVideoMediaUrl } from "../lib/socialPostMedia";
 import { ModalCloseButton } from "../components/ModalCloseButton";
 import { SectionTabs } from "../components/SectionTabs";
+import type { DashboardSurface } from "../lib/surface";
 import "../styles/statistics-page.css";
 
 type Platform = SocialPost["platform"];
@@ -111,6 +112,485 @@ function StatCard({ label, value, sub, accent }: { label: string; value: string 
       <span className="stat-card__value">{value}</span>
       {sub ? <span className="stat-card__sub">{sub}</span> : null}
     </div>
+  );
+}
+
+type StatisticsPageProps = {
+  surface?: DashboardSurface;
+  articles?: ArticleRecord[];
+  sites?: Site[];
+};
+
+type ArticleStatsTab = "articles" | "general";
+type SiteArticleStats = {
+  site: Site;
+  total: number;
+  drafts: number;
+  scheduled: number;
+  published: number;
+  latestPublishedAt: string | null;
+  nextScheduledAt: string | null;
+};
+
+function isScheduledArticle(article: ArticleRecord) {
+  return article.status === "published" && article.published_at && new Date(article.published_at).getTime() > Date.now();
+}
+
+function isPublishedArticle(article: ArticleRecord) {
+  return article.status === "published" && !isScheduledArticle(article);
+}
+
+function buildSiteArticleStats(articles: ArticleRecord[], sites: Site[]): SiteArticleStats[] {
+  return sites.map((site) => {
+    const siteArticles = articles.filter((article) => article.site_ids.includes(site.id));
+    const drafts = siteArticles.filter((article) => article.status === "draft");
+    const scheduled = siteArticles.filter((article) => isScheduledArticle(article));
+    const published = siteArticles.filter((article) => isPublishedArticle(article));
+    const latestPublishedAt = published
+      .map((article) => article.published_at)
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0] ?? null;
+    const nextScheduledAt = scheduled
+      .map((article) => article.published_at)
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => new Date(left).getTime() - new Date(right).getTime())[0] ?? null;
+    return {
+      site,
+      total: siteArticles.length,
+      drafts: drafts.length,
+      scheduled: scheduled.length,
+      published: published.length,
+      latestPublishedAt,
+      nextScheduledAt,
+    };
+  }).sort((left, right) => right.total - left.total || left.site.name.localeCompare(right.site.name));
+}
+
+function formatPercent(value: number) {
+  if (!Number.isFinite(value)) return "0%";
+  return `${value % 1 === 0 ? value.toFixed(0) : value.toFixed(1)}%`;
+}
+
+function percentOf(count: number, total: number) {
+  if (!total) return 0;
+  return Number(((count / total) * 100).toFixed(1));
+}
+
+function articleSiteActivityLabel(siteStats: SiteArticleStats) {
+  if (siteStats.nextScheduledAt) return "Next queued";
+  if (siteStats.latestPublishedAt) return "Latest live";
+  return "Waiting";
+}
+
+function articleSiteActivitySub(siteStats: SiteArticleStats) {
+  if (siteStats.nextScheduledAt) return formatDisplayDateTime(siteStats.nextScheduledAt);
+  if (siteStats.latestPublishedAt) return formatDisplayDateTime(siteStats.latestPublishedAt);
+  return "No publish activity yet";
+}
+
+function siteSuggestions(siteSlug: string) {
+  if (siteSlug === "journl") {
+    return [
+      "Country or timezone distribution once Journl stores geo fields on the user profile.",
+      "Free-to-paid conversion by signup week and provider.",
+      "Cancellation and expiry trend by month for Pro subscriptions.",
+      "DAU, WAU, and feature usage once product events are connected.",
+    ];
+  }
+  return [
+    "Registered users and sign-up sources from that app's auth system.",
+    "Plan or tier mix for free vs paid users.",
+    "Active users in 7d and 30d with retention trends.",
+    "Traffic, referrers, and geography after analytics is connected.",
+  ];
+}
+
+function BreakdownPanel({
+  title,
+  description,
+  items,
+  countLabel = "users",
+}: {
+  title: string;
+  description: string;
+  items: JournlBreakdownItem[];
+  countLabel?: string;
+}) {
+  return (
+    <section className="stats-section stats-performance-panel">
+      <div className="stats-section__header">
+        <div>
+          <h3>{title}</h3>
+          <p>{description}</p>
+        </div>
+      </div>
+      {items.length === 0 ? (
+        <p className="stats-empty">No data available yet.</p>
+      ) : (
+        <div className="stats-breakdown-list">
+          {items.map((item) => (
+            <div className="stats-breakdown-row" key={item.key}>
+              <div className="stats-breakdown-row__main">
+                <strong>{item.label}</strong>
+                <span>{item.count} {countLabel}</span>
+              </div>
+              <span>{formatPercent(item.share)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ArticleAnalyticsTab({ articles, sites, siteStats }: { articles: ArticleRecord[]; sites: Site[]; siteStats: SiteArticleStats[] }) {
+  const totals = useMemo(() => ({
+    sites: sites.length,
+    activeSites: sites.filter((site) => site.status === "active").length,
+    articles: articles.length,
+    drafts: articles.filter((article) => article.status === "draft").length,
+    scheduled: articles.filter((article) => isScheduledArticle(article)).length,
+    published: articles.filter((article) => isPublishedArticle(article)).length,
+  }), [articles, sites]);
+
+  const recentArticles = useMemo(() => {
+    return [...articles]
+      .sort((left, right) => {
+        const leftTime = new Date(left.published_at ?? left.updated_at).getTime();
+        const rightTime = new Date(right.published_at ?? right.updated_at).getTime();
+        return rightTime - leftTime;
+      })
+      .slice(0, 10);
+  }, [articles]);
+
+  return (
+    <>
+      <section className="stats-section stats-performance-panel">
+        <div className="stats-section__header">
+          <div>
+            <h3>Website Overview</h3>
+            <p>Publishing status across your connected websites.</p>
+          </div>
+        </div>
+        <div className="stats-grid stats-grid--summary">
+          <StatCard label="Websites" value={totals.sites} sub={`${totals.activeSites} active`} accent="blue" />
+          <StatCard label="Articles" value={totals.articles} sub="all connected content" accent="green" />
+          <StatCard label="Drafts" value={totals.drafts} sub="not published yet" accent="purple" />
+          <StatCard label="Scheduled" value={totals.scheduled} sub="waiting to go live" accent="amber" />
+        </div>
+      </section>
+
+      <section className="stats-section stats-performance-panel">
+        <div className="stats-section__header">
+          <div>
+            <h3>By Website</h3>
+            <p>Per-site article counts and the latest publishing activity.</p>
+          </div>
+        </div>
+        {siteStats.length === 0 ? (
+          <p className="stats-empty">No websites connected yet. Add sites in Config to start tracking article stats here.</p>
+        ) : (
+          <div className="stats-account-list" aria-label="Website article status">
+            {siteStats.map((item) => (
+              <article className="stats-account-row" key={item.site.id}>
+                <div className="stats-account-row__identity">
+                  <span className="stats-platform-chip">{item.site.slug}</span>
+                  <strong>{item.site.name}</strong>
+                </div>
+                <div className="stats-account-row__metrics">
+                  <span><strong>{item.total}</strong> total</span>
+                  <span><strong>{item.published}</strong> published</span>
+                  <span><strong>{item.scheduled}</strong> scheduled</span>
+                  <span><strong>{item.drafts}</strong> drafts</span>
+                </div>
+                <div className="stats-account-row__meta">
+                  <span className={`stats-status-chip stats-status-chip--${item.site.status}`}>{item.site.status}</span>
+                  <span>{articleSiteActivitySub(item)}</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="stats-section stats-performance-panel">
+        <div className="stats-section__header">
+          <div>
+            <h3>Recent Articles</h3>
+            <p>Your latest drafts, scheduled pieces, and published articles across all websites.</p>
+          </div>
+        </div>
+        {recentArticles.length === 0 ? (
+          <p className="stats-empty">No articles yet.</p>
+        ) : (
+          <div className="stats-recent-list">
+            {recentArticles.map((article) => {
+              const labels = sites.filter((site) => article.site_ids.includes(site.id)).map((site) => site.name);
+              const status = article.status === "draft" ? "Draft" : isScheduledArticle(article) ? "Scheduled" : "Published";
+              const statusClass = status === "Published" ? "published" : status.toLowerCase();
+              const timestamp = article.published_at ?? article.updated_at;
+              return (
+                <article className="stats-recent-post" key={article.id}>
+                  <div className="stats-recent-post__main">
+                    <div className="stats-recent-post__topline">
+                      <span className="stats-platform-chip">{labels[0] ?? "Unassigned"}{labels.length > 1 ? ` +${labels.length - 1}` : ""}</span>
+                      <span className={`stats-post-status stats-post-status--${statusClass}`}>{status}</span>
+                    </div>
+                    <p>{article.title}</p>
+                    <div className="stats-post-metrics stats-post-metrics--scheduled" aria-label="Article details">
+                      <span><strong>{article.category?.name || "Uncategorized"}</strong>Category</span>
+                      <span><strong>{formatDisplayDateTime(timestamp)}</strong>{status === "Draft" ? "Updated" : status === "Scheduled" ? "Scheduled for" : "Published"}</span>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </>
+  );
+}
+
+function GeneralSitePanel({
+  siteStats,
+  journlStats,
+  journlStatsLoading,
+  journlStatsError,
+}: {
+  siteStats: SiteArticleStats;
+  journlStats: JournlStats | null;
+  journlStatsLoading: boolean;
+  journlStatsError: string | null;
+}) {
+  const isJournl = siteStats.site.slug === "journl";
+  const paidShare = journlStats ? percentOf(journlStats.subscriptions, journlStats.total_accounts) : 0;
+  const publishedShare = percentOf(siteStats.published, siteStats.total);
+
+  return (
+    <>
+      <section className="stats-section stats-performance-panel">
+        <div className="stats-section__header">
+          <div>
+            <h3>{siteStats.site.name}</h3>
+            <p>General site health and whatever live app analytics we can pull right now for {siteStats.site.domain}.</p>
+          </div>
+        </div>
+        <div className="stats-site-meta">
+          <span className="stats-platform-chip">{siteStats.site.slug}</span>
+          <span>{siteStats.site.domain}</span>
+          <span className={`stats-status-chip stats-status-chip--${siteStats.site.status}`}>{siteStats.site.status}</span>
+          <span>{articleSiteActivitySub(siteStats)}</span>
+        </div>
+        <div className="stats-grid stats-grid--summary">
+          <StatCard label="Connected Articles" value={siteStats.total} sub={`${siteStats.published} published, ${siteStats.scheduled} scheduled`} accent="blue" />
+          <StatCard label="Published Share" value={formatPercent(publishedShare)} sub="of connected content already live" accent="green" />
+          <StatCard label="Drafts" value={siteStats.drafts} sub="still in the dashboard queue" accent="purple" />
+          <StatCard label="Activity" value={articleSiteActivityLabel(siteStats)} sub={articleSiteActivitySub(siteStats)} accent="amber" />
+        </div>
+      </section>
+
+      <section className="stats-section stats-performance-panel">
+        <div className="stats-section__header">
+          <div>
+            <h3>App Accounts</h3>
+            <p>{isJournl ? "Live account, plan, and sign-in source metrics from Journl's auth users." : `No app-user analytics source is connected yet for ${siteStats.site.name}.`}</p>
+          </div>
+        </div>
+        {isJournl ? (
+          journlStatsLoading ? (
+            <p className="stats-empty">Loading Journl account stats...</p>
+          ) : journlStats ? (
+            <div className="stats-grid stats-grid--summary">
+              <StatCard label="Registered" value={journlStats.total_accounts} sub="all non-anonymous Journl accounts" accent="blue" />
+              <StatCard label="Active 30d" value={journlStats.active_30d} sub={`${journlStats.active_7d} active in 7d`} accent="green" />
+              <StatCard label="Paid Plans" value={journlStats.subscriptions} sub={`${formatPercent(paidShare)} of registered users`} accent="amber" />
+              <StatCard label="New 30d" value={journlStats.new_30d} sub={`${journlStats.new_7d} joined in 7d`} accent="purple" />
+            </div>
+          ) : (
+            <p className="stats-empty">
+              {journlStatsError
+                ? `Journl account stats are not connected yet: ${journlStatsError}`
+                : "Journl account stats are not connected yet."}
+            </p>
+          )
+        ) : (
+          <p className="stats-empty">
+            We can already show connected site status and publishing cadence for {siteStats.site.name}. To show registered users, plans, or sign-up sources here, this site needs its auth or analytics backend wired into the dashboard.
+          </p>
+        )}
+      </section>
+
+      {isJournl && journlStats ? (
+        <>
+          <BreakdownPanel
+            title="Plan Breakdown"
+            description="Which Journl plans people are currently on."
+            items={journlStats.plan_breakdown}
+          />
+          <BreakdownPanel
+            title="Signup Sources"
+            description="Based on the first auth provider used to create the account."
+            items={journlStats.provider_breakdown}
+          />
+          <BreakdownPanel
+            title="Activity Window"
+            description="Recent sign-in activity from Supabase Auth timestamps."
+            items={journlStats.activity_breakdown}
+          />
+          <section className="stats-section stats-performance-panel">
+            <div className="stats-section__header">
+              <div>
+                <h3>Coverage</h3>
+                <p>What this Journl panel can and cannot show from the current source.</p>
+              </div>
+            </div>
+            <div className="stats-callout">
+              <strong>Available now</strong>
+              <p>Registered users, plan mix, cancelled Pro renewals, recent sign-ins, and sign-up source/provider.</p>
+            </div>
+            <div className="stats-callout">
+              <strong>Still missing</strong>
+              <p>Country, timezone, referrer, device, and feature-usage analytics need extra tracking or profile fields beyond the current auth data.</p>
+            </div>
+          </section>
+        </>
+      ) : null}
+
+      <section className="stats-section stats-performance-panel">
+        <div className="stats-section__header">
+          <div>
+            <h3>Suggested Next Stats</h3>
+            <p>The most useful additions after the current source is working.</p>
+          </div>
+        </div>
+        <ul className="stats-suggestion-list">
+          {siteSuggestions(siteStats.site.slug).map((suggestion) => (
+            <li key={suggestion}>{suggestion}</li>
+          ))}
+        </ul>
+      </section>
+    </>
+  );
+}
+
+function ArticleStatisticsPage({ articles, sites }: { articles: ArticleRecord[]; sites: Site[] }) {
+  const [selectedTab, setSelectedTab] = useState<ArticleStatsTab>("articles");
+  const hasJournl = useMemo(() => sites.some((site) => site.slug === "journl"), [sites]);
+  const [journlStats, setJournlStats] = useState<JournlStats | null>(null);
+  const [journlStatsLoading, setJournlStatsLoading] = useState(false);
+  const [journlStatsError, setJournlStatsError] = useState<string | null>(null);
+  const siteStats = useMemo(() => buildSiteArticleStats(articles, sites), [articles, sites]);
+  const preferredSiteSlug = useMemo(
+    () => siteStats.find((item) => item.site.slug === "journl")?.site.slug ?? siteStats[0]?.site.slug ?? "",
+    [siteStats],
+  );
+  const [selectedSiteSlug, setSelectedSiteSlug] = useState(preferredSiteSlug);
+
+  useEffect(() => {
+    if (!siteStats.some((item) => item.site.slug === selectedSiteSlug)) {
+      setSelectedSiteSlug(preferredSiteSlug);
+    }
+  }, [preferredSiteSlug, selectedSiteSlug, siteStats]);
+
+  useEffect(() => {
+    if (!hasJournl) {
+      setJournlStats(null);
+      setJournlStatsLoading(false);
+      setJournlStatsError(null);
+      return;
+    }
+    let cancelled = false;
+    setJournlStatsLoading(true);
+    setJournlStatsError(null);
+    api.getJournlStats()
+      .then((stats) => {
+        if (!cancelled) {
+          setJournlStats(stats);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setJournlStats(null);
+          setJournlStatsError(error instanceof Error ? error.message : "Failed to load Journl app stats.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setJournlStatsLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasJournl]);
+
+  const selectedSiteStats = siteStats.find((item) => item.site.slug === selectedSiteSlug) ?? siteStats[0] ?? null;
+
+  return (
+    <section className="panel statistics-panel statistics-overview">
+      <div className="statistics-overview__content">
+        <section className="stats-tabs-panel" aria-label="Statistics sections">
+          <div className="stats-tabs-toolbar">
+            <div className="stats-tabs-row">
+              <SectionTabs<ArticleStatsTab>
+                activeId={selectedTab}
+                ariaLabel="Article statistics sections"
+                className="social-platform-tabs stats-tabs-list"
+                tabClassName="social-tab"
+                activeTabClassName="social-tab--active"
+                onChange={setSelectedTab}
+                items={[
+                  { id: "articles", label: "Articles", badge: articles.length },
+                  { id: "general", label: "General", badge: siteStats.length },
+                ]}
+              />
+            </div>
+          </div>
+        </section>
+
+        {selectedTab === "articles" ? (
+          <ArticleAnalyticsTab articles={articles} sites={sites} siteStats={siteStats} />
+        ) : (
+          <>
+            {siteStats.length > 0 ? (
+              <section className="stats-tabs-panel" aria-label="General statistics filters">
+                <div className="stats-tabs-toolbar">
+                  <div className="stats-tabs-row stats-tabs-row--account">
+                    <span className="stats-tabs-label">Website</span>
+                    <SectionTabs
+                      activeId={selectedSiteSlug}
+                      ariaLabel="Website general statistics"
+                      className="social-platform-tabs stats-tabs-list"
+                      tabClassName="social-tab"
+                      activeTabClassName="social-tab--active"
+                      onChange={setSelectedSiteSlug}
+                      items={siteStats.map((item) => ({
+                        id: item.site.slug,
+                        label: item.site.slug,
+                        badge: item.total,
+                        title: item.site.domain,
+                      }))}
+                    />
+                  </div>
+                </div>
+              </section>
+            ) : null}
+
+            {selectedSiteStats ? (
+              <GeneralSitePanel
+                siteStats={selectedSiteStats}
+                journlStats={journlStats}
+                journlStatsLoading={journlStatsLoading}
+                journlStatsError={journlStatsError}
+              />
+            ) : (
+              <p className="stats-empty">No websites connected yet. Add sites in Config to start building general analytics here.</p>
+            )}
+          </>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -244,7 +724,7 @@ function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
   });
 }
 
-export function StatisticsPage() {
+function MarketingStatisticsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [posts, setPosts] = useState<SocialPost[]>([]);
   const [commentsByAccount, setCommentsByAccount] = useState<Record<string, SocialComment[]>>({});
@@ -729,4 +1209,11 @@ export function StatisticsPage() {
       ) : null}
     </section>
   );
+}
+
+export function StatisticsPage({ surface = "marketing", articles = [], sites = [] }: StatisticsPageProps) {
+  if (surface === "articles") {
+    return <ArticleStatisticsPage articles={articles} sites={sites} />;
+  }
+  return <MarketingStatisticsPage />;
 }

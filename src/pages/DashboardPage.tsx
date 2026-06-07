@@ -134,7 +134,7 @@ export function DashboardPage({
     }
 
     if (view === "statistics") {
-      return <StatisticsPage />;
+      return <StatisticsPage surface={surface} articles={articles} sites={sites} />;
     }
 
       return (

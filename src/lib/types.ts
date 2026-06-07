@@ -93,6 +93,16 @@ export type JournlStats = {
   active_30d: number;
   new_7d: number;
   new_30d: number;
+  plan_breakdown: JournlBreakdownItem[];
+  provider_breakdown: JournlBreakdownItem[];
+  activity_breakdown: JournlBreakdownItem[];
+};
+
+export type JournlBreakdownItem = {
+  key: string;
+  label: string;
+  count: number;
+  share: number;
 };
 
 export type ArticleInput = {

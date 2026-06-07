@@ -207,6 +207,16 @@
   color: var(--text-soft);
 }
 
+.stats-site-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: -2px;
+  color: var(--text-soft);
+  font-size: 0.82rem;
+}
+
 .stats-account-list {
   display: grid;
   overflow: hidden;
@@ -321,6 +331,78 @@
 .stats-status-chip--inactive {
   background: #e2e8f0;
   color: #475569;
+}
+
+.stats-breakdown-list {
+  display: grid;
+  gap: 10px;
+}
+
+.stats-breakdown-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+
+.stats-breakdown-row__main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.stats-breakdown-row__main strong {
+  color: var(--accent);
+  font-size: 0.92rem;
+}
+
+.stats-breakdown-row__main span,
+.stats-breakdown-row > span {
+  color: var(--text-soft);
+  font-size: 0.82rem;
+}
+
+.stats-breakdown-row > span {
+  flex: 0 0 auto;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.stats-callout {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #f8fafc;
+}
+
+.stats-callout strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--accent);
+  font-size: 0.84rem;
+}
+
+.stats-callout p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.stats-suggestion-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-soft);
+  display: grid;
+  gap: 10px;
+}
+
+.stats-suggestion-list li {
+  line-height: 1.45;
 }
 
 .stats-table-wrap {
@@ -528,6 +610,11 @@
   color: #166534;
 }
 
+.stats-post-status--published {
+  background: #dcfce7;
+  color: #166534;
+}
+
 .stats-post-status--draft,
 .stats-post-status--approved {
   background: #e0f2fe;
@@ -573,6 +660,11 @@
 
   .stats-account-row__meta {
     justify-content: flex-start;
+  }
+
+  .stats-breakdown-row {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 
@@ -651,7 +743,8 @@
 
   .stats-recent-post,
   .stats-account-row__identity,
-  .stats-account-row__meta {
+  .stats-account-row__meta,
+  .stats-site-meta {
     flex-direction: column;
     align-items: flex-start;
   }

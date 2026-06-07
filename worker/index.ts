@@ -132,6 +132,7 @@ import {
 import { handleMcpRequest } from "./handlers/mcp";
 import { createUser, getProfile, listUsers, updateProfile } from "./handlers/users";
 import { authorizeGoogleDashboardLogin, handleGoogleDashboardCallback, isGoogleAuthConfigured } from "./handlers/google-auth";
+import { fetchJournlStats } from "./lib/journl-stats";
 
 function withCors(response: Response): Response {
   const headers = new Headers(response.headers);
@@ -2879,27 +2880,13 @@ export default {
     if (url.pathname === "/api/stats/journl" && request.method === "GET") {
       const unauthorized = await requireAuth(request, env);
       if (unauthorized) return unauthorized;
-      const serviceRoleKey = env.JOURNL_SERVICE_ROLE_KEY;
-      if (!serviceRoleKey) {
-        return json({ error: "JOURNL_SERVICE_ROLE_KEY not configured" }, { status: 503 });
+      try {
+        return json(await fetchJournlStats(env));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to load Journl stats";
+        const status = message.includes("not configured") ? 503 : 502;
+        return json({ error: message }, { status });
       }
-      const res = await fetch(
-        "https://lgzikhbuutggpkdxalfk.supabase.co/rest/v1/rpc/get_journl_stats",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "apikey": serviceRoleKey,
-            "Authorization": `Bearer ${serviceRoleKey}`,
-          },
-          body: JSON.stringify({}),
-        },
-      );
-      if (!res.ok) {
-        const msg = await res.text();
-        return json({ error: `Supabase error: ${msg}` }, { status: 502 });
-      }
-      return json(await res.json());
     }
 
       return env.ASSETS.fetch(request);
